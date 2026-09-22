@@ -1,4 +1,5 @@
 @import "tailwindcss";
+<<<<<<< HEAD
 
 :root {
   color-scheme: light;
@@ -109,3 +110,5 @@ html.dark select::placeholder {
   color: #808080 !important;
 }
 
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4

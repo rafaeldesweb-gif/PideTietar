@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
+<<<<<<< HEAD
   Menu, X, ShoppingBag, MapPin, 
+=======
+  Menu, X, Sun, Moon, ShoppingBag, MapPin, 
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   UserCheck, ShieldCheck, ChevronDown, CheckCircle2,
   Calendar, Mail, CreditCard, Sparkles, AlertCircle
 } from 'lucide-react';
@@ -22,6 +26,11 @@ export const Header: React.FC<HeaderProps> = ({
   openAuthModal,
 }) => {
   const { 
+<<<<<<< HEAD
+=======
+    isDarkMode, 
+    toggleDarkMode, 
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
     currentUser, 
     loginAs, 
     logout, 
@@ -194,6 +203,19 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Right Action Controls */}
           <div className="flex items-center space-x-2 sm:space-x-3">
             
+<<<<<<< HEAD
+=======
+            {/* Theme Toggle Button */}
+            <button
+              id="theme-toggle-btn"
+              onClick={toggleDarkMode}
+              aria-label="Cambiar modo claro y oscuro"
+              className="p-2 rounded-full text-stone-600 dark:text-stone-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition cursor-pointer"
+            >
+              {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5" />}
+            </button>
+
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
             {/* Shopping Cart Button */}
             <button
               id="cart-trigger-btn"

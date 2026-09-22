@@ -1,5 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+<<<<<<< HEAD
 import { User, Cart, CartItem, Order, Business, Locality, Product } from '../types';
+=======
+import { User, Cart, CartItem, Order, Business, Locality } from '../types';
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 import { INITIAL_BUSINESSES, LOCALITIES, INITIAL_PRODUCTS } from '../data/mockData';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
@@ -25,10 +29,13 @@ interface AppContextType {
   // Businesses & Catalog
   businesses: Business[];
   products: typeof INITIAL_PRODUCTS;
+<<<<<<< HEAD
   createBusiness: (businessData: Partial<Business>) => Business;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
   deleteProductFromBusiness: (productId: string) => void;
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   updateBusinessShift: (businessId: string, isOpen: boolean) => void;
   toggleProductAvailability: (productId: string) => void;
   createManualOrder: (orderData: Partial<Order>) => Order;
@@ -70,6 +77,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+<<<<<<< HEAD
   // Theme state fixed to the current dashboard design
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
@@ -79,6 +87,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const toggleDarkMode = () => setIsDarkMode(false);
+=======
+  // Theme state
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
+    return localStorage.getItem('pidetietar_theme') === 'dark' || 
+      (!localStorage.getItem('pidetietar_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('pidetietar_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('pidetietar_theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleDarkMode = () => setIsDarkMode(prev => !prev);
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 
   // User state
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -326,6 +353,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
+<<<<<<< HEAD
   const createBusiness = (businessData: Partial<Business>): Business => {
     const newBusiness: Business = {
       id: businessData.id || `biz-${Date.now()}`,
@@ -367,11 +395,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newBusiness;
   };
 
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   const updateBusinessShift = (businessId: string, isOpen: boolean) => {
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
     showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, isOpen ? 'success' : 'info');
   };
 
+<<<<<<< HEAD
   const addProductToBusiness = (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Product => {
     const newProduct: Product = {
       ...product,
@@ -405,6 +436,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   const addToCart = (item: Omit<CartItem, 'cartItemId'>, businessId: string) => {
     // Check single business constraint
     if (cart && cart.businessId !== businessId && cart.items.length > 0) {
@@ -702,10 +735,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSelectedLocality,
       businesses,
       products,
+<<<<<<< HEAD
       createBusiness,
       addProductToBusiness,
       updateProductInBusiness,
       deleteProductFromBusiness,
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
       updateBusinessShift,
       toggleProductAvailability,
       createManualOrder,

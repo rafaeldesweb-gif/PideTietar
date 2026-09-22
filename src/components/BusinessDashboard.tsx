@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import React, { useEffect, useState } from 'react';
+=======
+import React, { useState } from 'react';
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 import { useApp } from '../context/AppContext';
 import { 
   Store, Power, Clock, Plus, CheckCircle2, 
@@ -7,16 +11,23 @@ import {
   BookOpen, BarChart3, Users, Settings, LogOut,
   Printer, Volume2, VolumeX, Calendar, Search,
   Eye, Phone, MapPin, Sparkles, X, ShoppingBag,
+<<<<<<< HEAD
   Flame, Bell, Coffee, Trash2, Edit3, Save, XCircle
 } from 'lucide-react';
 import { Order, OrderStatus, Product } from '../types';
 import { LOCALITIES } from '../data/mockData';
+=======
+  Flame, Bell, Coffee
+} from 'lucide-react';
+import { Order, OrderStatus, Product } from '../types';
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 
 export const BusinessDashboard: React.FC = () => {
   const { 
     currentUser, 
     businesses, 
     products,
+<<<<<<< HEAD
     orders,
     selectedLocality,
     createBusiness,
@@ -26,11 +37,18 @@ export const BusinessDashboard: React.FC = () => {
     addProductToBusiness,
     updateProductInBusiness,
     deleteProductFromBusiness,
+=======
+    orders, 
+    updateOrderStatus, 
+    updateBusinessShift,
+    toggleProductAvailability,
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
     createManualOrder,
     showNotification,
     logout
   } = useApp();
 
+<<<<<<< HEAD
   // Active business - defaults to the user's assigned business, or a zone business when selected
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(currentUser?.businessId || businesses[0]?.id || null);
 
@@ -41,6 +59,11 @@ export const BusinessDashboard: React.FC = () => {
   }, [currentUser?.businessId]);
 
   const business = businesses.find(b => b.id === selectedBusinessId) || businesses.find(b => b.id === currentUser?.businessId) || businesses[0];
+=======
+  // Active business - defaults to La Bodeguita de Sotillo or user's bound business
+  const businessId = currentUser?.businessId || 'biz-1';
+  const business = businesses.find(b => b.id === businessId) || businesses[0];
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 
   // Active view tab: 'orders' (default), 'menu', 'stats', 'team', 'settings'
   const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'stats' | 'team'>('orders');
@@ -60,6 +83,7 @@ export const BusinessDashboard: React.FC = () => {
   const [manualTableNumber, setManualTableNumber] = useState('');
   const [manualSelectedItems, setManualSelectedItems] = useState<{ product: Product; quantity: number }[]>([]);
 
+<<<<<<< HEAD
   const [catalogForm, setCatalogForm] = useState({
     name: '',
     description: '',
@@ -94,6 +118,10 @@ export const BusinessDashboard: React.FC = () => {
   // Filter orders for this specific business
   const businessOrders = orders.filter(o => o.businessId === business.id);
   const localBusinesses = businesses.filter(biz => biz.localityId === selectedLocality.id);
+=======
+  // Filter orders for this specific business
+  const businessOrders = orders.filter(o => o.businessId === business.id);
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 
   // Kanban status columns matching Image 3 (NUEVOS, EN PREPARACIÓN, LISTOS, ENTREGADOS)
   const kanbanColumns = [
@@ -216,6 +244,7 @@ export const BusinessDashboard: React.FC = () => {
   };
 
   // Products belonging to this restaurant
+<<<<<<< HEAD
   const restaurantProducts = products.filter(p => p.businessId === business.id);
 
   const resetCatalogForm = () => {
@@ -365,6 +394,15 @@ export const BusinessDashboard: React.FC = () => {
       
       {/* 1. TOP HEADER BAR (Matching Image 3) */}
       <header className="h-16 px-4 sm:px-6 bg-white border-b border-stone-200 flex items-center justify-between shrink-0">
+=======
+  const restaurantProducts = products.filter(p => p.businessId === business.id || p.businessId === 'biz-1');
+
+  return (
+    <div className="min-h-[85vh] bg-[#0c0c0e] text-stone-100 rounded-3xl border border-stone-800/80 shadow-2xl overflow-hidden flex flex-col font-sans">
+      
+      {/* 1. TOP HEADER BAR (Matching Image 3) */}
+      <header className="h-16 px-4 sm:px-6 bg-[#111114] border-b border-stone-800/80 flex items-center justify-between shrink-0">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
         <div className="flex items-center space-x-3">
           {/* Burger Mascot Avatar / Logo */}
           <div className="w-9 h-9 rounded-xl bg-[#FF4E00] flex items-center justify-center text-white shadow-md shadow-[#FF4E00]/20 overflow-hidden">
@@ -374,10 +412,17 @@ export const BusinessDashboard: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-2.5">
+<<<<<<< HEAD
             <span className="font-extrabold text-sm sm:text-base tracking-tight text-stone-900 uppercase font-serif">
               {business.name.toUpperCase()}
             </span>
             <div className="hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 text-[11px] font-bold">
+=======
+            <span className="font-extrabold text-sm sm:text-base tracking-tight text-white uppercase font-serif">
+              {business.name.toUpperCase()}
+            </span>
+            <div className="hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-bold">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
               <span>COCINA EN LÍNEA</span>
             </div>
@@ -389,7 +434,11 @@ export const BusinessDashboard: React.FC = () => {
           <button 
             onClick={() => setActiveTab('orders')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+<<<<<<< HEAD
               activeTab === 'orders' ? 'text-[#FF4E00] bg-[#fff2eb] border border-[#ffd7c2]' : 'text-stone-600 hover:text-stone-900'
+=======
+              activeTab === 'orders' ? 'text-[#FF4E00] bg-stone-800' : 'text-stone-400 hover:text-white'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
             }`}
           >
             <Utensils className="w-3.5 h-3.5" />
@@ -399,7 +448,11 @@ export const BusinessDashboard: React.FC = () => {
           <button 
             onClick={() => setActiveTab('menu')}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center space-x-1.5 ${
+<<<<<<< HEAD
               activeTab === 'menu' ? 'text-[#FF4E00] bg-[#fff2eb] border border-[#ffd7c2]' : 'text-stone-600 hover:text-stone-900'
+=======
+              activeTab === 'menu' ? 'text-[#FF4E00] bg-stone-800' : 'text-stone-400 hover:text-white'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
             }`}
           >
             <BookOpen className="w-3.5 h-3.5" />
@@ -407,7 +460,11 @@ export const BusinessDashboard: React.FC = () => {
           </button>
 
           {/* User profile avatar badge */}
+<<<<<<< HEAD
           <div className="flex items-center space-x-2 pl-2 border-l border-[#e8ddd0]">
+=======
+          <div className="flex items-center space-x-2 pl-2 border-l border-stone-800">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
             <img
               src={currentUser?.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"}
               alt="avatar"
@@ -435,7 +492,11 @@ export const BusinessDashboard: React.FC = () => {
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
         
         {/* LEFT SIDEBAR (Matching Image 3) */}
+<<<<<<< HEAD
         <aside className="w-full md:w-60 bg-[#faf7f4] border-r border-stone-200 p-4 flex flex-col justify-between shrink-0">
+=======
+        <aside className="w-full md:w-60 bg-[#0f0f12] border-r border-stone-800/80 p-4 flex flex-col justify-between shrink-0">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
           <div className="space-y-5">
             
             {/* Sidebar Title & Terminal info */}
@@ -443,7 +504,11 @@ export const BusinessDashboard: React.FC = () => {
               <div className="text-[10px] font-bold text-stone-500 uppercase tracking-widest">
                 PANEL DE CONTROL
               </div>
+<<<<<<< HEAD
               <h2 className="text-lg font-black text-stone-900 tracking-tight mt-0.5">
+=======
+              <h2 className="text-lg font-black text-white tracking-tight mt-0.5">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 ADMINISTRADOR
               </h2>
               <div className="text-[11px] font-mono text-teal-400 mt-0.5 flex items-center space-x-1">
@@ -452,14 +517,22 @@ export const BusinessDashboard: React.FC = () => {
             </div>
 
             {/* Profile badge card */}
+<<<<<<< HEAD
             <div className="p-2.5 rounded-xl bg-white border border-stone-200 flex items-center space-x-2.5 shadow-sm">
+=======
+            <div className="p-2.5 rounded-xl bg-stone-900/90 border border-stone-800 flex items-center space-x-2.5">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
               <img
                 src={currentUser?.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"}
                 alt="user"
                 className="w-8 h-8 rounded-full object-cover border border-stone-700"
               />
               <div className="flex-1 min-w-0">
+<<<<<<< HEAD
                 <div className="text-xs font-bold text-stone-900 truncate">
+=======
+                <div className="text-xs font-bold text-white truncate">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                   {currentUser?.name.split(' ')[0].toLowerCase() || 'junior'}
                 </div>
                 <div className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-400">
@@ -475,8 +548,13 @@ export const BusinessDashboard: React.FC = () => {
                 onClick={() => setActiveTab('orders')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'orders'
+<<<<<<< HEAD
                     ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+=======
+                    ? 'bg-white text-stone-950 shadow-md font-extrabold'
+                    : 'text-stone-400 hover:text-white hover:bg-stone-800/60'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 }`}
               >
                 <Utensils className={`w-4 h-4 ${activeTab === 'orders' ? 'text-stone-950' : 'text-stone-400'}`} />
@@ -492,8 +570,13 @@ export const BusinessDashboard: React.FC = () => {
                 onClick={() => setActiveTab('menu')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'menu'
+<<<<<<< HEAD
                     ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+=======
+                    ? 'bg-white text-stone-950 shadow-md font-extrabold'
+                    : 'text-stone-400 hover:text-white hover:bg-stone-800/60'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 }`}
               >
                 <BookOpen className={`w-4 h-4 ${activeTab === 'menu' ? 'text-stone-950' : 'text-stone-400'}`} />
@@ -504,8 +587,13 @@ export const BusinessDashboard: React.FC = () => {
                 onClick={() => setActiveTab('stats')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'stats'
+<<<<<<< HEAD
                     ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+=======
+                    ? 'bg-white text-stone-950 shadow-md font-extrabold'
+                    : 'text-stone-400 hover:text-white hover:bg-stone-800/60'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 }`}
               >
                 <BarChart3 className={`w-4 h-4 ${activeTab === 'stats' ? 'text-stone-950' : 'text-stone-400'}`} />
@@ -516,8 +604,13 @@ export const BusinessDashboard: React.FC = () => {
                 onClick={() => setActiveTab('team')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'team'
+<<<<<<< HEAD
                     ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
+=======
+                    ? 'bg-white text-stone-950 shadow-md font-extrabold'
+                    : 'text-stone-400 hover:text-white hover:bg-stone-800/60'
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 }`}
               >
                 <Users className={`w-4 h-4 ${activeTab === 'team' ? 'text-stone-950' : 'text-stone-400'}`} />
@@ -527,7 +620,11 @@ export const BusinessDashboard: React.FC = () => {
           </div>
 
           {/* Bottom Settings & Logout */}
+<<<<<<< HEAD
           <div className="pt-4 border-t border-[#e6dac8] space-y-1">
+=======
+          <div className="pt-4 border-t border-stone-800/80 space-y-1">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
             <button
               onClick={() => setSettingsModal(true)}
               className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-medium text-stone-400 hover:text-white hover:bg-stone-800/60 transition flex items-center space-x-2"
@@ -550,7 +647,11 @@ export const BusinessDashboard: React.FC = () => {
         </aside>
 
         {/* 3. MAIN DASHBOARD CONTENT (Matching Image 3) */}
+<<<<<<< HEAD
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#f5f3f0]">
+=======
+        <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#0c0c0e]">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
           
           {/* TAB 1: ORDERS KANBAN (Exact Match to Image 3) */}
           {activeTab === 'orders' && (
@@ -559,6 +660,7 @@ export const BusinessDashboard: React.FC = () => {
               {/* Header Title + Stats + New Order Button */}
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div>
+<<<<<<< HEAD
                   <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
                     PANEL DE COCINA
                   </div>
@@ -566,6 +668,15 @@ export const BusinessDashboard: React.FC = () => {
                     CONTROL DE PEDIDOS
                   </h1>
                   <p className="text-xs text-stone-600 mt-0.5">
+=======
+                  <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                    PANEL DE COCINA
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                    CONTROL DE PEDIDOS
+                  </h1>
+                  <p className="text-xs text-stone-400 mt-0.5">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                     Gestión en tiempo real del flujo de comensales y comanda.
                   </p>
                 </div>
@@ -574,21 +685,37 @@ export const BusinessDashboard: React.FC = () => {
                 <div className="flex items-center space-x-3 sm:space-x-4">
                   
                   {/* PEDIDOS HOY */}
+<<<<<<< HEAD
                   <div className="px-4 py-2.5 rounded-2xl bg-white border border-stone-200 min-w-[100px] text-center shadow-sm">
                     <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
                       PEDIDOS HOY
                     </div>
                     <div className="text-xl sm:text-2xl font-black text-stone-900 font-mono mt-0.5">
+=======
+                  <div className="px-4 py-2.5 rounded-2xl bg-[#141418] border border-stone-800 min-w-[100px] text-center">
+                    <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                      PEDIDOS HOY
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black text-white font-mono mt-0.5">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                       {businessOrders.length}
                     </div>
                   </div>
 
                   {/* TICKET PROMEDIO */}
+<<<<<<< HEAD
                   <div className="px-4 py-2.5 rounded-2xl bg-white border border-stone-200 min-w-[120px] text-center shadow-sm">
                     <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">
                       TICKET PROMEDIO
                     </div>
                     <div className="text-xl sm:text-2xl font-black text-emerald-700 font-mono mt-0.5">
+=======
+                  <div className="px-4 py-2.5 rounded-2xl bg-[#141418] border border-stone-800 min-w-[120px] text-center">
+                    <div className="text-[10px] font-bold text-stone-400 uppercase tracking-wider">
+                      TICKET PROMEDIO
+                    </div>
+                    <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono mt-0.5">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                       {(averageTicketCents / 100).toFixed(2)}€
                     </div>
                   </div>
@@ -596,7 +723,11 @@ export const BusinessDashboard: React.FC = () => {
                   {/* Button: + NUEVO PEDIDO (Matching Image 3) */}
                   <button
                     onClick={() => setNewOrderModal(true)}
+<<<<<<< HEAD
                     className="px-4 sm:px-5 py-3 rounded-full bg-[#FF4E00] hover:bg-[#e94500] text-white font-black text-xs sm:text-sm tracking-wide transition shadow-lg flex items-center space-x-2 cursor-pointer shrink-0"
+=======
+                    className="px-4 sm:px-5 py-3 rounded-full bg-white hover:bg-stone-200 text-stone-950 font-black text-xs sm:text-sm tracking-wide transition shadow-lg flex items-center space-x-2 cursor-pointer shrink-0"
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                   >
                     <Plus className="w-4 h-4 stroke-[3]" />
                     <span>NUEVO PEDIDO</span>
@@ -612,13 +743,21 @@ export const BusinessDashboard: React.FC = () => {
                   return (
                     <div 
                       key={col.id}
+<<<<<<< HEAD
                       className="bg-white rounded-2xl border border-stone-200 p-3.5 flex flex-col min-h-[460px] shadow-sm"
+=======
+                      className="bg-[#121216] rounded-2xl border border-stone-800/80 p-3.5 flex flex-col min-h-[460px]"
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                     >
                       {/* Column Header */}
                       <div className="flex items-center justify-between pb-3 border-b border-stone-800 mb-3">
                         <div className="flex items-center space-x-2">
                           <span className={`w-2.5 h-2.5 rounded-full ${col.dotColor}`}></span>
+<<<<<<< HEAD
                           <h3 className="text-xs font-black text-stone-800 tracking-wider">
+=======
+                          <h3 className="text-xs font-black text-stone-200 tracking-wider">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                             {col.title}
                           </h3>
                         </div>
@@ -630,7 +769,12 @@ export const BusinessDashboard: React.FC = () => {
                       {/* Column Content */}
                       <div className="space-y-3 flex-1 overflow-y-auto">
                         {colOrders.length === 0 ? (
+<<<<<<< HEAD
                           <div className="h-44 rounded-xl border border-dashed border-[#e9dac8] bg-[#fffdfb] flex flex-col items-center justify-center text-stone-500">
+=======
+                          // Exact match empty state from Image 3: "SIN PEDIDOS"
+                          <div className="h-44 rounded-xl border border-dashed border-stone-800/80 flex flex-col items-center justify-center text-stone-600">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                             <span className="text-[11px] font-bold tracking-widest uppercase">
                               SIN PEDIDOS
                             </span>
@@ -640,13 +784,23 @@ export const BusinessDashboard: React.FC = () => {
                             <div
                               key={order.id}
                               onClick={() => setSelectedTicket(order)}
+<<<<<<< HEAD
                               className="bg-[#fffaf5] hover:bg-[#fff3ea] border border-[#eadcc7] hover:border-[#f0bea0] p-3.5 rounded-xl transition cursor-pointer space-y-2.5 shadow-sm group"
                             >
+=======
+                              className="bg-[#18181e] hover:bg-[#1f1f27] border border-stone-800 hover:border-stone-700 p-3.5 rounded-xl transition cursor-pointer space-y-2.5 shadow-sm group"
+                            >
+                              {/* Card Header: Order Number & Time */}
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                               <div className="flex items-center justify-between">
                                 <span className="font-mono font-black text-xs text-[#FF4E00]">
                                   #{order.orderNumber}
                                 </span>
+<<<<<<< HEAD
                                 <div className="flex items-center space-x-1 text-[10px] text-stone-500">
+=======
+                                <div className="flex items-center space-x-1 text-[10px] text-stone-400">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                                   <Clock className="w-3 h-3" />
                                   <span>
                                     {new Date(order.createdAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
@@ -654,20 +808,38 @@ export const BusinessDashboard: React.FC = () => {
                                 </div>
                               </div>
 
+<<<<<<< HEAD
                               <div className="flex items-center justify-between text-xs">
                                 <span className="font-bold text-stone-900 truncate max-w-[130px]">
                                   {order.customerName}
                                 </span>
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-sm bg-[#fff1e8] text-[#A32300] border border-[#f4d3b8]">
+=======
+                              {/* Customer name & type */}
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="font-bold text-white truncate max-w-[130px]">
+                                  {order.customerName}
+                                </span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-sm bg-stone-800 text-stone-300">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                                   {order.deliveryType === 'DELIVERY' ? '🛵 Domicilio' : '🛍️ Recogida'}
                                 </span>
                               </div>
 
+<<<<<<< HEAD
                               <div className="text-[11px] text-stone-600 space-y-0.5 border-t border-[#f0e2d5] pt-2">
                                 {order.items.slice(0, 3).map((item, idx) => (
                                   <div key={idx} className="flex justify-between truncate">
                                     <span className="truncate">
                                       <strong className="text-stone-900">{item.quantity}x</strong> {item.productName}
+=======
+                              {/* Items list summary */}
+                              <div className="text-[11px] text-stone-400 space-y-0.5 border-t border-stone-800/80 pt-2">
+                                {order.items.slice(0, 3).map((item, idx) => (
+                                  <div key={idx} className="flex justify-between truncate">
+                                    <span className="truncate">
+                                      <strong className="text-white">{item.quantity}x</strong> {item.productName}
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                                     </span>
                                   </div>
                                 ))}
@@ -678,8 +850,14 @@ export const BusinessDashboard: React.FC = () => {
                                 )}
                               </div>
 
+<<<<<<< HEAD
                               <div className="pt-2 border-t border-[#f0e2d5] flex items-center justify-between">
                                 <span className="font-mono font-black text-xs text-stone-900">
+=======
+                              {/* Price and Action transition button */}
+                              <div className="pt-2 border-t border-stone-800 flex items-center justify-between">
+                                <span className="font-mono font-black text-xs text-white">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                                   {(order.totalCents / 100).toFixed(2)}€
                                 </span>
 
@@ -747,6 +925,7 @@ export const BusinessDashboard: React.FC = () => {
             <div className="space-y-6 animate-in fade-in duration-200">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
+<<<<<<< HEAD
                   <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
                     CARTA Y COCINA
                   </div>
@@ -1005,6 +1184,64 @@ export const BusinessDashboard: React.FC = () => {
                       </button>
                     );
                   })}
+=======
+                  <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                    CARTA Y COCINA
+                  </div>
+                  <h2 className="text-2xl font-black text-white">
+                    Gestión de Platos y Stock
+                  </h2>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    Activa o desactiva platos en tiempo real si se agotan ingredientes en el servicio.
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-[#121216] rounded-2xl border border-stone-800 overflow-hidden">
+                <div className="p-4 border-b border-stone-800 flex items-center justify-between text-xs text-stone-400">
+                  <span>Listado de Platos de {business.name}</span>
+                  <span>{restaurantProducts.length} productos registrados</span>
+                </div>
+
+                <div className="divide-y divide-stone-800">
+                  {restaurantProducts.map(prod => (
+                    <div key={prod.id} className="p-4 flex items-center justify-between gap-4 hover:bg-stone-900/50 transition">
+                      <div className="flex items-center space-x-3.5">
+                        <img 
+                          src={prod.imageUrl} 
+                          alt={prod.name}
+                          className="w-12 h-12 rounded-xl object-cover border border-stone-700" 
+                        />
+                        <div>
+                          <div className="font-bold text-white text-sm">
+                            {prod.name}
+                          </div>
+                          <div className="text-xs text-stone-400 line-clamp-1 max-w-md">
+                            {prod.description}
+                          </div>
+                          <div className="font-mono font-bold text-xs text-[#FF4E00] mt-0.5">
+                            {(prod.priceCents / 100).toFixed(2)}€
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stock Switcher */}
+                      <div className="flex items-center space-x-3">
+                        <span className={`text-xs font-bold ${prod.isAvailable ? 'text-emerald-400' : 'text-stone-500'}`}>
+                          {prod.isAvailable ? 'En Carta' : 'Agotado'}
+                        </span>
+                        <button
+                          onClick={() => toggleProductAvailability(prod.id)}
+                          className={`w-12 h-6 rounded-full transition-colors p-1 flex items-center cursor-pointer ${
+                            prod.isAvailable ? 'bg-emerald-600 justify-end' : 'bg-stone-800 justify-start'
+                          }`}
+                        >
+                          <span className="w-4 h-4 rounded-full bg-white shadow-md block"></span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                 </div>
               </div>
             </div>
@@ -1014,47 +1251,82 @@ export const BusinessDashboard: React.FC = () => {
           {activeTab === 'stats' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
+<<<<<<< HEAD
                 <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
                   MÉTRICAS DEL NEGOCIO
                 </div>
                 <h2 className="text-2xl font-black text-stone-900">
+=======
+                <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                  MÉTRICAS DEL NEGOCIO
+                </div>
+                <h2 className="text-2xl font-black text-white">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                   Rendimiento Operativo y Ventas
                 </h2>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+<<<<<<< HEAD
                 <div className="p-5 rounded-2xl bg-white border border-[#eadcc7] shadow-sm space-y-1">
                   <div className="text-xs text-stone-600 font-medium">Facturación Bruta Comandas</div>
                   <div className="text-3xl font-black text-stone-900 font-mono">
                     {(totalSalesCents / 100).toFixed(2)}€
                   </div>
                   <div className="text-[11px] text-emerald-600 flex items-center space-x-1 pt-1">
+=======
+                <div className="p-5 rounded-2xl bg-[#121216] border border-stone-800 space-y-1">
+                  <div className="text-xs text-stone-400 font-medium">Facturación Bruta Comandas</div>
+                  <div className="text-3xl font-black text-white font-mono">
+                    {(totalSalesCents / 100).toFixed(2)}€
+                  </div>
+                  <div className="text-[11px] text-emerald-400 flex items-center space-x-1 pt-1">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                     <TrendingUp className="w-3.5 h-3.5" />
                     <span>+18% comparado con el turno anterior</span>
                   </div>
                 </div>
 
+<<<<<<< HEAD
                 <div className="p-5 rounded-2xl bg-white border border-[#eadcc7] shadow-sm space-y-1">
                   <div className="text-xs text-stone-600 font-medium">Liquidación Neta Tras Plataforma</div>
                   <div className="text-3xl font-black text-emerald-700 font-mono">
                     {(totalPayoutCents / 100).toFixed(2)}€
                   </div>
                   <div className="text-[11px] text-stone-600 pt-1">
+=======
+                <div className="p-5 rounded-2xl bg-[#121216] border border-stone-800 space-y-1">
+                  <div className="text-xs text-stone-400 font-medium">Liquidación Neta Tras Plataforma</div>
+                  <div className="text-3xl font-black text-emerald-400 font-mono">
+                    {(totalPayoutCents / 100).toFixed(2)}€
+                  </div>
+                  <div className="text-[11px] text-stone-400 pt-1">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                     Comisión plataforma Tiétar: 5%
                   </div>
                 </div>
 
+<<<<<<< HEAD
                 <div className="p-5 rounded-2xl bg-white border border-[#eadcc7] shadow-sm space-y-1">
                   <div className="text-xs text-stone-600 font-medium">Tiempo Medio Preparación</div>
                   <div className="text-3xl font-black text-[#FF4E00] font-mono">
                     18 min
                   </div>
                   <div className="text-[11px] text-stone-600 pt-1">
+=======
+                <div className="p-5 rounded-2xl bg-[#121216] border border-stone-800 space-y-1">
+                  <div className="text-xs text-stone-400 font-medium">Tiempo Medio Preparación</div>
+                  <div className="text-3xl font-black text-[#FF4E00] font-mono">
+                    18 min
+                  </div>
+                  <div className="text-[11px] text-stone-400 pt-1">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                     Objetivo: &lt; 25 min en hora punta
                   </div>
                 </div>
               </div>
 
+<<<<<<< HEAD
               <div className="p-5 rounded-2xl bg-white border border-[#eadcc7] shadow-sm space-y-3">
                 <h3 className="text-sm font-bold text-stone-900">
                   Distribución Horaria de Pedidos en Sotillo de la Adrada
@@ -1075,6 +1347,29 @@ export const BusinessDashboard: React.FC = () => {
                   <div className="p-3 rounded-xl bg-[#fffaf5] border border-[#eadcc7]">
                     <div className="text-stone-600">23:30 - 00:30</div>
                     <div className="font-bold text-stone-900 mt-1">Tardíos (5%)</div>
+=======
+              {/* Peak hours info */}
+              <div className="p-5 rounded-2xl bg-[#121216] border border-stone-800 space-y-3">
+                <h3 className="text-sm font-bold text-white">
+                  Distribución Horaria de Pedidos en Sotillo de la Adrada
+                </h3>
+                <div className="grid grid-cols-4 gap-2 pt-2 text-center text-xs">
+                  <div className="p-3 rounded-xl bg-stone-900 border border-stone-800">
+                    <div className="text-stone-400">13:00 - 15:30</div>
+                    <div className="font-bold text-white mt-1">Almuerzos (35%)</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-stone-900 border border-stone-800">
+                    <div className="text-stone-400">19:30 - 21:00</div>
+                    <div className="font-bold text-white mt-1">Tapeo (20%)</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-[#FF4E00]/10 border border-[#FF4E00]/30">
+                    <div className="text-[#FF4E00] font-bold">21:00 - 23:30 (Pico)</div>
+                    <div className="font-bold text-white mt-1">Cenas Fuertes (40%)</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-stone-900 border border-stone-800">
+                    <div className="text-stone-400">23:30 - 00:30</div>
+                    <div className="font-bold text-white mt-1">Tardíos (5%)</div>
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                   </div>
                 </div>
               </div>
@@ -1085,10 +1380,17 @@ export const BusinessDashboard: React.FC = () => {
           {activeTab === 'team' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div>
+<<<<<<< HEAD
                 <div className="text-[11px] font-bold text-stone-500 uppercase tracking-wider">
                   PERSONAL DE TURNO
                 </div>
                 <h2 className="text-2xl font-black text-stone-900">
+=======
+                <div className="text-[11px] font-bold text-stone-400 uppercase tracking-wider">
+                  PERSONAL DE TURNO
+                </div>
+                <h2 className="text-2xl font-black text-white">
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                   Equipo de Cocina y Sala
                 </h2>
               </div>
@@ -1100,6 +1402,7 @@ export const BusinessDashboard: React.FC = () => {
                   { name: 'Elena Gómez', role: 'Caja & Comandas Mostrador', status: 'Activo en Turno', avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=120&auto=format&fit=crop&q=80' },
                   { name: 'Marcos R.', role: 'Repartidor de Ruta Valle', status: 'En Ruta', avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=120&auto=format&fit=crop&q=80' }
                 ].map((member, idx) => (
+<<<<<<< HEAD
                   <div key={idx} className="p-4 rounded-2xl bg-white border border-[#eadcc7] flex items-center space-x-3 shadow-sm">
                     <img src={member.avatar} alt={member.name} className="w-11 h-11 rounded-full object-cover border border-[#e5d5c1]" />
                     <div>
@@ -1107,6 +1410,15 @@ export const BusinessDashboard: React.FC = () => {
                       <div className="text-xs text-stone-600">{member.role}</div>
                       <span className="inline-flex items-center space-x-1 text-[10px] font-bold text-emerald-700 mt-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+=======
+                  <div key={idx} className="p-4 rounded-2xl bg-[#121216] border border-stone-800 flex items-center space-x-3">
+                    <img src={member.avatar} alt={member.name} className="w-11 h-11 rounded-full object-cover border border-stone-700" />
+                    <div>
+                      <div className="font-bold text-white text-sm">{member.name}</div>
+                      <div className="text-xs text-stone-400">{member.role}</div>
+                      <span className="inline-flex items-center space-x-1 text-[10px] font-bold text-emerald-400 mt-1">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
                         <span>{member.status}</span>
                       </span>
                     </div>
@@ -1119,6 +1431,7 @@ export const BusinessDashboard: React.FC = () => {
         </main>
       </div>
 
+<<<<<<< HEAD
       {newBusinessModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
           <div className="bg-[#fffdfb] rounded-3xl max-w-2xl w-full p-6 border border-[#eadcc7] shadow-2xl space-y-5 text-stone-900 max-h-[90vh] overflow-y-auto">
@@ -1213,6 +1526,8 @@ export const BusinessDashboard: React.FC = () => {
         </div>
       )}
 
+=======
+>>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
       {/* MODAL: + NUEVO PEDIDO MANUAL (Comanda de Mesa / Teléfono) */}
       {newOrderModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs animate-in fade-in">
