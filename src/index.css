@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  background-color: #f7f4f1;
+}
+
+html, body, #root {
+  min-height: 100%;
+  background: #f7f4f1;
+}
+
+html.dark {
+  color-scheme: dark;
+  background-color: #1A0600;
+}
+
+html.dark body {
+  background: #1A0600;
+  color: #F5BB00;
+}
+
+html.dark .bg-white,
+html.dark .bg-stone-50,
+html.dark .bg-stone-100,
+html.dark .bg-stone-200,
+html.dark .bg-stone-300,
+html.dark .bg-stone-400,
+html.dark .bg-stone-500,
+html.dark .bg-stone-600,
+html.dark .bg-stone-700,
+html.dark .bg-stone-800,
+html.dark .bg-stone-900,
+html.dark .bg-stone-950,
+html.dark .bg-[#fffaf5],
+html.dark .bg-[#fffdfb],
+html.dark .bg-[#121216],
+html.dark .bg-[#141418],
+html.dark .bg-[#18181e],
+html.dark .bg-[#201c1a],
+html.dark .bg-[#1d0d09],
+html.dark .bg-[#1A0600] {
+  background-color: #1A0600 !important;
+}
+
+html.dark .bg-[#A32300],
+html.dark .bg-[#FF4E00],
+html.dark .bg-[#F5BB00],
+html.dark .bg-[#808080] {
+  background-color: #A32300 !important;
+}
+
+html.dark .text-stone-900,
+html.dark .text-stone-800,
+html.dark .text-stone-700,
+html.dark .text-stone-600,
+html.dark .text-stone-500,
+html.dark .text-stone-400,
+html.dark .text-stone-300,
+html.dark .text-stone-200,
+html.dark .text-stone-100,
+html.dark .text-stone-950,
+html.dark .text-white,
+html.dark .text-black {
+  color: #F5BB00 !important;
+}
+
+html.dark .text-stone-500,
+html.dark .text-stone-600,
+html.dark .text-stone-400,
+html.dark .text-stone-300,
+html.dark .text-stone-200,
+html.dark .text-stone-100 {
+  color: #808080 !important;
+}
+
+html.dark .text-[#FF4E00],
+html.dark .text-[#A32300],
+html.dark .text-[#F5BB00],
+html.dark .text-amber-400,
+html.dark .text-amber-300,
+html.dark .text-yellow-400 {
+  color: #F5BB00 !important;
+}
+
+html.dark .border-stone-200,
+html.dark .border-stone-300,
+html.dark .border-stone-700,
+html.dark .border-stone-800,
+html.dark .border-stone-100,
+html.dark .border-[#e6d7c5],
+html.dark .border-[#eadcc7],
+html.dark .border-[#f0e2d5],
+html.dark .border-[#3a2c26] {
+  border-color: #FF4E00 !important;
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select,
+html.dark button,
+html.dark .placeholder-stone-500::placeholder {
+  color: #F5BB00 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder,
+html.dark select::placeholder {
+  color: #808080 !important;
+}
+
