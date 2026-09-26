@@ -1,0 +1,63 @@
+<svg width="1400" height="420" viewBox="0 0 1400 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">PideTiétar</title>
+  <desc id="desc">Logo principal con insignia naranja, lobo central y texto grande.</desc>
+  <defs>
+    <linearGradient id="gradOrange" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF4A8"/>
+      <stop offset="16%" stop-color="#FFD65C"/>
+      <stop offset="33%" stop-color="#FFB22D"/>
+      <stop offset="58%" stop-color="#FF7A1A"/>
+      <stop offset="82%" stop-color="#FF4B00"/>
+      <stop offset="100%" stop-color="#A32300"/>
+    </linearGradient>
+    <linearGradient id="gradText" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE99A"/>
+      <stop offset="20%" stop-color="#FFD652"/>
+      <stop offset="46%" stop-color="#FFB21F"/>
+      <stop offset="72%" stop-color="#FF7F1A"/>
+      <stop offset="100%" stop-color="#FF4200"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#FF6A00" flood-opacity="0.45"/>
+    </filter>
+    <filter id="textShadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="16" stdDeviation="12" flood-color="#A32300" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <g transform="translate(18 12)" filter="url(#shadow)">
+    <path d="M142 18C205 18 256 52 286 106C300 132 308 159 308 188C308 260 259 312 193 330C170 337 154 340 141 340C81 340 32 303 18 248C5 195 23 137 62 96C84 73 111 53 142 18Z" fill="url(#gradOrange)"/>
+    <path d="M142 50C190 50 229 71 254 112C272 143 282 168 282 188C282 240 238 281 190 294C170 299 154 301 142 301C96 301 62 278 44 240C28 205 25 171 39 136C56 96 94 68 142 50Z" fill="#FFF8EE" opacity="0.96"/>
+    <path d="M94 107C110 92 131 86 144 90C153 93 162 99 174 109L185 122L169 120C153 118 146 124 137 137C131 146 127 165 126 183C150 174 169 167 186 168C195 175 201 185 202 201C186 209 170 217 146 221C116 226 92 216 76 197C63 182 56 160 61 140C68 123 79 115 94 107Z" fill="#FF4E00" opacity="0.98"/>
+    <path d="M124 111L154 94L183 111L196 137L176 150L160 170L134 172L117 150L103 137L124 111Z" fill="#FFF8EE"/>
+    <path d="M96 150C114 136 121 135 138 139L124 161C111 167 102 172 93 181C82 166 84 161 96 150Z" fill="#FF5E00"/>
+    <path d="M182 150C170 139 163 135 150 139L164 162C177 169 186 173 196 182C205 167 204 159 182 150Z" fill="#FF5E00"/>
+    <path d="M126 163L143 155L162 162L166 176L146 183L125 178L126 163Z" fill="#FF4E00"/>
+    <path d="M110 179C122 173 132 171 143 171C153 171 165 173 177 179C171 192 161 203 145 208C130 203 118 193 110 179Z" fill="#FFF8EE"/>
+    <path d="M117 206L142 197L168 206L156 227L142 241L128 227L117 206Z" fill="#FF4E00"/>
+    <path d="M142 206L142 242" stroke="#FFF8EE" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="142" cy="131" r="6" fill="#FF5E00"/>
+
+    <path d="M64 196C93 181 104 175 124 173C134 172 140 174 150 180C159 175 167 172 179 173C193 175 214 180 252 196C266 202 279 212 290 222C249 245 224 252 179 255C140 257 103 249 64 196Z" fill="#FF7D16" opacity="0.82"/>
+
+    <g transform="translate(36 150)">
+      <path d="M26 18H76C73 11 69 4 62 0H42C35 4 31 11 26 18Z" fill="#FFD85A"/>
+      <path d="M39 18V132" stroke="#FFD85A" stroke-width="12" stroke-linecap="round"/>
+      <path d="M62 18V132" stroke="#FFD85A" stroke-width="12" stroke-linecap="round"/>
+      <path d="M26 44H83" stroke="#FFD85A" stroke-width="10" stroke-linecap="round"/>
+      <path d="M26 63H83" stroke="#FFD85A" stroke-width="10" stroke-linecap="round"/>
+      <path d="M26 90H83" stroke="#FFD85A" stroke-width="10" stroke-linecap="round"/>
+    </g>
+
+    <g transform="translate(201 154)">
+      <path d="M42 0C55 0 66 8 72 20C73 22 73 25 72 28C64 35 54 39 42 39C29 39 18 35 10 27C8 24 8 20 10 17C18 8 29 0 42 0Z" fill="#FFD85A"/>
+      <path d="M42 38V118" stroke="#FFD85A" stroke-width="12" stroke-linecap="round"/>
+      <path d="M24 76C31 84 38 88 42 88C46 88 54 84 60 76" stroke="#FFD85A" stroke-width="10" stroke-linecap="round" fill="none"/>
+    </g>
+  </g>
+
+  <g transform="translate(350 102)" filter="url(#textShadow)">
+    <text x="0" y="130" font-size="196" font-weight="900" font-family="Arial Black, Segoe UI, sans-serif" fill="url(#gradText)" stroke="#A32300" stroke-width="12" paint-order="stroke fill" letter-spacing="-6">Pide</text>
+    <text x="488" y="130" font-size="196" font-weight="900" font-family="Arial Black, Segoe UI, sans-serif" fill="url(#gradText)" stroke="#A32300" stroke-width="12" paint-order="stroke fill" letter-spacing="-6">Tiétar</text>
+  </g>
+</svg>

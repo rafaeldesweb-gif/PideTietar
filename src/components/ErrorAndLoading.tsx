@@ -1,5 +1,6 @@
 import React from 'react';
 import { AlertTriangle, RefreshCw, Home, Mail } from 'lucide-react';
+import { ProjectLogo } from './ProjectLogo';
 
 interface ErrorPageProps {
   errorMessage?: string;
@@ -64,19 +65,13 @@ export const LoadingPage: React.FC<{ message?: string }> = ({
 }) => {
   return (
     <div className="min-h-[70vh] flex flex-col items-center justify-center p-6 text-center">
-      {/* Animated courier scooter logo pulse */}
+      {/* Animated project logo pulse */}
       <div className="relative mb-6">
-        <div className="w-20 h-20 rounded-2xl bg-gradient-to-tr from-[#FF4E00] to-[#F5BB00] flex items-center justify-center text-white shadow-lg animate-bounce">
-          <svg className="w-10 h-10 fill-current" viewBox="0 0 24 24">
-            <path d="M12 2a2 2 0 100 4 2 2 0 000-4zm-4 7a2 2 0 012-2h4a2 2 0 012 2v2h1a1 1 0 011 1v1a2 2 0 01-2 2h-1v2h2a1 1 0 011 1v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2a1 1 0 011-1h2v-2H6a2 2 0 01-2-2v-1a1 1 0 011-1h1V9zm6 7v-4h-4v4h4z" />
-          </svg>
-        </div>
+        <ProjectLogo variant="badge" className="h-20 w-auto max-w-[220px] animate-bounce" />
         <div className="w-16 h-2 bg-stone-300 dark:bg-stone-700 rounded-full mx-auto blur-[1px] opacity-70 animate-pulse mt-2" />
       </div>
 
-      <h3 className="text-xl font-bold font-serif text-stone-900 dark:text-stone-100 mb-2">
-        PideTiétar
-      </h3>
+      <ProjectLogo variant="full" className="mb-2 h-10 w-auto max-w-[220px]" />
       <p className="text-sm text-stone-500 dark:text-stone-400 max-w-sm animate-pulse">
         {message}
       </p>

@@ -1,0 +1,3 @@
+Ôùç injected env (17) from .env // tip: Ôîÿ override existing { override: true }
+Database mode: mysql
+{ db_name: 'u697078444_PideTietarDB', version: '11.8.9-MariaDB-log' }

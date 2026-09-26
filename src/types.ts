@@ -3,16 +3,15 @@
 export type UserRole = 
   | 'CLIENT' 
   | 'BUSINESS_ADMIN' 
-  | 'BUSINESS_EMPLOYEE' 
   | 'PLATFORM_COURIER' 
   | 'BUSINESS_COURIER' 
-  | 'PLATFORM_ADMIN' 
   | 'SUPERADMIN';
 
 export interface User {
   id: string;
   name: string;
   email: string;
+  password?: string;
   phone?: string;
   role: UserRole;
   businessId?: string; // If bound to a business
@@ -22,6 +21,12 @@ export interface User {
   avatarUrl?: string;
   subscriptionPlan?: 'FREE' | 'PRO_MONTHLY' | 'PREMIUM_PARTNER';
   subscriptionStatus?: 'active' | 'inactive' | 'past_due';
+  courierProfile?: {
+    businessIds: string[];
+    localityIds: string[];
+    isOnline: boolean;
+    confirmation: 'PENDING' | 'BUSINESS_EMAIL' | 'SUPERADMIN';
+  };
 }
 
 export interface Address {
@@ -84,6 +89,8 @@ export interface Business {
   status: 'APPROVED' | 'PENDING' | 'SUSPENDED';
   schedule: BusinessHours[];
   featuredProducts?: Product[];
+  managerName?: string;
+  managerDni?: string;
 }
 
 export interface Allergen {
@@ -107,38 +114,32 @@ export interface OptionGroup {
   options: Option[];
 }
 
-<<<<<<< HEAD
 export interface ProductExtraIngredient {
   name: string;
   priceCents: number;
 }
 
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 export interface Product {
   id: string;
   businessId: string;
+  localityId?: string;
   categoryId: string;
   name: string;
   description: string;
-<<<<<<< HEAD
   tag?: string;
   ingredients?: string[];
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   priceCents: number; // Stored in cents (e.g., 850 = 8.50€)
   taxPercentage: number;
   imageUrl: string;
   isAvailable: boolean;
   isSoldOut?: boolean;
   removableIngredients?: string[];
-<<<<<<< HEAD
   additionalIngredients?: ProductExtraIngredient[];
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   optionGroups?: OptionGroup[];
   allergens?: string[];
   salesCount?: number;
+  rating?: number;
+  ratingCount?: number;
 }
 
 export interface CartItemOptionSelected {
@@ -233,6 +234,9 @@ export interface Order {
 
   calendarEventId?: string; // Synced to Google Calendar
   gmailNotifiedAt?: string;
+  reviewRequested?: boolean;
+  reviewScore?: number;
+  reviewedAt?: string;
 
   createdAt: string;
   updatedAt: string;
