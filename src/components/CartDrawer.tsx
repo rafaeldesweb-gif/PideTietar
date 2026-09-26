@@ -26,12 +26,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
 
   const [deliveryType, setDeliveryType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
   const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
+  const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || '');
   const [paymentMethod, setPaymentMethod] = useState<'STRIPE' | 'PAYPAL' | 'CASH_ON_DELIVERY'>('STRIPE');
   const [tipCents, setTipCents] = useState(150); // 1.50€ standard tip
   const [syncCalendar, setSyncCalendar] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  if (!isOpen) return null;
 
   const currentBusiness = cart ? businesses.find(b => b.id === cart.businessId) : null;
   const isShiftOpen = currentBusiness?.isShiftOpen ?? false;
@@ -46,6 +45,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
     tipCents,
     hasFreeDelivery
   );
+
+  React.useEffect(() => {
+    setCustomerPhone(currentUser?.phone || '');
+  }, [currentUser?.phone]);
+
+  if (!isOpen) return null;
 
   const minOrderMet = currentBusiness ? subtotalCents >= currentBusiness.minOrderCents : true;
 
@@ -62,6 +67,24 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
     if (!minOrderMet) {
       showNotification(`El pedido mínimo es de ${(currentBusiness.minOrderCents / 100).toFixed(2)}€`, 'error');
       return;
+    }
+
+    const cleanedPhone = customerPhone.trim();
+    if (!cleanedPhone) {
+      showNotification('Necesitamos un teléfono para confirmar el pedido.', 'error');
+      return;
+    }
+
+    if (deliveryType === 'DELIVERY') {
+      const selectedAddress = currentUser?.addresses?.[selectedAddressIndex];
+      if (!selectedAddress) {
+        showNotification('Selecciona una dirección de entrega antes de confirmar.', 'error');
+        return;
+      }
+      if (!selectedAddress.street.trim()) {
+        showNotification('La dirección de entrega es obligatoria para repartir.', 'error');
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -90,11 +113,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
         className="absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity" 
       />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-md bg-white dark:bg-stone-900 shadow-2xl flex flex-col border-l border-stone-200 dark:border-stone-800">
+      <div className="fixed inset-y-0 right-0 flex w-full justify-end pl-0 sm:max-w-full sm:pl-10">
+        <div className="flex h-[100dvh] w-full max-w-none flex-col border-l border-stone-200 bg-white shadow-2xl dark:border-stone-800 dark:bg-stone-900 sm:w-screen sm:max-w-md">
           
           {/* Drawer Header */}
-          <div className="p-4 sm:p-6 border-b border-stone-100 dark:border-stone-800 flex items-center justify-between">
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-100 bg-white px-4 pb-3 pt-[calc(var(--safe-area-top)+0.75rem)] dark:border-stone-800 dark:bg-stone-900 sm:p-6">
             <div>
               <h2 className="text-lg font-bold text-stone-900 dark:text-stone-100 font-serif">
                 Tu Cesta de Pedido
@@ -114,7 +137,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
           </div>
 
           {/* Drawer Content */}
-          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+          <div className="flex-1 space-y-6 overflow-y-auto p-4 pb-5 sm:p-6">
             {!cart || cart.items.length === 0 ? (
               <div className="h-64 flex flex-col items-center justify-center text-center">
                 <div className="w-16 h-16 rounded-full bg-orange-100 dark:bg-orange-950/40 text-[#FF4E00] flex items-center justify-center mb-4">
@@ -129,6 +152,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
               </div>
             ) : (
               <>
+                <div className="grid grid-cols-3 gap-2 rounded-2xl border border-stone-200 bg-stone-50 p-2 text-center dark:border-stone-800 dark:bg-stone-800/50">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Articulos</div>
+                    <div className="mt-1 text-sm font-black text-stone-900 dark:text-stone-100">{cart.items.reduce((acc, item) => acc + item.quantity, 0)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Modalidad</div>
+                    <div className="mt-1 text-sm font-black text-stone-900 dark:text-stone-100">{deliveryType === 'DELIVERY' ? 'Reparto' : 'Recogida'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-stone-400">Entrega</div>
+                    <div className="mt-1 text-sm font-black text-stone-900 dark:text-stone-100">{currentBusiness ? `${currentBusiness.estimatedTimeMin}-${currentBusiness.estimatedTimeMax}m` : '-'}</div>
+                  </div>
+                </div>
+
                 {/* Closed Shift Alert if applicable */}
                 {!isShiftOpen && (
                   <div className="p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-xl text-xs text-red-700 dark:text-red-300 flex items-center space-x-2">
@@ -239,23 +277,43 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
                   </div>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold uppercase text-stone-400 mb-2">
+                    Teléfono de contacto
+                  </label>
+                  <input
+                    type="tel"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    placeholder="Ej. +34 600 000 000"
+                    className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100"
+                    required
+                  />
+                </div>
+
                 {/* Delivery Address selection */}
                 {deliveryType === 'DELIVERY' && currentUser && (
                   <div>
                     <label className="block text-xs font-semibold uppercase text-stone-400 mb-2">
                       Dirección de Entrega
                     </label>
-                    <select
-                      value={selectedAddressIndex}
-                      onChange={(e) => setSelectedAddressIndex(Number(e.target.value))}
-                      className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100"
-                    >
-                      {currentUser.addresses.map((addr, idx) => (
-                        <option key={addr.id} value={idx}>
-                          {addr.label}: {addr.street} ({addr.locality})
-                        </option>
-                      ))}
-                    </select>
+                    {currentUser.addresses.length === 0 ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                        No tienes direcciones guardadas. Actualiza tu perfil para activar el reparto a domicilio.
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedAddressIndex}
+                        onChange={(e) => setSelectedAddressIndex(Number(e.target.value))}
+                        className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100"
+                      >
+                        {currentUser.addresses.map((addr, idx) => (
+                          <option key={addr.id} value={idx}>
+                            {addr.label}: {addr.street} ({addr.locality})
+                          </option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                 )}
 
@@ -388,16 +446,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
 
           {/* Drawer Footer Checkout Button */}
           {cart && cart.items.length > 0 && (
-            <div className="p-4 sm:p-6 border-t border-stone-100 dark:border-stone-800 bg-stone-50/50 dark:bg-stone-900/50">
+            <div className="border-t border-stone-100 bg-stone-50/70 p-4 pb-[calc(var(--safe-area-bottom)+1rem)] dark:border-stone-800 dark:bg-stone-900/60 sm:p-6">
               <button
                 id="final-checkout-btn"
                 onClick={handleCheckout}
                 disabled={isSubmitting || !isShiftOpen || !minOrderMet}
-                className="w-full py-3.5 px-4 bg-gradient-to-r from-[#FF4E00] to-[#A32300] hover:from-[#e04500] hover:to-[#8c1e00] disabled:opacity-50 text-white font-bold rounded-xl text-sm transition shadow-md flex items-center justify-between cursor-pointer"
+                className="flex w-full cursor-pointer items-center justify-between rounded-xl bg-gradient-to-r from-[#FF4E00] to-[#A32300] px-4 py-3.5 text-sm font-bold text-white shadow-md transition hover:from-[#e04500] hover:to-[#8c1e00] disabled:opacity-50"
               >
                 <span>{isSubmitting ? 'Procesando pago seguro...' : `Pagar con ${paymentMethod}`}</span>
                 <span className="font-mono text-base">{(ledger.totalCents / 100).toFixed(2)}€</span>
               </button>
+
+              {minOrderMet ? null : (
+                <p className="mt-2 text-center text-[11px] text-amber-700 dark:text-amber-300">
+                  Minimo del local: {(currentBusiness?.minOrderCents ? currentBusiness.minOrderCents / 100 : 0).toFixed(2)}€
+                </p>
+              )}
 
               <div className="flex items-center justify-center space-x-1 text-[11px] text-stone-400 mt-2">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />

@@ -17,10 +17,17 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
   onBack,
   openProductCustomizer
 }) => {
-  const { products, userSubscription } = useApp();
+  const { products, userSubscription, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<'catalog' | 'info'>('catalog');
 
   const bizProducts = products.filter(p => p.businessId === business.id);
+  const courierActiveForBusiness =
+    currentUser?.role === 'PLATFORM_COURIER' || currentUser?.role === 'BUSINESS_COURIER'
+      ? Boolean(
+          currentUser.courierProfile?.isOnline &&
+          currentUser.courierProfile.businessIds.includes(business.id)
+        )
+      : false;
 
   return (
     <div className="space-y-6 pb-16">
@@ -44,15 +51,22 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           
-          <div className="absolute top-4 left-4">
+          <div className="absolute top-4 left-4 flex flex-wrap gap-2">
             {business.isShiftOpen ? (
               <span className="inline-flex items-center space-x-1.5 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
                 <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                <span>Abierto y recibiendo pedidos</span>
+                <span>Recibiendo pedidos</span>
               </span>
             ) : (
               <span className="inline-flex items-center space-x-1.5 bg-red-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
                 <span>Turno cerrado</span>
+              </span>
+            )}
+
+            {courierActiveForBusiness && (
+              <span className="inline-flex items-center space-x-1.5 bg-[#FF4E00] text-white text-xs font-bold px-3 py-1 rounded-full shadow-md border border-white/30">
+                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
+                <span>Repartidor activo en este negocio</span>
               </span>
             )}
           </div>

@@ -2,16 +2,43 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Package, Clock, CheckCircle2, MapPin, Bike, 
-  Calendar, ExternalLink, ShieldCheck, Mail, RefreshCw
+  Calendar, ExternalLink, ShieldCheck, Mail, RefreshCw,
+  Star
 } from 'lucide-react';
 import { OrderStatus } from '../types';
+import { canViewOrdersPage, filterOrdersForCurrentUser } from '../utils/orderVisibility';
 
 export const OrdersView: React.FC = () => {
-  const { orders, currentUser, updateOrderStatus } = useApp();
+  const { orders, currentUser, submitBusinessReview, businesses, localities, updateOrderStatus } = useApp();
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, number>>({});
+  const [zoneFilter, setZoneFilter] = useState('all');
+  const [businessFilter, setBusinessFilter] = useState('all');
+  const [clearedOrderIds, setClearedOrderIds] = useState<Set<string>>(new Set());
 
-  const userOrders = currentUser 
-    ? orders.filter(o => o.customerId === currentUser.id || currentUser.role === 'SUPERADMIN')
-    : [];
+  if (!canViewOrdersPage(currentUser)) {
+    return (
+      <div className="mx-auto max-w-xl rounded-3xl border border-stone-200 bg-white p-8 text-center shadow-xs dark:border-stone-800 dark:bg-stone-900">
+        <Package className="mx-auto mb-3 h-12 w-12 text-stone-300" />
+        <h2 className="text-lg font-bold text-stone-800 dark:text-stone-200">Inicia sesión para ver tus pedidos</h2>
+        <p className="mt-2 text-sm text-stone-500">
+          Cliente y repartidor pueden consultar aquí el seguimiento de sus pedidos y entregas.
+        </p>
+      </div>
+    );
+  }
+
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  const userOrders = filterOrdersForCurrentUser(orders, currentUser).filter((order) => {
+    if (clearedOrderIds.has(order.id)) return false;
+    if (!isSuperAdmin) return true;
+    const orderBusiness = businesses.find((b) => b.id === order.businessId);
+    if (!orderBusiness) return false;
+    if (zoneFilter !== 'all' && orderBusiness.localityId !== zoneFilter) return false;
+    if (businessFilter !== 'all' && order.businessId !== businessFilter) return false;
+    return true;
+  });
+  const businessesForFilter =
+    zoneFilter === 'all' ? businesses : businesses.filter((b) => b.localityId === zoneFilter);
 
   const statusLabels: Record<OrderStatus, { label: string; color: string }> = {
     PENDING_PAYMENT: { label: 'Pago Pendiente', color: 'bg-stone-100 text-stone-700' },
@@ -34,13 +61,49 @@ export const OrdersView: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-stone-200 dark:border-stone-800 pb-4">
         <div>
           <h1 className="text-2xl font-bold font-serif text-stone-900 dark:text-stone-100">
-            Mis Pedidos en PideTiétar
+            {isSuperAdmin ? 'Panel de control de pedidos' : (currentUser?.role === 'BUSINESS_ADMIN' ? 'Pedidos del negocio' : 'Mis Pedidos en PideTiétar')}
           </h1>
           <p className="text-xs text-stone-500">
-            Seguimiento en tiempo real, PIN de entrega seguro y sincronización con Google Calendar
+            {isSuperAdmin
+              ? 'Todos los pedidos del valle filtrados por negocio y zona'
+              : (currentUser?.role === 'BUSINESS_ADMIN' ? 'Seguimiento de los pedidos realizados de su comercio' : 'Seguimiento en tiempo real, PIN de entrega seguro y sincronización con Google Calendar')}
           </p>
         </div>
       </div>
+
+      {isSuperAdmin && (
+        <div className="grid grid-cols-1 gap-3 rounded-2xl border border-stone-200 bg-white p-3.5 dark:border-stone-800 dark:bg-stone-900 sm:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-stone-500">Zona</label>
+            <select
+              value={zoneFilter}
+              onChange={(event) => {
+                setZoneFilter(event.target.value);
+                setBusinessFilter('all');
+              }}
+              className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-700 dark:bg-stone-800"
+            >
+              <option value="all">Todas las zonas</option>
+              {localities.map((loc) => (
+                <option key={loc.id} value={loc.id}>{loc.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-stone-500">Negocio</label>
+            <select
+              value={businessFilter}
+              onChange={(event) => setBusinessFilter(event.target.value)}
+              className="w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-2 text-sm dark:border-stone-700 dark:bg-stone-800"
+            >
+              <option value="all">Todos los negocios</option>
+              {businessesForFilter.map((biz) => (
+                <option key={biz.id} value={biz.id}>{biz.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       {userOrders.length === 0 ? (
         <div className="p-12 text-center bg-white dark:bg-stone-900 rounded-3xl border border-stone-200 dark:border-stone-800 space-y-3">
@@ -104,6 +167,54 @@ export const OrdersView: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {order.status === 'DELIVERED' && !order.reviewScore && (
+                  <div className="border-t border-stone-100 dark:border-stone-800 bg-[#fffaf4] dark:bg-stone-900/70 p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-bold uppercase tracking-[0.12em] text-[#A32300] dark:text-[#FFB483]">
+                          Valoración del negocio
+                        </div>
+                        <p className="text-sm text-stone-600 dark:text-stone-300 mt-1">
+                          ¿Cómo ha sido tu experiencia con {order.businessName}?
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {[1, 2, 3, 4, 5].map((star) => (
+                          <button
+                            key={star}
+                            type="button"
+                            onClick={() => setReviewDrafts((prev) => ({ ...prev, [order.id]: star }))}
+                            className="p-1 rounded-md transition"
+                            aria-label={`Valorar con ${star} estrellas`}
+                          >
+                            <Star
+                              className={`w-6 h-6 ${
+                                (reviewDrafts[order.id] || 0) >= star
+                                  ? 'fill-amber-400 text-amber-400'
+                                  : 'text-stone-300 dark:text-stone-600'
+                              }`}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const score = reviewDrafts[order.id] ?? 5;
+                          submitBusinessReview(order.businessId, order.id, score);
+                        }}
+                        className="rounded-xl bg-[#FF4E00] hover:bg-[#e94500] text-white text-xs font-bold px-4 py-2.5 shadow-md transition"
+                      >
+                        Enviar valoración
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {/* Body: Live timeline & Items snapshot */}
                 <div className="p-4 sm:p-6 space-y-6">
@@ -192,6 +303,41 @@ export const OrdersView: React.FC = () => {
                       </span>
                     )}
                   </div>
+
+                  {isSuperAdmin && order.deliveryType === 'DELIVERY' && (
+                    <div className="mt-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs">
+                      <div className="flex items-center justify-between mb-3 border-b border-blue-100 dark:border-blue-900/50 pb-2">
+                        <span className="font-bold text-blue-900 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <Bike className="w-4 h-4" />
+                          Control Operativo Repartidor (SuperAdmin)
+                        </span>
+                        <button
+                          onClick={() => {
+                            updateOrderStatus(order.id, 'DELIVERED', 'Limpiado/Forzado por SuperAdmin');
+                            setClearedOrderIds(prev => new Set(prev).add(order.id));
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 font-bold hover:bg-red-200 border border-red-200 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-400 transition cursor-pointer"
+                        >
+                          Limpiar Ticket
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-blue-800 dark:text-blue-200">
+                        <div>
+                          <strong className="block mb-0.5 text-blue-900 dark:text-blue-100">Información del Cliente:</strong>
+                          <span className="font-semibold">{order.customerName}</span> - {order.customerPhone}
+                          <br />{order.deliveryAddress ? `${order.deliveryAddress.street}, ${order.deliveryAddress.locality}` : 'Sin dirección'}
+                        </div>
+                        <div>
+                          <strong className="block mb-0.5 text-blue-900 dark:text-blue-100">Información del Repartidor:</strong>
+                          {order.courierName ? <span className="font-semibold">{order.courierName} (asignado)</span> : 'Aún sin repartidor asignado'}
+                          <br />Hora pedida: {new Date(order.createdAt).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}
+                          {order.statusHistory.find(h => h.status === 'PICKED_UP') && (
+                            <><br />Hora recogida: {new Date(order.statusHistory.find(h => h.status === 'PICKED_UP')!.timestamp).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}</>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                 </div>
               </div>

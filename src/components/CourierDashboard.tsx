@@ -7,18 +7,30 @@ import {
 import { Order } from '../types';
 
 export const CourierDashboard: React.FC = () => {
-  const { orders, verifyDeliveryPin, showNotification, currentUser } = useApp();
-  const [isAvailable, setIsAvailable] = useState(true);
+  const { orders, verifyDeliveryPin, showNotification, currentUser, toggleCourierAvailability } = useApp();
   const [inputPins, setInputPins] = useState<Record<string, string>>({});
   const [activeTab, setActiveTab] = useState<'assigned' | 'completed'>('assigned');
 
+  const canAccessCourierPanel = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER');
+  const isAvailable = currentUser?.courierProfile?.isOnline ?? false;
+
+  if (!canAccessCourierPanel) {
+    return null;
+  }
+
   // Assigned orders for courier
+  const acceptedBusinessIds = currentUser?.courierProfile?.businessIds || [];
+
   const activeDeliveries = orders.filter(
-    o => o.deliveryType === 'DELIVERY' && ['READY', 'ASSIGNED', 'PICKED_UP'].includes(o.status)
+    o => o.deliveryType === 'DELIVERY' && 
+         ['READY', 'ASSIGNED', 'PICKED_UP'].includes(o.status) &&
+         acceptedBusinessIds.includes(o.businessId)
   );
 
   const completedDeliveries = orders.filter(
-    o => o.deliveryType === 'DELIVERY' && o.status === 'DELIVERED'
+    o => o.deliveryType === 'DELIVERY' && 
+         o.status === 'DELIVERED' &&
+         acceptedBusinessIds.includes(o.businessId)
   );
 
   const handleVerifyPin = (orderId: string) => {
@@ -38,10 +50,10 @@ export const CourierDashboard: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 pb-16 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl space-y-4 pb-[calc(var(--safe-area-bottom)+4rem)] sm:space-y-6">
       
       {/* Courier Top Status */}
-      <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col justify-between gap-4 rounded-3xl border border-stone-200 bg-white p-4 shadow-xs dark:border-stone-800 dark:bg-stone-900 sm:flex-row sm:items-center sm:p-6">
         <div className="flex items-center space-x-3">
           <div className="w-12 h-12 rounded-2xl bg-[#FF4E00]/10 text-[#FF4E00] flex items-center justify-center">
             <Bike className="w-6 h-6" />
@@ -59,7 +71,7 @@ export const CourierDashboard: React.FC = () => {
         {/* Availability Toggle */}
         <button
           onClick={() => {
-            setIsAvailable(!isAvailable);
+            toggleCourierAvailability(!isAvailable);
             showNotification(`Estado de repartidor: ${!isAvailable ? 'DISPONIBLE para rutas' : 'NO DISPONIBLE'}`, 'info');
           }}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-2 cursor-pointer ${
@@ -74,26 +86,26 @@ export const CourierDashboard: React.FC = () => {
       </div>
 
       {/* Navigation tabs */}
-      <div className="flex space-x-4 border-b border-stone-200 dark:border-stone-800">
+      <div className="flex gap-2 overflow-x-auto rounded-2xl border border-stone-200 bg-white p-1.5 dark:border-stone-800 dark:bg-stone-900">
         <button
           onClick={() => setActiveTab('assigned')}
-          className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer flex items-center space-x-2 ${
+          className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition sm:text-sm ${
             activeTab === 'assigned'
-              ? 'border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
-              : 'border-transparent text-stone-500 hover:text-stone-800'
+              ? 'bg-[#FF4E00] text-white'
+              : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-stone-800'
           }`}
         >
-          <span>Rutas Activas ({activeDeliveries.length})</span>
+          Rutas Activas ({activeDeliveries.length})
         </button>
         <button
           onClick={() => setActiveTab('completed')}
-          className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer flex items-center space-x-2 ${
+          className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition sm:text-sm ${
             activeTab === 'completed'
-              ? 'border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
-              : 'border-transparent text-stone-500 hover:text-stone-800'
+              ? 'bg-[#FF4E00] text-white'
+              : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-stone-800'
           }`}
         >
-          <span>Historial Completado ({completedDeliveries.length})</span>
+          Historial ({completedDeliveries.length})
         </button>
       </div>
 
@@ -114,7 +126,7 @@ export const CourierDashboard: React.FC = () => {
             activeDeliveries.map(ord => (
               <div
                 key={ord.id}
-                className="bg-white dark:bg-stone-900 p-6 rounded-3xl border border-stone-200 dark:border-stone-800 shadow-xs space-y-4"
+                className="space-y-4 rounded-3xl border border-stone-200 bg-white p-4 shadow-xs dark:border-stone-800 dark:bg-stone-900 sm:p-6"
               >
                 <div className="flex items-center justify-between border-b border-stone-100 dark:border-stone-800 pb-3">
                   <div>
@@ -154,18 +166,18 @@ export const CourierDashboard: React.FC = () => {
                     Solicita al cliente el PIN mostrado en su pantalla o en su correo de confirmación de Gmail.
                   </p>
 
-                  <div className="flex gap-2 max-w-sm pt-1">
+                  <div className="flex max-w-sm flex-col gap-2 pt-1 sm:flex-row">
                     <input
                       type="text"
                       maxLength={4}
                       placeholder="PIN ej. 4921"
                       value={inputPins[ord.id] || ''}
                       onChange={(e) => setInputPins({ ...inputPins, [ord.id]: e.target.value })}
-                      className="px-3 py-2 text-center font-mono font-bold tracking-widest text-sm bg-white dark:bg-stone-800 border border-stone-300 dark:border-stone-700 rounded-xl"
+                      className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-center font-mono text-sm font-bold tracking-widest dark:border-stone-700 dark:bg-stone-800"
                     />
                     <button
                       onClick={() => handleVerifyPin(ord.id)}
-                      className="px-4 py-2 bg-[#FF4E00] hover:bg-[#A32300] text-white text-xs font-bold rounded-xl transition cursor-pointer"
+                      className="rounded-xl bg-[#FF4E00] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#A32300] cursor-pointer"
                     >
                       Validar Entrega
                     </button>

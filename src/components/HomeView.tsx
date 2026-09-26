@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Search, Star, Clock, Bike, Store, ArrowRight, 
+  Star, Clock, Bike, Store, ArrowRight, 
   Sparkles, CheckCircle2, ChevronRight, AlertCircle, 
   Filter, Utensils, Flame, ChevronLeft
 } from 'lucide-react';
-import { CATEGORIES } from '../data/mockData';
+import { CATEGORIES, getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
 import { Business, Product } from '../types';
 
 interface HomeViewProps {
@@ -22,147 +22,172 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
     currentUser
   } = useApp();
 
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [filterOpenOnly, setFilterOpenOnly] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const categoryScrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto rotate banner slides
-  const bannerSlides = [
-    {
-      id: 'slide-burger',
-      tag: 'OFERTA ESPECIAL',
-      title: 'Special Offer Burger',
-      discount: 'UP TO 50% OFF',
-      description: 'Hamburguesas gourmet elaboradas con carne 100% IGP Ternera de Ávila y quesos artesanales del Tiétar.',
-      image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&auto=format&fit=crop&q=80',
-      ctaText: 'Pedir Ahora con Descuento',
-      bgColor: 'from-[#1A0600] via-[#330c00] to-[#FF4E00]'
-    },
-    {
-      id: 'slide-asado',
-      tag: 'TRADICIÓN DEL VALLE',
-      title: 'Asados & Chuletones',
-      discount: 'LEÑA DE ENCINA',
-      description: 'Carnes a la brasa con denominación de origen y raciones típicas de nuestros asadores locales.',
-      image: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-      ctaText: 'Ver Asadores Abiertos',
-      bgColor: 'from-[#180e03] via-[#2d1b06] to-[#A32300]'
-    },
-    {
-      id: 'slide-pizza',
-      tag: 'PIZZAS ARTESANAS',
-      title: 'Pizzas al Horno de Piedra',
-      discount: 'ENVÍO GRATIS CLUB+',
-      description: 'Masa madre fermentada durante 48 horas con ingredientes frescos traídos directamente de la huerta.',
-      image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&auto=format&fit=crop&q=80',
-      ctaText: 'Explorar Pizzerías',
-      bgColor: 'from-[#0b1712] via-[#10291e] to-[#046A38]'
-    }
-  ];
+  const scrollCategories = (direction: 'left' | 'right') => {
+    const container = categoryScrollRef.current;
+    if (!container) return;
+
+    const itemWidth = window.innerWidth >= 640 ? 92 : 70;
+    const scrollAmount = Math.max(container.clientWidth * 0.72, itemWidth * 2);
+
+    container.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    });
+  };
+
+  const localityProducts = products.filter(
+    (product) => product.localityId === selectedLocality.id && product.isAvailable,
+  );
+
+  const bannerSourceProducts = getTopRatedProductsByBusiness(
+    localityProducts,
+    selectedLocality.id,
+    10,
+  );
+
+  const bannerSlides = bannerSourceProducts.length > 0
+    ? bannerSourceProducts.map((product, index) => {
+        const business = businesses.find((biz) => biz.id === product.businessId);
+        const category = CATEGORIES.find((cat) => cat.id === product.categoryId);
+
+        return {
+          id: `slide-${product.id}`,
+          tag: (category?.name || 'DESTACADO').toUpperCase(),
+          title: product.name,
+          discount: `${(product.rating ?? 4.5).toFixed(1)}★`,
+          description: product.description,
+          image: product.imageUrl,
+          ctaText: business ? `Pedir de ${business.name}` : 'Pedir ahora',
+          bgColor: ['from-[#1A0600] via-[#330c00] to-[#FF4E00]', 'from-[#180e03] via-[#2d1b06] to-[#A32300]', 'from-[#0b1712] via-[#10291e] to-[#046A38]'][index % 3]
+        };
+      })
+    : [
+        {
+          id: 'slide-fallback-burger',
+          tag: 'OFERTA ESPECIAL',
+          title: 'Burger del Valle',
+          discount: '4.9★',
+          description: 'Hamburguesas gourmet elaboradas con carne 100% IGP Ternera de Ávila y quesos artesanales del Tiétar.',
+          image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&auto=format&fit=crop&q=80',
+          ctaText: 'Pedir Ahora',
+          bgColor: 'from-[#1A0600] via-[#330c00] to-[#FF4E00]'
+        },
+        {
+          id: 'slide-fallback-asado',
+          tag: 'TRADICIÓN DEL VALLE',
+          title: 'Asados & Chuletones',
+          discount: '4.8★',
+          description: 'Carnes a la brasa con denominación de origen y raciones típicas de nuestros asadores locales.',
+          image: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
+          ctaText: 'Ver Asadores',
+          bgColor: 'from-[#180e03] via-[#2d1b06] to-[#A32300]'
+        },
+        {
+          id: 'slide-fallback-pizza',
+          tag: 'PIZZAS ARTESANAS',
+          title: 'Pizzas al Horno de Piedra',
+          discount: '4.7★',
+          description: 'Masa madre fermentada durante 48 horas con ingredientes frescos traídos directamente de la huerta.',
+          image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&auto=format&fit=crop&q=80',
+          ctaText: 'Explorar Pizzerías',
+          bgColor: 'from-[#0b1712] via-[#10291e] to-[#046A38]'
+        }
+      ];
 
   useEffect(() => {
+    if (activeSlide >= bannerSlides.length) {
+      setActiveSlide(0);
+    }
+
     const timer = setInterval(() => {
-      setActiveSlide(prev => (prev + 1) % bannerSlides.length);
+      setActiveSlide((prev) => (prev + 1) % bannerSlides.length);
     }, 5500);
     return () => clearInterval(timer);
-  }, [bannerSlides.length]);
+  }, [bannerSlides.length, activeSlide]);
 
   // Filter businesses by locality and optional search / category
-  const filteredBusinesses = businesses.filter(biz => {
+  const filteredBusinesses = [...businesses.filter((biz) => {
     const matchesLocality = biz.localityId === selectedLocality.id;
-    const matchesCat = !selectedCategory || biz.category === selectedCategory;
-    const matchesSearch = !searchQuery || 
-      biz.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      biz.address.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCat = !selectedCategory ||
+      biz.category === selectedCategory ||
+      products.some((p) => p.businessId === biz.id && p.categoryId === selectedCategory);
     const matchesOpen = !filterOpenOnly || biz.isShiftOpen;
 
-    return matchesLocality && matchesCat && matchesSearch && matchesOpen;
-  });
+    return matchesLocality && matchesCat && matchesOpen;
+  })].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
 
-  // Featured products from open businesses
-  const featuredProducts = products.filter(p => {
-    const biz = businesses.find(b => b.id === p.businessId);
-    return biz && biz.localityId === selectedLocality.id && p.isAvailable;
-  });
+  const featuredProducts = getTopRatedProductsForLocality(
+    localityProducts,
+    selectedLocality.id,
+    4,
+  );
 
   return (
     <div className="space-y-8 pb-16">
       
       {/* 1. HERO PROMOTIONAL BANNER CAROUSEL (Matching Image 1 & 2) */}
       <section className="relative overflow-hidden rounded-3xl bg-[#140600] text-white shadow-2xl border border-stone-800">
-        <div className="relative min-h-[300px] sm:min-h-[360px] flex items-center p-6 sm:p-10 lg:p-12">
-          
-          {/* Slide Content */}
-          <div className="relative z-10 max-w-xl space-y-3.5">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-[#FF4E00]/20 border border-[#FF4E00]/40 text-[#F5BB00] text-xs font-bold uppercase tracking-wider">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{bannerSlides[activeSlide].tag}</span>
-            </div>
+        <div className="relative min-h-[300px] sm:min-h-[360px] overflow-hidden">
+          <img
+            src={bannerSlides[activeSlide].image}
+            alt={bannerSlides[activeSlide].title}
+            className="absolute inset-0 h-full w-full object-cover opacity-80 saturate-125 contrast-110"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#1a0802]/90 via-[#1a0802]/75 to-[#1a0802]/20" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1a0802]/80 via-transparent to-transparent" />
 
-            <div className="space-y-1">
-              <h1 className="text-3xl sm:text-5xl font-black font-serif tracking-tight leading-none text-white">
-                {bannerSlides[activeSlide].title}
-              </h1>
-              <div className="text-2xl sm:text-4xl font-black font-sans text-[#FF4E00] tracking-tight">
-                {bannerSlides[activeSlide].discount}
+          <div className="relative z-10 h-full min-h-[300px] sm:min-h-[360px] p-4 sm:p-6 lg:p-8">
+            <div className="absolute left-4 top-4 z-20 sm:left-6 sm:top-6 lg:left-8 lg:top-8">
+              <div className="inline-flex items-center space-x-2 rounded-full border border-[#FF4E00]/50 bg-[#1F0C06]/60 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#F5BB00] backdrop-blur-sm">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{bannerSlides[activeSlide].tag}</span>
               </div>
             </div>
 
-            <p className="text-stone-300 text-xs sm:text-sm max-w-md line-clamp-2 leading-relaxed">
-              {bannerSlides[activeSlide].description}
-            </p>
+            <div className="absolute bottom-5 left-4 max-w-[78%] sm:bottom-7 sm:left-6 sm:max-w-[60%] lg:bottom-8 lg:left-8 lg:max-w-[58%]">
+              <div className="space-y-2 sm:space-y-3">
+                <h1 className="text-3xl font-black font-serif leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.7)] sm:text-4xl lg:text-5xl">
+                  {bannerSlides[activeSlide].title}
+                </h1>
+                <div className="text-2xl font-black tracking-tight text-[#FF4E00] drop-shadow-[0_4px_14px_rgba(0,0,0,0.6)] sm:text-3xl lg:text-4xl">
+                  {bannerSlides[activeSlide].discount}
+                </div>
+                <p className="max-w-md text-[11px] leading-relaxed text-stone-200/95 sm:text-sm">
+                  {bannerSlides[activeSlide].description}
+                </p>
+              </div>
+            </div>
 
-            {/* Quick Search bar */}
-            <div className="pt-2 flex items-center max-w-md gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder={`Buscar comida en ${selectedLocality.name}...`}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/10 backdrop-blur-md text-white placeholder-stone-400 border border-white/20 text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+            <div className="pointer-events-none absolute right-4 top-4 h-36 w-36 sm:right-6 sm:top-6 sm:h-52 sm:w-52 lg:right-8 lg:top-8 lg:h-64 lg:w-64">
+              <div className="relative h-full w-full">
+                <img
+                  src={bannerSlides[activeSlide].image}
+                  alt={bannerSlides[activeSlide].title}
+                  className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 object-cover shadow-[0_0_40px_rgba(255,78,0,0.28)]"
                 />
               </div>
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="px-3 py-2.5 rounded-xl bg-white/20 text-white text-xs font-bold"
-                >
-                  Limpiar
-                </button>
-              )}
             </div>
           </div>
 
-          {/* Slide Visual Graphic Background (Burger with flying toppings / Pizza) */}
-          <div className="absolute right-0 top-0 bottom-0 w-full sm:w-1/2 flex items-center justify-end overflow-hidden pointer-events-none opacity-40 sm:opacity-90">
-            <div className="relative w-full h-full flex items-center justify-center p-4">
-              <img
-                src={bannerSlides[activeSlide].image}
-                alt={bannerSlides[activeSlide].title}
-                className="w-64 sm:w-84 h-64 sm:h-84 object-cover rounded-full shadow-2xl border-4 border-[#FF4E00]/30 animate-in zoom-in-95 duration-700"
-              />
-            </div>
-          </div>
-
-          {/* Carousel Pagination Dots (Matching Image 1 & 2) */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center space-x-2 z-20">
+          <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center space-x-2">
             {bannerSlides.map((slide, idx) => (
               <button
                 key={slide.id}
                 onClick={() => setActiveSlide(idx)}
                 className={`transition-all duration-300 rounded-full cursor-pointer ${
                   activeSlide === idx 
-                    ? 'w-6 h-2 bg-[#FF4E00]' 
-                    : 'w-2 h-2 bg-white/40 hover:bg-white/70'
+                    ? 'h-2 w-6 bg-[#FF4E00]' 
+                    : 'h-2 w-2 bg-white/40 hover:bg-white/70'
                 }`}
                 aria-label={`Ir a diapositiva ${idx + 1}`}
               />
             ))}
           </div>
-
         </div>
       </section>
 
@@ -178,64 +203,76 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
         </div>
 
         {/* Circular category items container */}
-        <div className="flex items-center space-x-4 sm:space-x-6 overflow-x-auto pb-3 pt-1 scrollbar-none">
-          
-          {/* "ALL" Circular button (Matching Image 1 & 2 yellow active ring) */}
+        <div className="relative group/scroll">
           <button
-            onClick={() => setSelectedCategory(null)}
-            className="flex flex-col items-center space-y-2 shrink-0 group cursor-pointer"
+            type="button"
+            onClick={() => scrollCategories('left')}
+            aria-label="Desplazar categorías a la izquierda"
+            className="absolute -left-1 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-stone-200 bg-white/90 text-stone-700 shadow-md backdrop-blur-sm transition hover:scale-105 dark:border-stone-700 dark:bg-stone-900/90 dark:text-stone-200"
           >
-            <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-all p-1 ${
-              selectedCategory === null
-                ? 'ring-3 ring-[#F5BB00] shadow-md shadow-[#F5BB00]/30 scale-105'
-                : 'ring-1 ring-stone-200 dark:ring-stone-700 hover:ring-stone-400'
-            }`}>
-              <div className="w-full h-full rounded-full bg-[#F5BB00] flex items-center justify-center text-stone-950 font-black shadow-inner">
-                <Utensils className="w-7 h-7 sm:w-8 sm:h-8 stroke-[2.5]" />
-              </div>
-            </div>
-            <span className={`text-xs font-bold tracking-tight whitespace-nowrap ${
-              selectedCategory === null 
-                ? 'text-[#FF4E00] dark:text-[#F5BB00]' 
-                : 'text-stone-700 dark:text-stone-300 group-hover:text-stone-950 dark:group-hover:text-white'
-            }`}>
-              Todos
-            </span>
+            <ChevronLeft className="h-4 w-4" />
           </button>
 
-          {/* Categories with real food photos */}
-          {CATEGORIES.map(cat => {
-            const isSelected = selectedCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
-                className="flex flex-col items-center space-y-2 shrink-0 group cursor-pointer"
-              >
-                <div className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-all p-1 ${
-                  isSelected
-                    ? 'ring-3 ring-[#FF4E00] shadow-md shadow-[#FF4E00]/30 scale-105'
-                    : 'ring-1 ring-stone-200 dark:ring-stone-700 hover:ring-stone-400'
-                }`}>
-                  <div className="w-full h-full rounded-full overflow-hidden relative shadow-inner">
-                    <img
-                      src={cat.imageUrl}
-                      alt={cat.name}
-                      className="w-full h-full object-cover group-hover:scale-110 transition duration-300"
-                    />
-                    <div className="absolute inset-0 bg-black/10 group-hover:bg-transparent transition" />
-                  </div>
+          <div
+            ref={categoryScrollRef}
+            className="flex items-start gap-2 overflow-x-auto pb-3 pt-1 [scrollbar-width:none] scroll-smooth snap-x snap-mandatory px-6 sm:gap-3"
+          >
+            <button
+              onClick={() => setSelectedCategory(null)}
+              className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+            >
+              <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
+                selectedCategory === null
+                  ? 'scale-105 ring-3 ring-[#F5BB00] shadow-md shadow-[#F5BB00]/30'
+                  : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
+              }`}>
+                <div className="flex h-full w-full items-center justify-center rounded-full bg-[#F5BB00] font-black text-stone-950 shadow-inner">
+                  <Utensils className="h-5 w-5 stroke-[2.5] sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
                 </div>
-                <span className={`text-xs font-bold tracking-tight whitespace-nowrap ${
-                  isSelected 
-                    ? 'text-[#FF4E00]' 
-                    : 'text-stone-700 dark:text-stone-300 group-hover:text-stone-950 dark:group-hover:text-white'
-                }`}>
-                  {cat.name}
-                </span>
-              </button>
-            );
-          })}
+              </div>
+              <span className={`max-w-full truncate text-[9px] font-bold tracking-tight sm:text-[10px] lg:text-xs ${
+                selectedCategory === null ? 'text-[#FF4E00] dark:text-[#F5BB00]' : 'text-stone-700 dark:text-stone-300'
+              }`}>
+                Todos
+              </span>
+            </button>
+
+            {CATEGORIES.map((cat) => {
+              const isSelected = selectedCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
+                  className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+                >
+                  <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
+                    isSelected
+                      ? 'scale-105 ring-3 ring-[#FF4E00] shadow-md shadow-[#FF4E00]/30'
+                      : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
+                  }`}>
+                    <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner">
+                      <img src={cat.imageUrl} alt={cat.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" />
+                      <div className="absolute inset-0 bg-black/10 transition group-hover:bg-transparent" />
+                    </div>
+                  </div>
+                  <span className={`max-w-full truncate text-[9px] font-bold tracking-tight sm:text-[10px] lg:text-xs ${
+                    isSelected ? 'text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
+                  }`}>
+                    {cat.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => scrollCategories('right')}
+            aria-label="Desplazar categorías a la derecha"
+            className="absolute -right-1 top-1/2 z-20 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-stone-200 bg-white/90 text-stone-700 shadow-md backdrop-blur-sm transition hover:scale-105 dark:border-stone-700 dark:bg-stone-900/90 dark:text-stone-200"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
       </section>
 
@@ -256,46 +293,46 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {featuredProducts.slice(0, 3).map(prod => {
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {featuredProducts.map(prod => {
               const biz = businesses.find(b => b.id === prod.businessId);
               return (
                 <div
                   key={prod.id}
                   className="bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between"
                 >
-                  <div className="relative h-44 overflow-hidden">
+                  <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
                     <img
                       src={prod.imageUrl}
                       alt={prod.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      className="w-full h-full object-cover transition duration-300"
                     />
-                    <div className="absolute top-2.5 right-2.5 bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-2.5 py-1 rounded-lg">
+                    <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-1 rounded-lg">
                       {(prod.priceCents / 100).toFixed(2)}€
                     </div>
                     {biz && (
-                      <div className="absolute bottom-2.5 left-2.5 bg-white/95 dark:bg-stone-900/95 backdrop-blur-xs text-stone-800 dark:text-stone-200 text-[11px] font-semibold px-2.5 py-1 rounded-md shadow-xs">
+                      <div className="absolute bottom-2 left-2 bg-white/95 dark:bg-stone-900/95 backdrop-blur-xs text-stone-800 dark:text-stone-200 text-[10px] font-semibold px-2 py-1 rounded-md shadow-xs">
                         {biz.name}
                       </div>
                     )}
                   </div>
 
-                  <div className="p-4 space-y-2 flex-1 flex flex-col justify-between">
+                  <div className="p-3 space-y-2 flex-1 flex flex-col justify-between">
                     <div>
-                      <h3 className="font-bold text-sm text-stone-900 dark:text-stone-100 line-clamp-1">
+                      <h3 className="font-bold text-[13px] text-stone-900 dark:text-stone-100 line-clamp-1">
                         {prod.name}
                       </h3>
-                      <p className="text-xs text-stone-500 dark:text-stone-400 line-clamp-2 mt-1">
+                      <p className="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 mt-1">
                         {prod.description}
                       </p>
                     </div>
 
                     <button
                       onClick={() => openProductCustomizer(prod, prod.businessId)}
-                      className="w-full mt-2 py-2.5 px-3 bg-[#FF4E00]/10 hover:bg-[#FF4E00] text-[#A32300] dark:text-[#FF4E00] hover:text-white rounded-xl text-xs font-bold transition flex items-center justify-center space-x-1.5 cursor-pointer"
+                      className="w-full mt-1 py-2 px-2 bg-[#FF4E00]/10 hover:bg-[#FF4E00] text-[#A32300] dark:text-[#FF4E00] hover:text-white rounded-xl text-[11px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
                     >
-                      <span>Personalizar y Añadir</span>
-                      <ArrowRight className="w-3.5 h-3.5" />
+                      <span>Ordenar</span>
+                      <ArrowRight className="w-3 h-3" />
                     </button>
                   </div>
                 </div>
@@ -363,7 +400,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                     {biz.isShiftOpen ? (
                       <span className="inline-flex items-center space-x-1.5 bg-emerald-600/95 backdrop-blur-md text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-xs">
                         <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                        <span>Abierto y recibiendo comandas</span>
+                        <span>Recibiendo pedidos</span>
                       </span>
                     ) : (
                       <span className="inline-flex items-center space-x-1.5 bg-stone-900/85 backdrop-blur-md text-stone-300 text-[11px] font-medium px-2.5 py-1 rounded-full">

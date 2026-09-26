@@ -1,12 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-<<<<<<< HEAD
-import { User, Cart, CartItem, Order, Business, Locality, Product } from '../types';
-=======
-import { User, Cart, CartItem, Order, Business, Locality } from '../types';
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
+import { User, Cart, CartItem, Order, Business, Locality, Product, CartItemOptionSelected } from '../types';
 import { INITIAL_BUSINESSES, LOCALITIES, INITIAL_PRODUCTS } from '../data/mockData';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
+import { isSingleBusinessOrder } from '../utils/orderValidation';
 
 interface AppContextType {
   // Theme
@@ -15,8 +12,11 @@ interface AppContextType {
 
   // Auth & User
   currentUser: User | null;
-  loginAs: (role: User['role'], customEmail?: string) => void;
+  loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>) => void;
   logout: () => void;
+  updateCurrentUserProfile: (data: Partial<User>) => void;
+  setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
+  toggleCourierAvailability: (online?: boolean) => void;
   verifyEmailWithGmailCode: (code: string) => Promise<boolean>;
   sendGmailVerificationCode: () => Promise<boolean>;
   verificationSent: boolean;
@@ -25,17 +25,18 @@ interface AppContextType {
   // Active locality
   selectedLocality: Locality;
   setSelectedLocality: (loc: Locality) => void;
+  localities: Locality[];
+  addLocality: (data: Partial<Locality>) => Locality;
+  updateLocality: (localityId: string, data: Partial<Locality>) => void;
+  deleteLocality: (localityId: string) => void;
 
   // Businesses & Catalog
   businesses: Business[];
   products: typeof INITIAL_PRODUCTS;
-<<<<<<< HEAD
   createBusiness: (businessData: Partial<Business>) => Business;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
   deleteProductFromBusiness: (productId: string) => void;
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   updateBusinessShift: (businessId: string, isOpen: boolean) => void;
   toggleProductAvailability: (productId: string) => void;
   createManualOrder: (orderData: Partial<Order>) => Order;
@@ -58,6 +59,7 @@ interface AppContextType {
   }) => Promise<{ success: boolean; order?: Order; error?: string }>;
   updateOrderStatus: (orderId: string, newStatus: Order['status'], note?: string) => void;
   verifyDeliveryPin: (orderId: string, pin: string) => boolean;
+  submitBusinessReview: (businessId: string, orderId: string, score: number) => void;
 
   // Subscriptions
   userSubscription: User['subscriptionPlan'];
@@ -77,7 +79,6 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | null>(null);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-<<<<<<< HEAD
   // Theme state fixed to the current dashboard design
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
 
@@ -87,69 +88,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const toggleDarkMode = () => setIsDarkMode(false);
-=======
-  // Theme state
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    return localStorage.getItem('pidetietar_theme') === 'dark' || 
-      (!localStorage.getItem('pidetietar_theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-  });
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('pidetietar_theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('pidetietar_theme', 'light');
-    }
-  }, [isDarkMode]);
-
-  const toggleDarkMode = () => setIsDarkMode(prev => !prev);
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
 
   // User state
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    return {
-      id: 'usr-client-1',
-      name: 'Rafael Santos',
-      email: 'rafaeldesweb@gmail.com',
-      phone: '+34 612 345 678',
-      role: 'SUPERADMIN', // Default superadmin as indicated in prompt
-      isEmailVerified: true,
-      createdAt: '2026-01-10T10:00:00Z',
-      avatarUrl: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
-      subscriptionPlan: 'PRO_MONTHLY',
-      subscriptionStatus: 'active',
-      addresses: [
-        {
-          id: 'addr-1',
-          label: 'Casa en Sotillo',
-          street: 'Calle de los Castaños 12, 2ºB',
-          locality: 'Sotillo de la Adrada',
-          postalCode: '05420',
-          coordinates: { lat: 40.2889, lng: -4.5828 },
-          reference: 'Frente a la farmacia',
-          isDefault: true
-        },
-        {
-          id: 'addr-2',
-          label: 'Casa rural de descanso',
-          street: 'Camino del Castillo 5',
-          locality: 'La Adrada',
-          postalCode: '05430',
-          coordinates: { lat: 40.2989, lng: -4.6361 },
-          isDefault: false
-        }
-      ]
-    };
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // Locality
+  const [localities, setLocalities] = useState<Locality[]>(LOCALITIES);
   const [selectedLocality, setSelectedLocality] = useState<Locality>(LOCALITIES[0]);
 
   // Businesses & Products
-  const [businesses, setBusinesses] = useState<Business[]>(INITIAL_BUSINESSES);
-  const [products, setProducts] = useState(INITIAL_PRODUCTS);
+  const [businesses, setBusinesses] = useState<Business[]>(() => {
+    const saved = localStorage.getItem('pidetietar_businesses');
+    return saved ? JSON.parse(saved) : INITIAL_BUSINESSES;
+  });
+  const [products, setProducts] = useState(() => {
+    const saved = localStorage.getItem('pidetietar_products');
+    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('pidetietar_businesses', JSON.stringify(businesses));
+  }, [businesses]);
+
+  useEffect(() => {
+    localStorage.setItem('pidetietar_products', JSON.stringify(products));
+  }, [products]);
+
+  useEffect(() => {
+    const handleStorageSync = (event: StorageEvent) => {
+      if (!event.key) return;
+
+      if (event.key === 'pidetietar_orders') {
+        setOrders(event.newValue ? JSON.parse(event.newValue) : []);
+      }
+      if (event.key === 'pidetietar_businesses') {
+        setBusinesses(event.newValue ? JSON.parse(event.newValue) : INITIAL_BUSINESSES);
+      }
+      if (event.key === 'pidetietar_products') {
+        setProducts(event.newValue ? JSON.parse(event.newValue) : INITIAL_PRODUCTS);
+      }
+      if (event.key === 'pidetietar_cart') {
+        setCart(event.newValue ? JSON.parse(event.newValue) : null);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageSync);
+    return () => window.removeEventListener('storage', handleStorageSync);
+  }, []);
 
   // Cart
   const [cart, setCart] = useState<Cart | null>(() => {
@@ -169,67 +154,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [orders, setOrders] = useState<Order[]>(() => {
     const saved = localStorage.getItem('pidetietar_orders');
     if (saved) return JSON.parse(saved);
-    // Initial sample order
-    return [
-      {
-        id: 'ord-101',
-        orderNumber: 'PT-8942',
-        businessId: 'biz-1',
-        businessName: 'Asador & Burger El Tiétar',
-        customerId: 'usr-client-1',
-        customerName: 'Rafael Santos',
-        customerPhone: '+34 612 345 678',
-        customerEmail: 'rafaeldesweb@gmail.com',
-        deliveryType: 'DELIVERY',
-        deliveryAddress: {
-          id: 'addr-1',
-          label: 'Casa',
-          street: 'Calle de los Castaños 12, 2ºB',
-          locality: 'Sotillo de la Adrada',
-          postalCode: '05420',
-          coordinates: { lat: 40.2889, lng: -4.5828 }
-        },
-        scheduledTime: 'ASAP',
-        items: [
-          {
-            productId: 'prod-1',
-            productName: 'Burger Valleña Ternera de Ávila (200g)',
-            unitPriceCents: 1150,
-            taxPercentage: 10,
-            quantity: 2,
-            removedIngredients: [],
-            selectedOptions: [
-              { groupName: 'Punto de la carne', optionName: 'Al punto sabroso', priceCents: 0 },
-              { groupName: 'Extras opcionales', optionName: 'Bacon crujiente ahumado', priceCents: 150 }
-            ],
-            customerNote: 'La salsa aparte si es posible por favor',
-            totalCents: 2600
-          }
-        ],
-        subtotalCents: 2600,
-        deliveryFeeCents: 0, // Free with Pro
-        platformFeeCents: 130, // 5% of 2600
-        businessPayoutCents: 2470,
-        courierPayoutCents: 0,
-        tipCents: 150,
-        totalCents: 2750,
-        status: 'PREPARING',
-        statusHistory: [
-          { status: 'PAID', timestamp: new Date(Date.now() - 25 * 60 * 1000).toISOString(), changedByRole: 'SISTEMA' },
-          { status: 'ACCEPTED', timestamp: new Date(Date.now() - 20 * 60 * 1000).toISOString(), changedByRole: 'COMERCIO' },
-          { status: 'PREPARING', timestamp: new Date(Date.now() - 10 * 60 * 1000).toISOString(), changedByRole: 'COCINA' }
-        ],
-        paymentMethod: 'STRIPE',
-        paymentStatus: 'PAID',
-        paymentTransactionId: 'ch_stripe_initial_demo',
-        courierId: 'cour-1',
-        courierName: 'Marcos (Repartidor Tiétar)',
-        courierPhone: '+34 677 889 900',
-        deliveryPin: '3819',
-        createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-        updatedAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
-      }
-    ];
+    return [];
   });
 
   useEffect(() => {
@@ -244,7 +169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
   const showNotification = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 5000);
+    setTimeout(() => setNotification(null), 3000);
   };
 
   // Loading & Error simulator states
@@ -253,28 +178,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [userSubscription, setUserSubscription] = useState<User['subscriptionPlan']>(currentUser?.subscriptionPlan || 'FREE');
 
+  const setCourierProfile = (profile: NonNullable<User['courierProfile']>) => {
+    setCurrentUser(prev => prev ? { ...prev, courierProfile: profile } : prev);
+  };
+
+  const toggleCourierAvailability = (online = true) => {
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        courierProfile: {
+          businessIds: prev.courierProfile?.businessIds || [],
+          localityIds: prev.courierProfile?.localityIds || [],
+          isOnline: online,
+          confirmation: prev.courierProfile?.confirmation || 'PENDING'
+        }
+      };
+    });
+    showNotification(online ? 'Repartidor activo y disponible para entregas.' : 'Repartidor marcado como fuera de línea.', 'info');
+  };
+
   // Switch roles for instant testing of all roles
-  const loginAs = (role: User['role'], customEmail?: string) => {
+  const loginAs = (role: User['role'], customEmail?: string, extraData?: Partial<User>) => {
     const roleNames: Record<User['role'], string> = {
       CLIENT: 'Lucía Morales (Cliente)',
       BUSINESS_ADMIN: 'Carlos Gómez (Admin Asador)',
-      BUSINESS_EMPLOYEE: 'David Peña (Cocinero Asador)',
       PLATFORM_COURIER: 'Marcos Ruiz (Repartidor Patinete)',
       BUSINESS_COURIER: 'Javier Adrada (Repartidor Pizzería)',
-      PLATFORM_ADMIN: 'Elena Valle (Admin Plataforma)',
       SUPERADMIN: 'Rafael Santos (Superadmin)'
     };
 
     const targetEmail = customEmail || (role === 'SUPERADMIN' ? 'rafaeldesweb@gmail.com' : `${role.toLowerCase()}@pidetietar.es`);
+    const fallbackCourierProfile: NonNullable<User['courierProfile']> = {
+      businessIds: role === 'BUSINESS_COURIER' ? ['biz-2'] : ['biz-1'],
+      localityIds: ['sotillo'],
+      isOnline: true,
+      confirmation: role === 'SUPERADMIN' ? 'SUPERADMIN' : 'PENDING'
+    };
 
     const newUser: User = {
       id: `usr-${role.toLowerCase()}`,
       name: roleNames[role],
       email: targetEmail,
+      password: 'admin123',
       phone: '+34 612 345 678',
       role: role,
-      businessId: (role === 'BUSINESS_ADMIN' || role === 'BUSINESS_EMPLOYEE') ? 'biz-1' : (role === 'BUSINESS_COURIER' ? 'biz-2' : undefined),
-      isEmailVerified: true,
+      businessId: (role === 'BUSINESS_ADMIN') ? 'biz-1' : (role === 'BUSINESS_COURIER' ? 'biz-2' : undefined),
+      isEmailVerified: extraData?.isEmailVerified ?? (role === 'CLIENT' || role === 'PLATFORM_COURIER' || role === 'BUSINESS_COURIER' ? false : true),
       createdAt: new Date().toISOString(),
       avatarUrl: `https://images.unsplash.com/photo-${role === 'CLIENT' ? '1544005313-94ddf0286df2' : '1507003211169-0a1dd7228f2d'}?w=120&auto=format&fit=crop&q=80`,
       subscriptionPlan: role === 'CLIENT' ? 'PRO_MONTHLY' : (role === 'BUSINESS_ADMIN' ? 'PREMIUM_PARTNER' : 'FREE'),
@@ -289,8 +239,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           coordinates: { lat: 40.2889, lng: -4.5828 },
           isDefault: true
         }
-      ]
+      ],
+      courierProfile: (role === 'PLATFORM_COURIER' || role === 'BUSINESS_COURIER')
+        ? (extraData?.courierProfile || fallbackCourierProfile)
+        : undefined,
+      ...extraData
     };
+
+    if (role === 'BUSINESS_ADMIN' || role === 'SUPERADMIN') {
+      setCart(null);
+    }
 
     setCurrentUser(newUser);
     setUserSubscription(newUser.subscriptionPlan);
@@ -300,6 +258,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = () => {
     setCurrentUser(null);
     showNotification('Has cerrado la sesión.', 'info');
+  };
+
+  const updateCurrentUserProfile = (data: Partial<User>) => {
+    setCurrentUser(prev => {
+      if (!prev) return prev;
+      const nextUser = { ...prev, ...data };
+      return nextUser;
+    });
+    showNotification('Perfil actualizado correctamente.', 'success');
   };
 
   const sendGmailVerificationCode = async (): Promise<boolean> => {
@@ -353,7 +320,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return true;
   };
 
-<<<<<<< HEAD
+  const addLocality = (data: Partial<Locality>): Locality => {
+    const newLocality: Locality = {
+      id: data.id || `loc-${Date.now()}`,
+      name: data.name || 'Nueva zona',
+      postalCode: data.postalCode || '00000',
+      coordinates: data.coordinates || { lat: 40.2891, lng: -4.5824 },
+      active: data.active ?? true,
+      coverImage: data.coverImage,
+    };
+
+    setLocalities(prev => [...prev, newLocality]);
+    showNotification(`Zona "${newLocality.name}" añadida.`, 'success');
+    return newLocality;
+  };
+
+  const updateLocality = (localityId: string, data: Partial<Locality>) => {
+    setLocalities(prev => prev.map(loc => (loc.id === localityId ? { ...loc, ...data } : loc)));
+    setSelectedLocality(prev => (prev.id === localityId ? { ...prev, ...data } : prev));
+    showNotification('Zona actualizada correctamente.', 'success');
+  };
+
+  const deleteLocality = (localityId: string) => {
+    const stillHasBusinesses = businesses.some(b => b.localityId === localityId);
+    if (stillHasBusinesses) {
+      showNotification('No puedes eliminar una zona con negocios registrados.', 'error');
+      return;
+    }
+
+    setLocalities(prev => {
+      const remaining = prev.filter(loc => loc.id !== localityId);
+      if (selectedLocality.id === localityId && remaining.length > 0) {
+        setSelectedLocality(remaining[0]);
+      }
+      return remaining;
+    });
+    showNotification('Zona eliminada.', 'info');
+  };
+
   const createBusiness = (businessData: Partial<Business>): Business => {
     const newBusiness: Business = {
       id: businessData.id || `biz-${Date.now()}`,
@@ -365,8 +369,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       address: businessData.address || 'Dirección por definir',
       phone: businessData.phone || '+34 600 000 000',
       email: businessData.email || 'contacto@nuevo-negocio.es',
+      managerName: businessData.managerName || '',
+      managerDni: businessData.managerDni || '',
       coordinates: businessData.coordinates || { lat: 40.2891, lng: -4.5824 },
-      rating: businessData.rating || 4.7,
+      rating: businessData.rating ?? 4.5,
       reviewCount: businessData.reviewCount || 0,
       estimatedTimeMin: businessData.estimatedTimeMin || 20,
       estimatedTimeMax: businessData.estimatedTimeMax || 40,
@@ -395,14 +401,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newBusiness;
   };
 
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   const updateBusinessShift = (businessId: string, isOpen: boolean) => {
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
     showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, isOpen ? 'success' : 'info');
   };
 
-<<<<<<< HEAD
   const addProductToBusiness = (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Product => {
     const newProduct: Product = {
       ...product,
@@ -413,32 +416,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       allergens: product.allergens ?? []
     };
 
-    setProducts(prev => [newProduct, ...prev]);
+    setProducts((prev: Product[]) => [newProduct, ...prev]);
     showNotification(`Producto añadido a la carta: ${newProduct.name}`, 'success');
     return newProduct;
   };
 
   const updateProductInBusiness = (productId: string, product: Partial<Product>): Product | null => {
-    const currentProduct = products.find(p => p.id === productId);
+    const currentProduct = products.find((p: Product) => p.id === productId);
     if (!currentProduct) return null;
 
     const updatedProduct: Product = { ...currentProduct, ...product };
-    setProducts(prev => prev.map(p => p.id === productId ? updatedProduct : p));
+    setProducts((prev: Product[]) => prev.map((p: Product) => p.id === productId ? updatedProduct : p));
     showNotification(`Producto actualizado: ${updatedProduct.name}`, 'info');
     return updatedProduct;
   };
 
   const deleteProductFromBusiness = (productId: string) => {
-    const target = products.find(p => p.id === productId);
-    setProducts(prev => prev.filter(p => p.id !== productId));
+    const target = products.find((p: Product) => p.id === productId);
+    setProducts((prev: Product[]) => prev.filter((p: Product) => p.id !== productId));
     if (target) {
       showNotification(`Se eliminó ${target.name} del catálogo`, 'info');
     }
   };
 
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
   const addToCart = (item: Omit<CartItem, 'cartItemId'>, businessId: string) => {
+    if (item.product.businessId && item.product.businessId !== businessId) {
+      return { success: false, conflict: true };
+    }
+
     // Check single business constraint
     if (cart && cart.businessId !== businessId && cart.items.length > 0) {
       return { success: false, conflict: true };
@@ -496,6 +501,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const buildOrderItemSnapshot = (
+    product: Product,
+    quantity: number,
+    removedIngredients: string[] = [],
+    selectedOptions: CartItemOptionSelected[] = [],
+    customerNote?: string,
+    unitPriceCents?: number,
+  ) => ({
+    productId: product.id,
+    productName: product.name,
+    unitPriceCents: unitPriceCents ?? product.priceCents,
+    taxPercentage: product.taxPercentage,
+    quantity,
+    removedIngredients,
+    selectedOptions,
+    customerNote,
+    totalCents: (unitPriceCents ?? product.priceCents) * quantity,
+  });
+
   const createOrder = async (data: {
     deliveryType: 'DELIVERY' | 'PICKUP';
     addressIndex?: number;
@@ -509,6 +533,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const business = businesses.find(b => b.id === cart.businessId);
     if (!business) return { success: false, error: 'Comercio no encontrado' };
     if (!business.isShiftOpen) return { success: false, error: 'El comercio tiene el turno cerrado en este momento' };
+
+    const mixedBusinessItems = cart.items.some(item => item.product.businessId && item.product.businessId !== business.id);
+    if (mixedBusinessItems || !isSingleBusinessOrder(business.id, cart.items.map(item => ({ product: { businessId: item.product.businessId } })))) {
+      return { success: false, error: 'Cada ticket de pedido solo puede pertenecer a un único negocio.' };
+    }
+
+    const cleanedPhone = (currentUser.phone || '').trim();
+    if (!cleanedPhone) {
+      return { success: false, error: 'Necesitamos un teléfono para confirmar el pedido.' };
+    }
+
+    if (data.deliveryType === 'DELIVERY') {
+      const selectedAddress = currentUser.addresses[data.addressIndex || 0];
+      if (!selectedAddress || !selectedAddress.street.trim()) {
+        return { success: false, error: 'Selecciona o añade una dirección de entrega antes de confirmar.' };
+      }
+    }
 
     const subtotalCents = cart.items.reduce((acc, i) => acc + i.itemPriceCents * i.quantity, 0);
     const hasFreeDelivery = currentUser.subscriptionPlan === 'PRO_MONTHLY' && subtotalCents >= 1200;
@@ -553,22 +594,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       businessName: business.name,
       customerId: currentUser.id,
       customerName: currentUser.name,
-      customerPhone: currentUser.phone || '+34 600 000 000',
+      customerPhone: cleanedPhone || '+34 600 000 000',
       customerEmail: currentUser.email,
       deliveryType: data.deliveryType,
       deliveryAddress: selectedAddr,
       scheduledTime: 'Lo antes posible',
-      items: cart.items.map(item => ({
-        productId: item.product.id,
-        productName: item.product.name,
-        unitPriceCents: item.itemPriceCents,
-        taxPercentage: item.product.taxPercentage,
-        quantity: item.quantity,
-        removedIngredients: item.removedIngredients,
-        selectedOptions: item.selectedOptions,
-        customerNote: item.customerNote,
-        totalCents: item.itemPriceCents * item.quantity
-      })),
+      items: cart.items.map(item => buildOrderItemSnapshot(
+        item.product,
+        item.quantity,
+        item.removedIngredients,
+        item.selectedOptions,
+        item.customerNote,
+        item.itemPriceCents,
+      )),
       subtotalCents,
       deliveryFeeCents: effectiveDeliveryFee,
       platformFeeCents: totalPlatformFee,
@@ -634,9 +672,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateOrderStatus = (orderId: string, newStatus: Order['status'], note?: string) => {
     setOrders(prev => prev.map(ord => {
       if (ord.id === orderId) {
-        return {
+        const nextOrder = {
           ...ord,
           status: newStatus,
+          reviewRequested: newStatus === 'DELIVERED' ? true : ord.reviewRequested,
           updatedAt: new Date().toISOString(),
           statusHistory: [
             ...ord.statusHistory,
@@ -648,14 +687,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           ]
         };
+
+        if (newStatus === 'DELIVERED') {
+          showNotification('Pedido entregado. Ayúdanos a valorar la experiencia del local.', 'success');
+        }
+
+        return nextOrder;
       }
       return ord;
     }));
-    showNotification(`Estado de pedido actualizado a: ${newStatus}`, 'info');
+    if (newStatus !== 'DELIVERED') {
+      showNotification(`Estado de pedido actualizado a: ${newStatus}`, 'info');
+    }
+  };
+
+  const submitBusinessReview = (businessId: string, orderId: string, score: number) => {
+    const safeScore = Math.min(5, Math.max(1, Number(score) || 5));
+    const targetBusiness = businesses.find((business) => business.id === businessId);
+
+    if (!targetBusiness) {
+      return;
+    }
+
+    const nextReviewCount = targetBusiness.reviewCount + 1;
+    const nextAverage = Number(((targetBusiness.rating * targetBusiness.reviewCount + safeScore) / nextReviewCount).toFixed(1));
+
+    setBusinesses((previous) =>
+      previous.map((business) =>
+        business.id === businessId
+          ? {
+              ...business,
+              rating: nextAverage,
+              reviewCount: nextReviewCount,
+            }
+          : business,
+      ),
+    );
+
+    setOrders((previous) =>
+      previous.map((order) =>
+        order.id === orderId
+          ? {
+              ...order,
+              reviewRequested: false,
+              reviewScore: safeScore,
+              reviewedAt: new Date().toISOString(),
+            }
+          : order,
+      ),
+    );
+
+    showNotification(`Gracias por valorar a ${targetBusiness.name} con ${safeScore} estrellas.`, 'success');
   };
 
   const toggleProductAvailability = (productId: string) => {
-    setProducts(prev => prev.map(p => {
+    setProducts((prev: Product[]) => prev.map((p: Product) => {
       if (p.id === productId) {
         const nextState = !p.isAvailable;
         showNotification(`${p.name}: ${nextState ? 'Disponible' : 'Agotado en cocina'}`, 'info');
@@ -681,7 +767,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deliveryType: orderData.deliveryType || 'PICKUP',
       deliveryAddress: orderData.deliveryAddress,
       scheduledTime: 'Inmediato (Comanda Mesa/Barra)',
-      items: orderData.items || [],
+      items: (orderData.items || []).map((item) => ({
+        ...item,
+        productName: item.productName || 'Producto',
+        unitPriceCents: item.unitPriceCents || 0,
+        totalCents: item.totalCents || item.unitPriceCents * item.quantity,
+      })),
       subtotalCents: orderData.subtotalCents || 0,
       deliveryFeeCents: orderData.deliveryFeeCents || 0,
       platformFeeCents: 0,
@@ -727,21 +818,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentUser,
       loginAs,
       logout,
+      setCourierProfile,
+      toggleCourierAvailability,
       verifyEmailWithGmailCode,
       sendGmailVerificationCode,
       verificationSent,
       generatedCode,
       selectedLocality,
       setSelectedLocality,
+      localities,
+      addLocality,
+      updateLocality,
+      deleteLocality,
       businesses,
       products,
-<<<<<<< HEAD
       createBusiness,
       addProductToBusiness,
       updateProductInBusiness,
       deleteProductFromBusiness,
-=======
->>>>>>> cbaee5399cdc1b042af67c040e87114779a8d9f4
       updateBusinessShift,
       toggleProductAvailability,
       createManualOrder,
@@ -754,6 +848,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createOrder,
       updateOrderStatus,
       verifyDeliveryPin,
+      submitBusinessReview,
+      updateCurrentUserProfile,
       userSubscription,
       setUserSubscription,
       notification,
