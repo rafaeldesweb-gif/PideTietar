@@ -40,6 +40,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     name: '',
     legalName: '',
     cif: '',
+    accountNumber: '',
     category: '',
     localityId: '',
     phone: '',
@@ -102,7 +103,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     });
 
     setNewBusinessForm({
-      name: '', legalName: '', cif: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
+      name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
       schedule: [
         { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
         { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -184,7 +185,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               required 
               value={newZoneName}
               onChange={e => setNewZoneName(e.target.value)}
-              className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm"
+              className="field-ink w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder:text-gray-400"
               placeholder="Ej. Cenicientos"
             />
           </div>
@@ -195,7 +196,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               required 
               value={newZoneZip}
               onChange={e => setNewZoneZip(e.target.value)}
-              className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm"
+              className="field-ink w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder:text-gray-400"
               placeholder="28941"
             />
           </div>
@@ -286,6 +287,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">DNI/NIE</label>
             <input required value={newBusinessForm.managerDni} onChange={e => setNewBusinessForm({...newBusinessForm, managerDni: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. 12345678A" />
+          </div>
+          <div className="col-span-1 sm:col-span-2">
+            <label className="block text-xs font-semibold text-stone-500 mb-1">Número de cuenta para transferencias</label>
+            <input required value={newBusinessForm.accountNumber} onChange={e => setNewBusinessForm({...newBusinessForm, accountNumber: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ES12 3456 7890 1234 5678 9012" />
           </div>
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Foto para Banner</label>

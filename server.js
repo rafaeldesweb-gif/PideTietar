@@ -3,9 +3,10 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
+import nodemailer from "nodemailer";
 
 dotenv.config();
 process.env.NODE_ENV ||= "development";
@@ -25,12 +26,14 @@ if (!fs.existsSync(DATA_DIR)) {
 }
 
 const mysqlConfig = {
-  host: process.env.MYSQL_HOST || "",
-  port: Number(process.env.MYSQL_PORT || 3306),
-  user: process.env.MYSQL_USER || "",
-  password: process.env.MYSQL_PASSWORD || "",
-  database: process.env.MYSQL_DATABASE || "",
-  connectionLimit: Number(process.env.MYSQL_CONNECTION_LIMIT || 10),
+  host: process.env.DB_HOST || process.env.MYSQL_HOST || "",
+  port: Number(process.env.DB_PORT || process.env.MYSQL_PORT || 3306),
+  user: process.env.DB_USER || process.env.MYSQL_USER || "",
+  password: process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || "",
+  database: process.env.DB_NAME || process.env.MYSQL_DATABASE || "",
+  connectionLimit: Number(
+    process.env.DB_CONNECTION_LIMIT || process.env.MYSQL_CONNECTION_LIMIT || 10,
+  ),
   charset: "utf8mb4",
   multipleStatements: false,
 };
@@ -38,6 +41,9 @@ const mysqlConfig = {
 let mysqlPool = null;
 let sqliteDb = null;
 let databaseMode = "sqlite";
+
+const emailVerificationTtlMs =
+  Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 15) * 60 * 1000;
 
 const sqliteSchema = `
   CREATE TABLE IF NOT EXISTS app_users (
@@ -48,7 +54,23 @@ const sqliteSchema = `
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'CLIENT',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
+    account_number TEXT,
+    email_verified INTEGER DEFAULT 0,
+    email_verified_at TEXT,
+    email_verification_code TEXT,
+    email_verification_expires_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS localities (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    postal_code TEXT,
+    latitude REAL,
+    longitude REAL,
+    is_active INTEGER DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
   CREATE TABLE IF NOT EXISTS businesses (
@@ -59,6 +81,7 @@ const sqliteSchema = `
     cif TEXT,
     phone TEXT,
     email TEXT,
+    account_number TEXT,
     address TEXT NOT NULL,
     latitude REAL,
     longitude REAL,
@@ -142,10 +165,27 @@ const mysqlSchema = `
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    account_number VARCHAR(255) NULL,
+    email_verified TINYINT(1) NOT NULL DEFAULT 0,
+    email_verified_at DATETIME(3) NULL,
+    email_verification_code VARCHAR(12) NULL,
+    email_verification_expires_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_app_users_email (email),
     UNIQUE KEY uq_app_users_username (username)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS localities (
+    id CHAR(36) NOT NULL DEFAULT (UUID()),
+    name VARCHAR(180) NOT NULL,
+    postal_code VARCHAR(20) NULL,
+    latitude DECIMAL(9,6) NULL,
+    longitude DECIMAL(9,6) NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
   CREATE TABLE IF NOT EXISTS businesses (
@@ -156,6 +196,7 @@ const mysqlSchema = `
     cif VARCHAR(40) NULL,
     phone VARCHAR(30) NULL,
     email VARCHAR(255) NULL,
+    account_number VARCHAR(255) NULL,
     address TEXT NOT NULL,
     latitude DECIMAL(9,6) NULL,
     longitude DECIMAL(9,6) NULL,
@@ -246,44 +287,95 @@ async function applyMysqlSchema(pool) {
 
 function getSqliteDb() {
   if (!sqliteDb) {
-    sqliteDb = new Database(DB_PATH);
-    sqliteDb.pragma("journal_mode = WAL");
+    sqliteDb = new DatabaseSync(DB_PATH);
+    sqliteDb.exec("PRAGMA journal_mode = WAL");
   }
   return sqliteDb;
 }
+
+const ensureTable = (tableName, createSql) => {
+  const db = getSqliteDb();
+  const exists = db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName);
+
+  if (!exists) {
+    db.exec(createSql);
+  }
+};
 
 function ensureSqliteSchemaShape() {
   const db = getSqliteDb();
   db.exec(sqliteSchema);
 
-  const existingColumns = new Set(
-    db
-      .prepare("PRAGMA table_info(businesses)")
-      .all()
-      .map((column) => column.name),
-  );
+  const getColumnNames = (tableName) =>
+    new Set(
+      db
+        .prepare(`PRAGMA table_info(${tableName})`)
+        .all()
+        .map((column) => column.name),
+    );
 
-  const ensureColumn = (columnName, definition) => {
+  const ensureColumn = (tableName, columnName, definition) => {
+    const existingColumns = getColumnNames(tableName);
     if (!existingColumns.has(columnName)) {
-      db.exec(`ALTER TABLE businesses ADD COLUMN ${columnName} ${definition}`);
-      existingColumns.add(columnName);
+      db.exec(
+        `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition}`,
+      );
     }
   };
 
-  ensureColumn("delivery_modes", "TEXT DEFAULT '[]'");
-  ensureColumn("delivery_radius_km", "REAL DEFAULT 0");
-  ensureColumn("status", "TEXT DEFAULT 'PENDING'");
-  ensureColumn("updated_at", "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  ensureColumn("businesses", "account_number", "TEXT");
+  ensureColumn("businesses", "rating", "REAL DEFAULT 0");
+  ensureColumn("businesses", "review_count", "INTEGER DEFAULT 0");
+  ensureColumn("businesses", "latitude", "REAL");
+  ensureColumn("businesses", "longitude", "REAL");
+  ensureColumn("businesses", "delivery_modes", "TEXT DEFAULT '[]'");
+  ensureColumn("businesses", "delivery_radius_km", "REAL DEFAULT 0");
+  ensureColumn("businesses", "status", "TEXT DEFAULT 'PENDING'");
+  ensureColumn("businesses", "updated_at", "TEXT");
 
-  const ensureTable = (tableName, createSql) => {
-    const exists = db
-      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
-      .get(tableName);
+  ensureColumn("products", "tax_percentage", "REAL DEFAULT 0");
+  ensureColumn("products", "is_sold_out", "INTEGER DEFAULT 0");
+  ensureColumn("products", "allergens", "TEXT");
+  ensureColumn("products", "updated_at", "TEXT");
 
-    if (!exists) {
-      db.exec(createSql);
-    }
-  };
+  ensureColumn("orders", "updated_at", "TEXT");
+
+  const userColumns = getColumnNames("app_users");
+  if (!userColumns.has("account_number")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN account_number TEXT");
+  }
+  if (!userColumns.has("email_verified")) {
+    db.exec(
+      "ALTER TABLE app_users ADD COLUMN email_verified INTEGER DEFAULT 0",
+    );
+  }
+  if (!userColumns.has("email_verified_at")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN email_verified_at TEXT");
+  }
+  if (!userColumns.has("email_verification_code")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN email_verification_code TEXT");
+  }
+  if (!userColumns.has("email_verification_expires_at")) {
+    db.exec(
+      "ALTER TABLE app_users ADD COLUMN email_verification_expires_at TEXT",
+    );
+  }
+
+  ensureTable(
+    "localities",
+    `CREATE TABLE localities (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      postal_code TEXT,
+      latitude REAL,
+      longitude REAL,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  );
 
   ensureTable(
     "order_items",
@@ -394,6 +486,14 @@ async function seedSuperAdmin() {
 
 function sanitizeUser(row) {
   if (!row) return null;
+  const isEmailVerified = Boolean(
+    row.email_verified === 1 ||
+    row.email_verified === true ||
+    row.is_email_verified === 1 ||
+    row.is_email_verified === true ||
+    row.email_verified_at,
+  );
+
   return {
     id: row.id,
     username: row.username || row.email?.split("@")[0] || "",
@@ -401,8 +501,170 @@ function sanitizeUser(row) {
     email: row.email,
     role: row.role || "CLIENT",
     status: row.status || "ACTIVE",
+    accountNumber: row.account_number || row.accountNumber || "",
+    isEmailVerified: isEmailVerified,
+    emailVerified: isEmailVerified,
     createdAt: row.created_at || new Date().toISOString(),
   };
+}
+
+function buildVerificationCode() {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function getSmtpTransporter() {
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
+
+  if (!host || !user || !pass) {
+    return null;
+  }
+
+  const preferredPort = Number(
+    process.env.SMTP_PORT || process.env.EMAIL_PORT || 465,
+  );
+  const preferredSecure =
+    String(
+      process.env.SMTP_SECURE || process.env.EMAIL_SECURE || "true",
+    ).toLowerCase() === "true";
+
+  const candidates = [
+    { port: preferredPort, secure: preferredSecure },
+    ...(preferredPort === 465
+      ? [{ port: 587, secure: false }]
+      : preferredPort === 587
+        ? [{ port: 465, secure: true }]
+        : []),
+  ];
+
+  const seen = new Set();
+  for (const candidate of candidates) {
+    const key = `${candidate.port}:${candidate.secure}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const transport = nodemailer.createTransport({
+      host,
+      port: candidate.port,
+      secure: candidate.secure,
+      auth: { user, pass },
+      requireTLS: !candidate.secure,
+      tls: { rejectUnauthorized: false },
+    });
+
+    if (transport) {
+      return transport;
+    }
+  }
+
+  return null;
+}
+
+async function sendVerificationEmail({ email, fullName, code }) {
+  const from =
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es";
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
+
+  if (!host || !user || !pass) {
+    return {
+      sent: false,
+      code,
+      message:
+        "SMTP no configurado; se devuelve el código para pruebas locales.",
+    };
+  }
+
+  const candidateConfigs = [
+    {
+      port: Number(process.env.SMTP_PORT || process.env.EMAIL_PORT || 465),
+      secure:
+        String(
+          process.env.SMTP_SECURE || process.env.EMAIL_SECURE || "true",
+        ).toLowerCase() === "true",
+    },
+    { port: 587, secure: false },
+    { port: 465, secure: true },
+  ];
+
+  const seen = new Set();
+  for (const cfg of candidateConfigs) {
+    const key = `${cfg.port}:${cfg.secure}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    try {
+      const transporter = nodemailer.createTransport({
+        host,
+        port: cfg.port,
+        secure: cfg.secure,
+        auth: { user, pass },
+        requireTLS: !cfg.secure,
+        tls: { rejectUnauthorized: false },
+      });
+
+      await transporter.sendMail({
+        from,
+        to: email,
+        subject: "Verifica tu cuenta en PideTiétar",
+        text: `Hola ${fullName || "usuario"},\n\nTu código de verificación es: ${code}\n\nEste código expira en 15 minutos.`,
+        html: `
+          <div style="font-family: Arial, sans-serif; background: #fff; color: #1a1a1a; padding: 24px; border-radius: 12px; max-width: 560px; margin: 0 auto; border: 1px solid #f0f0f0;">
+            <h2 style="color: #ff4e00; margin-top: 0;">PideTiétar</h2>
+            <p>Hola <strong>${fullName || "usuario"}</strong>,</p>
+            <p>Para verificar tu cuenta, usa este código:</p>
+            <div style="background: #fff5f0; border: 2px dashed #ff4e00; border-radius: 10px; padding: 18px; text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 4px; margin: 20px 0; color: #a93200;">${code}</div>
+            <p>Este código expira en 15 minutos.</p>
+          </div>
+        `,
+      });
+
+      return { sent: true, code };
+    } catch (error) {
+      // Continue to next candidate if the first SMTP mode fails.
+    }
+  }
+
+  return {
+    sent: false,
+    code,
+    message:
+      "No fue posible enviar el correo con el SMTP configurado; se devuelve el código para pruebas locales.",
+  };
+}
+
+async function setUserVerificationCode(userId, code) {
+  const expiresAt = new Date(Date.now() + emailVerificationTtlMs).toISOString();
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "UPDATE app_users SET email_verification_code = ?, email_verification_expires_at = ?, email_verified = 0 WHERE id = ?",
+      [code, expiresAt, userId],
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    "UPDATE app_users SET email_verification_code = ?, email_verification_expires_at = ?, email_verified = 0 WHERE id = ?",
+  ).run(code, expiresAt, userId);
+}
+
+async function clearUserVerificationCode(userId) {
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "UPDATE app_users SET email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
+      [new Date().toISOString(), userId],
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    "UPDATE app_users SET email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
+  ).run(new Date().toISOString(), userId);
 }
 
 async function getUserByIdentifier(identifier) {
@@ -426,6 +688,18 @@ async function getUserByIdentifier(identifier) {
       )
       .get(value, value) || null
   );
+}
+
+async function listLocalities() {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM localities ORDER BY created_at DESC",
+    );
+    return rows;
+  }
+
+  const db = getSqliteDb();
+  return db.prepare("SELECT * FROM localities ORDER BY created_at DESC").all();
 }
 
 async function listBusinesses() {
@@ -494,7 +768,7 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')",
+      "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0)",
       [id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role],
     );
     const [rows] = await mysqlPool.execute(
@@ -507,7 +781,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE')",
+    "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0)",
   ).run(id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role);
   return db.prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1").get(id);
 }
@@ -586,9 +860,101 @@ app.post("/api/auth/register", async (req, res) => {
     password,
     role,
   });
+
+  const verificationCode = buildVerificationCode();
+  await setUserVerificationCode(newUser.id, verificationCode);
+  const emailDelivery = await sendVerificationEmail({
+    email: newUser.email,
+    fullName: newUser.full_name || newUser.username || "usuario",
+    code: verificationCode,
+  });
+
   res.status(201).json({
     success: true,
     user: sanitizeUser(newUser),
+    requiresEmailVerification: true,
+    emailVerificationSent: emailDelivery.sent,
+    verificationCode: emailDelivery.sent ? undefined : verificationCode,
+    message: emailDelivery.sent
+      ? "Usuario creado. Revisa tu email para verificar la cuenta."
+      : "Usuario creado. Se ha generado un código de verificación para pruebas locales.",
+  });
+});
+
+app.post("/api/auth/send-verification-email", async (req, res) => {
+  const { email } = req.body || {};
+  const user = await getUserByIdentifier(email);
+
+  if (!user) {
+    return res.status(404).json({
+      code: "USER_NOT_FOUND",
+      message: "No existe un usuario con ese correo.",
+    });
+  }
+
+  const code = buildVerificationCode();
+  await setUserVerificationCode(user.id, code);
+  const emailDelivery = await sendVerificationEmail({
+    email: user.email,
+    fullName: user.full_name || user.username || "usuario",
+    code,
+  });
+
+  res.json({
+    success: true,
+    sent: emailDelivery.sent,
+    code: emailDelivery.sent ? undefined : code,
+    message: emailDelivery.sent
+      ? "Código de verificación enviado al correo."
+      : "Código generado para pruebas locales.",
+  });
+});
+
+app.post("/api/auth/verify-email", async (req, res) => {
+  const { email, code } = req.body || {};
+  const user = await getUserByIdentifier(email);
+
+  if (!user) {
+    return res.status(404).json({
+      code: "USER_NOT_FOUND",
+      message: "No encontramos ese usuario.",
+    });
+  }
+
+  const expiresAtRaw =
+    user.email_verification_expires_at || user.email_verificationExpiresAt;
+  const expiresAt = expiresAtRaw ? new Date(expiresAtRaw).getTime() : 0;
+  const currentCode =
+    user.email_verification_code || user.emailVerificationCode;
+
+  if (user.email_verified === 1 || user.email_verified === true) {
+    return res.json({
+      success: true,
+      verified: true,
+      message: "El correo ya estaba verificado.",
+    });
+  }
+
+  if (!currentCode || !code || String(code) !== String(currentCode)) {
+    return res.status(400).json({
+      code: "INVALID_CODE",
+      message: "Código de verificación inválido.",
+    });
+  }
+
+  if (Date.now() > expiresAt) {
+    return res.status(410).json({
+      code: "EXPIRED_CODE",
+      message: "El código ha expirado; solicita uno nuevo.",
+    });
+  }
+
+  await clearUserVerificationCode(user.id);
+
+  res.json({
+    success: true,
+    verified: true,
+    message: "Correo verificado correctamente.",
   });
 });
 
@@ -626,6 +992,25 @@ app.post("/api/auth/login", async (req, res) => {
     return res
       .status(401)
       .json({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" });
+  }
+
+  const isEmailVerified = Boolean(
+    user.email_verified === 1 ||
+    user.email_verified === true ||
+    user.email_verified_at,
+  );
+
+  if (
+    !isEmailVerified &&
+    user.email &&
+    user.email !== "rafaeldesweb@gmail.com"
+  ) {
+    return res.status(403).json({
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Debes verificar tu correo antes de iniciar sesión.",
+      user: sanitizeUser(user),
+      requiresEmailVerification: true,
+    });
   }
 
   res.json({ success: true, user: sanitizeUser(user) });
@@ -668,6 +1053,116 @@ app.get("/api/auth/me", async (req, res) => {
   res.json({ user: sanitizeUser(row) });
 });
 
+app.get("/api/localities", async (_req, res) => {
+  const rows = await listLocalities();
+  res.json(rows);
+});
+
+app.post("/api/localities", async (req, res) => {
+  const body = req.body || {};
+  const id = body.id || cryptoRandomId();
+  const payload = {
+    id,
+    name: body.name || "Nueva zona",
+    postal_code: body.postalCode || body.postal_code || "00000",
+    latitude: body.coordinates?.lat ?? body.latitude ?? 40.2891,
+    longitude: body.coordinates?.lng ?? body.longitude ?? -4.5824,
+    is_active: Number(body.active ?? body.is_active ?? 1),
+  };
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        payload.id,
+        payload.name,
+        payload.postal_code,
+        payload.latitude,
+        payload.longitude,
+        payload.is_active,
+      ],
+    );
+    return res.status(201).json({ success: true, locality: payload });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+  ).run(
+    payload.id,
+    payload.name,
+    payload.postal_code,
+    payload.latitude,
+    payload.longitude,
+    payload.is_active,
+  );
+  res.status(201).json({ success: true, locality: payload });
+});
+
+app.put("/api/localities/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const fields = [];
+  const values = [];
+
+  if (body.name !== undefined) {
+    fields.push("name = ?");
+    values.push(body.name);
+  }
+  if (body.postalCode !== undefined || body.postal_code !== undefined) {
+    fields.push("postal_code = ?");
+    values.push(body.postalCode ?? body.postal_code);
+  }
+  if (
+    body.coordinates !== undefined ||
+    body.latitude !== undefined ||
+    body.longitude !== undefined
+  ) {
+    fields.push("latitude = ?", "longitude = ?");
+    values.push(
+      body.coordinates?.lat ?? body.latitude ?? null,
+      body.coordinates?.lng ?? body.longitude ?? null,
+    );
+  }
+  if (body.active !== undefined || body.is_active !== undefined) {
+    fields.push("is_active = ?");
+    values.push(Number(body.active ?? body.is_active ?? 1));
+  }
+
+  if (!fields.length) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No hay campos para actualizar" });
+  }
+
+  values.push(id);
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE localities SET ${fields.join(", ")} WHERE id = ?`,
+      values,
+    );
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(`UPDATE localities SET ${fields.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+  res.json({ success: true });
+});
+
+app.delete("/api/localities/:id", async (req, res) => {
+  const { id } = req.params;
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM localities WHERE id = ?", [id]);
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare("DELETE FROM localities WHERE id = ?").run(id);
+  res.json({ success: true });
+});
+
 app.get("/api/users", async (_req, res) => {
   const rows = await listUsers();
   res.json(rows.map((row) => sanitizeUser(row)));
@@ -676,6 +1171,90 @@ app.get("/api/users", async (_req, res) => {
 app.post("/api/users", async (req, res) => {
   const user = await createUser(req.body);
   res.status(201).json({ success: true, user: sanitizeUser(user) });
+});
+
+app.put("/api/users/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const updates = [];
+  const values = [];
+
+  if (body.username !== undefined) {
+    updates.push("username = ?");
+    values.push(body.username);
+  }
+  if (
+    body.fullName !== undefined ||
+    body.full_name !== undefined ||
+    body.name !== undefined
+  ) {
+    updates.push("full_name = ?");
+    values.push(body.fullName ?? body.full_name ?? body.name ?? "");
+  }
+  if (body.email !== undefined) {
+    updates.push("email = ?");
+    values.push(body.email);
+  }
+  if (body.password !== undefined) {
+    updates.push("password_hash = ?");
+    values.push(bcrypt.hashSync(String(body.password), 10));
+  }
+  if (body.role !== undefined) {
+    updates.push("role = ?");
+    values.push(body.role);
+  }
+  if (body.status !== undefined) {
+    updates.push("status = ?");
+    values.push(body.status);
+  }
+  if (body.phone !== undefined) {
+    updates.push("phone = ?");
+    values.push(body.phone);
+  }
+  if (body.accountNumber !== undefined || body.account_number !== undefined) {
+    updates.push("account_number = ?");
+    values.push(body.accountNumber ?? body.account_number ?? null);
+  }
+
+  if (!updates.length) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No hay campos para actualizar" });
+  }
+
+  values.push(id);
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE app_users SET ${updates.join(", ")} WHERE id = ?`,
+      values,
+    );
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM app_users WHERE id = ? LIMIT 1",
+      [id],
+    );
+    return res.json({ success: true, user: sanitizeUser(rows[0]) });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(`UPDATE app_users SET ${updates.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+  const row = db
+    .prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1")
+    .get(id);
+  res.json({ success: true, user: sanitizeUser(row) });
+});
+
+app.delete("/api/users/:id", async (req, res) => {
+  const { id } = req.params;
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM app_users WHERE id = ?", [id]);
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare("DELETE FROM app_users WHERE id = ?").run(id);
+  res.json({ success: true });
 });
 
 app.get("/api/businesses", async (_req, res) => {
@@ -687,12 +1266,14 @@ app.post("/api/businesses", async (req, res) => {
   const body = req.body || {};
   const payload = {
     id: body.id || cryptoRandomId(),
-    locality_id: body.locality_id || "locality-default",
+    locality_id: body.locality_id || body.localityId || "locality-default",
     name: body.name || "Nuevo negocio",
-    legal_name: body.legal_name || body.name || "Nuevo negocio",
+    legal_name:
+      body.legal_name || body.legalName || body.name || "Nuevo negocio",
     cif: body.cif || "00000000A",
     phone: body.phone || "+34 600 000 000",
     email: body.email || "contacto@negocio.local",
+    account_number: body.accountNumber || body.account_number || null,
     address: body.address || "Dirección no indicada",
     latitude: body.latitude || 40.289,
     longitude: body.longitude || -4.58,
@@ -702,18 +1283,20 @@ app.post("/api/businesses", async (req, res) => {
     estimated_time_max: body.estimated_time_max || 40,
     delivery_fee_cents: body.delivery_fee_cents || 0,
     min_order_cents: body.min_order_cents || 0,
-    banner_url: body.banner_url || "",
-    logo_url: body.logo_url || "",
-    is_shift_open: body.is_shift_open ?? 1,
-    delivery_modes: JSON.stringify(body.delivery_modes || ["PICKUP"]),
-    delivery_radius_km: body.delivery_radius_km || 5,
+    banner_url: body.banner_url || body.bannerUrl || "",
+    logo_url: body.logo_url || body.logoUrl || "",
+    is_shift_open: Number(body.is_shift_open ?? body.isShiftOpen ?? 1),
+    delivery_modes: JSON.stringify(
+      body.delivery_modes || body.deliveryModes || ["PICKUP"],
+    ),
+    delivery_radius_km: body.delivery_radius_km || body.deliveryRadiusKm || 5,
     status: body.status || "APPROVED",
   };
 
   if (mysqlPool) {
     await mysqlPool.execute(
-      `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, account_number, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         payload.id,
         payload.locality_id,
@@ -722,6 +1305,7 @@ app.post("/api/businesses", async (req, res) => {
         payload.cif,
         payload.phone,
         payload.email,
+        payload.account_number,
         payload.address,
         payload.latitude,
         payload.longitude,
@@ -744,8 +1328,8 @@ app.post("/api/businesses", async (req, res) => {
 
   const db = getSqliteDb();
   db.prepare(
-    `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, account_number, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     payload.id,
     payload.locality_id,
@@ -754,6 +1338,7 @@ app.post("/api/businesses", async (req, res) => {
     payload.cif,
     payload.phone,
     payload.email,
+    payload.account_number,
     payload.address,
     payload.latitude,
     payload.longitude,
@@ -774,6 +1359,73 @@ app.post("/api/businesses", async (req, res) => {
   res.status(201).json({ success: true, id: payload.id });
 });
 
+app.put("/api/businesses/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const updates = [];
+  const values = [];
+
+  const assign = (field, value) => {
+    updates.push(`${field} = ?`);
+    values.push(value);
+  };
+  if (body.name !== undefined) assign("name", body.name);
+  if (body.legal_name !== undefined || body.legalName !== undefined)
+    assign("legal_name", body.legal_name ?? body.legalName);
+  if (body.cif !== undefined) assign("cif", body.cif);
+  if (body.phone !== undefined) assign("phone", body.phone);
+  if (body.email !== undefined) assign("email", body.email);
+  if (body.accountNumber !== undefined || body.account_number !== undefined)
+    assign("account_number", body.accountNumber ?? body.account_number);
+  if (body.address !== undefined) assign("address", body.address);
+  if (body.locality_id !== undefined || body.localityId !== undefined)
+    assign("locality_id", body.locality_id ?? body.localityId);
+  if (body.status !== undefined) assign("status", body.status);
+  if (
+    body.deliveryFeeCents !== undefined ||
+    body.delivery_fee_cents !== undefined
+  )
+    assign(
+      "delivery_fee_cents",
+      body.deliveryFeeCents ?? body.delivery_fee_cents,
+    );
+  if (body.isShiftOpen !== undefined || body.is_shift_open !== undefined)
+    assign("is_shift_open", body.isShiftOpen ?? body.is_shift_open);
+
+  if (!updates.length) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No hay campos para actualizar" });
+  }
+
+  values.push(id);
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE businesses SET ${updates.join(", ")} WHERE id = ?`,
+      values,
+    );
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(`UPDATE businesses SET ${updates.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+  res.json({ success: true });
+});
+
+app.delete("/api/businesses/:id", async (req, res) => {
+  const { id } = req.params;
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM businesses WHERE id = ?", [id]);
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare("DELETE FROM businesses WHERE id = ?").run(id);
+  res.json({ success: true });
+});
+
 app.get("/api/products", async (_req, res) => {
   const rows = await listProducts();
   res.json(rows);
@@ -783,20 +1435,24 @@ app.post("/api/products", async (req, res) => {
   const body = req.body || {};
   const product = {
     id: body.id || cryptoRandomId(),
-    business_id: body.business_id || "business-default",
-    category_id: body.category_id || "general",
+    business_id: body.business_id || body.businessId || "business-default",
+    category_id: body.category_id || body.categoryId || "general",
     name: body.name || "Nuevo producto",
     description: body.description || "",
     tag: body.tag || "",
     ingredients: JSON.stringify(body.ingredients || []),
     allergens: JSON.stringify(body.allergens || []),
-    price_cents: body.price_cents || 0,
-    tax_percentage: body.tax_percentage || 0,
-    image_url: body.image_url || "",
-    is_available: body.is_available ?? 1,
-    is_sold_out: body.is_sold_out ?? 0,
-    removable_ingredients: JSON.stringify(body.removable_ingredients || []),
-    additional_ingredients: JSON.stringify(body.additional_ingredients || []),
+    price_cents: body.price_cents ?? body.priceCents ?? 0,
+    tax_percentage: body.tax_percentage ?? body.taxPercentage ?? 0,
+    image_url: body.image_url || body.imageUrl || "",
+    is_available: Number(body.is_available ?? body.isAvailable ?? 1),
+    is_sold_out: Number(body.is_sold_out ?? body.isSoldOut ?? 0),
+    removable_ingredients: JSON.stringify(
+      body.removable_ingredients || body.removableIngredients || [],
+    ),
+    additional_ingredients: JSON.stringify(
+      body.additional_ingredients || body.additionalIngredients || [],
+    ),
   };
 
   if (mysqlPool) {
@@ -848,6 +1504,63 @@ app.post("/api/products", async (req, res) => {
   res.status(201).json({ success: true, id: product.id });
 });
 
+app.put("/api/products/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const updates = [];
+  const values = [];
+  const assign = (field, value) => {
+    updates.push(`${field} = ?`);
+    values.push(value);
+  };
+
+  if (body.name !== undefined) assign("name", body.name);
+  if (body.description !== undefined) assign("description", body.description);
+  if (body.price_cents !== undefined || body.priceCents !== undefined)
+    assign("price_cents", body.price_cents ?? body.priceCents);
+  if (body.tax_percentage !== undefined || body.taxPercentage !== undefined)
+    assign("tax_percentage", body.tax_percentage ?? body.taxPercentage);
+  if (body.is_available !== undefined || body.isAvailable !== undefined)
+    assign("is_available", body.is_available ?? body.isAvailable);
+  if (body.is_sold_out !== undefined || body.isSoldOut !== undefined)
+    assign("is_sold_out", body.is_sold_out ?? body.isSoldOut);
+  if (body.image_url !== undefined || body.imageUrl !== undefined)
+    assign("image_url", body.image_url ?? body.imageUrl);
+
+  if (!updates.length) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No hay campos para actualizar" });
+  }
+
+  values.push(id);
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE products SET ${updates.join(", ")} WHERE id = ?`,
+      values,
+    );
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(`UPDATE products SET ${updates.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+  res.json({ success: true });
+});
+
+app.delete("/api/products/:id", async (req, res) => {
+  const { id } = req.params;
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM products WHERE id = ?", [id]);
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare("DELETE FROM products WHERE id = ?").run(id);
+  res.json({ success: true });
+});
+
 app.get("/api/orders", async (_req, res) => {
   const rows = await listOrders();
   res.json(rows);
@@ -856,7 +1569,7 @@ app.get("/api/orders", async (_req, res) => {
 app.post("/api/orders", async (req, res) => {
   const body = req.body || {};
   const id = body.id || cryptoRandomId();
-  const total = Number(body.total_cents || body.totalCents || 0);
+  const total = Number(body.total_cents ?? body.totalCents ?? 0);
 
   if (mysqlPool) {
     await mysqlPool.execute(
@@ -890,6 +1603,58 @@ app.post("/api/orders", async (req, res) => {
   );
 
   res.status(201).json({ success: true, id });
+});
+
+app.put("/api/orders/:id", async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const updates = [];
+  const values = [];
+  const assign = (field, value) => {
+    updates.push(`${field} = ?`);
+    values.push(value);
+  };
+
+  if (body.status !== undefined) assign("status", body.status);
+  if (body.total_cents !== undefined || body.totalCents !== undefined)
+    assign("total_cents", Number(body.total_cents ?? body.totalCents));
+  if (body.customer_name !== undefined)
+    assign("customer_name", body.customer_name);
+  if (body.customer_email !== undefined)
+    assign("customer_email", body.customer_email);
+
+  if (!updates.length) {
+    return res
+      .status(400)
+      .json({ success: false, message: "No hay campos para actualizar" });
+  }
+
+  values.push(id);
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE orders SET ${updates.join(", ")} WHERE id = ?`,
+      values,
+    );
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(`UPDATE orders SET ${updates.join(", ")} WHERE id = ?`).run(
+    ...values,
+  );
+  res.json({ success: true });
+});
+
+app.delete("/api/orders/:id", async (req, res) => {
+  const { id } = req.params;
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM orders WHERE id = ?", [id]);
+    return res.json({ success: true });
+  }
+
+  const db = getSqliteDb();
+  db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+  res.json({ success: true });
 });
 
 app.get("/api/debug/config", (_req, res) => {

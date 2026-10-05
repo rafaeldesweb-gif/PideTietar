@@ -165,3 +165,20 @@ html.dark select::placeholder {
   color: #808080 !important;
 }
 
+/* Campos claros: texto negro y placeholder gris, también en tema oscuro */
+html.dark input.field-ink,
+html.dark textarea.field-ink,
+html.dark select.field-ink {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  -webkit-text-fill-color: #000000;
+  caret-color: #000000;
+}
+
+html.dark input.field-ink::placeholder,
+html.dark textarea.field-ink::placeholder {
+  color: #9ca3af !important;
+  -webkit-text-fill-color: #9ca3af;
+  opacity: 1;
+}
+

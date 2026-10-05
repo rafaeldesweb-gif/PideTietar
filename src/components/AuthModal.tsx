@@ -35,6 +35,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phone || '');
+  const [accountNumber, setAccountNumber] = useState(currentUser?.accountNumber || '');
   const [emailInput, setEmailInput] = useState(currentUser?.email || 'rafaeldesweb@gmail.com');
   const [password, setPassword] = useState('');
 
@@ -121,7 +122,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleSubmitAuth = (e: React.FormEvent) => {
+  const handleSubmitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
 
     const normalizedUser = (emailInput || '').trim();
@@ -148,51 +149,95 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
-    if (isRegisterMode) {
-      const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
-      const role = selectedRole;
-      const registeredUser = role === 'CLIENT'
-        ? {
-            name: finalName,
-            email: normalizedUser,
-            password: normalizedPassword || 'cliente123',
-            phone: phoneNumber || undefined,
-            isEmailVerified: false,
-          }
-        : {
-            name: finalName,
-            email: normalizedUser,
-            password: normalizedPassword || 'repartidor123',
-            phone: phoneNumber || undefined,
-            isEmailVerified: false,
+    const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
+
+    try {
+      if (isRegisterMode) {
+        const role = selectedRole;
+        const payload = {
+          username: normalizedUser.split('@')[0] || finalName,
+          fullName: finalName,
+          email: normalizedUser,
+          password: normalizedPassword || (role === 'CLIENT' ? 'cliente123' : 'repartidor123'),
+          phone: phoneNumber || undefined,
+          accountNumber: accountNumber || undefined,
+          role,
+        };
+
+        const response = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data?.message || 'No se pudo registrar el usuario');
+        }
+
+        const registeredUser = {
+          name: finalName,
+          email: normalizedUser,
+          password: payload.password,
+          phone: phoneNumber || undefined,
+          accountNumber: accountNumber || undefined,
+          isEmailVerified: false,
+          ...(role === 'PLATFORM_COURIER' ? {
             courierProfile: {
               businessIds: [],
               localityIds: [],
               isOnline: false,
               confirmation: 'PENDING' as const,
-            },
-          };
+            }
+          } : {}),
+        };
 
-      loginAs(role, normalizedUser, registeredUser);
-      showNotification(
-        role === 'CLIENT'
-          ? `Cuenta creada para ${finalName}. Revisa tu correo para verificar tu cuenta.`
-          : `Solicitud enviada para ${finalName}. La confirmación la realizará el Superadmin antes de activar tu panel de repartidor.`,
-        'success'
-      );
+        loginAs(role, normalizedUser, registeredUser);
+        showNotification(
+          role === 'CLIENT'
+            ? `Cuenta creada para ${finalName}. Revisa tu correo para verificar tu cuenta.`
+            : `Solicitud enviada para ${finalName}. La confirmación la realizará el Superadmin antes de activar tu panel de repartidor.`,
+          'success'
+        );
+        onClose();
+        return;
+      }
+
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: normalizedUser,
+          password: normalizedPassword,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.message || 'Credenciales incorrectas');
+      }
+
+      const user = data.user || {
+        name: finalName,
+        email: normalizedUser,
+        password: normalizedPassword,
+        isEmailVerified: true,
+      };
+
+      loginAs(user.role || 'CLIENT', normalizedUser, {
+        name: user.name || finalName,
+        email: user.email || normalizedUser,
+        password: normalizedPassword,
+        phone: user.phone || undefined,
+        accountNumber: user.accountNumber || undefined,
+        isEmailVerified: Boolean(user.isEmailVerified),
+        courierProfile: user.courierProfile,
+      });
+      showNotification(`Sesión iniciada como ${user.name || normalizedUser}`, 'success');
       onClose();
-      return;
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'No se pudo completar la operación', 'error');
     }
-
-    const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
-    loginAs('CLIENT', normalizedUser, {
-      name: finalName,
-      email: normalizedUser,
-      password: normalizedPassword || 'cliente123',
-      isEmailVerified: true,
-    });
-    showNotification(`Sesión iniciada como ${normalizedUser}`, 'success');
-    onClose();
   };
 
   return (
@@ -548,6 +593,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
                       placeholder="+34 600 000 000"
+                      className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                    />
+                  </div>
+                )}
+
+                {isRegisterMode && selectedRole === 'PLATFORM_COURIER' && (
+                  <div>
+                    <label className="block text-xs font-bold text-stone-300 mb-1">
+                      Número de cuenta para transferencias
+                    </label>
+                    <input
+                      type="text"
+                      value={accountNumber}
+                      onChange={(e) => setAccountNumber(e.target.value)}
+                      placeholder="ES12 3456 7890 1234 5678 9012"
                       className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                     />
                   </div>

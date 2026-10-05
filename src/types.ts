@@ -13,6 +13,7 @@ export interface User {
   email: string;
   password?: string;
   phone?: string;
+  accountNumber?: string;
   role: UserRole;
   businessId?: string; // If bound to a business
   isEmailVerified: boolean;
@@ -69,6 +70,7 @@ export interface Business {
   name: string;
   legalName: string;
   cif: string;
+  accountNumber?: string;
   category: string;
   localityId: string;
   address: string;

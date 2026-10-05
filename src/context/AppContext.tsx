@@ -78,6 +78,105 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null);
 
+const API_BASE = '/api';
+
+const toServerLocality = (item: Partial<Locality> & { postal_code?: string; is_active?: boolean; latitude?: number; longitude?: number; postalCode?: string; active?: boolean; coordinates?: { lat: number; lng: number } }) => ({
+  name: item.name || 'Nueva zona',
+  postalCode: item.postalCode ?? item.postal_code ?? '00000',
+  active: item.active ?? item.is_active ?? true,
+  coordinates: item.coordinates || { lat: item.latitude ?? 40.2891, lng: item.longitude ?? -4.5824 },
+});
+
+const normalizeLocality = (item: any): Locality => ({
+  id: item.id || `loc-${Date.now()}`,
+  name: item.name || 'Zona',
+  postalCode: item.postalCode ?? item.postal_code ?? '00000',
+  coordinates: item.coordinates || { lat: Number(item.latitude ?? 40.2891), lng: Number(item.longitude ?? -4.5824) },
+  active: item.active ?? item.is_active ?? true,
+  coverImage: item.coverImage || item.cover_image,
+});
+
+const normalizeBusiness = (item: any): Business => ({
+  id: item.id || `biz-${Date.now()}`,
+  name: item.name || 'Negocio',
+  legalName: item.legalName ?? item.legal_name ?? item.name ?? 'Negocio',
+  cif: item.cif || '00000000A',
+  accountNumber: item.accountNumber ?? item.account_number ?? '',
+  category: item.category || 'general',
+  localityId: item.localityId ?? item.locality_id ?? 'locality-default',
+  address: item.address || 'Dirección por definir',
+  phone: item.phone || '+34 600 000 000',
+  email: item.email || 'contacto@negocio.es',
+  coordinates: item.coordinates || { lat: Number(item.latitude ?? 40.2891), lng: Number(item.longitude ?? -4.5824) },
+  rating: Number(item.rating ?? 4.5),
+  reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+  estimatedTimeMin: Number(item.estimatedTimeMin ?? item.estimated_time_min ?? 20),
+  estimatedTimeMax: Number(item.estimatedTimeMax ?? item.estimated_time_max ?? 40),
+  deliveryFeeCents: Number(item.deliveryFeeCents ?? item.delivery_fee_cents ?? 250),
+  minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
+  bannerUrl: item.bannerUrl || item.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
+  logoUrl: item.logoUrl || item.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
+  isShiftOpen: item.isShiftOpen ?? item.is_shift_open ?? true,
+  deliveryModes: item.deliveryModes || JSON.parse(item.delivery_modes || '[]') || ['PLATFORM_COURIER', 'PICKUP'],
+  deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
+  status: item.status || 'APPROVED',
+  schedule: item.schedule || [
+    { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
+    { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
+    { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
+    { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
+    { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
+    { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
+    { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isOpen: true }
+  ],
+  featuredProducts: item.featuredProducts || [],
+  managerName: item.managerName || '',
+  managerDni: item.managerDni || '',
+});
+
+const normalizeProduct = (item: any): Product => ({
+  id: item.id || `prod-${Date.now()}`,
+  businessId: item.businessId || item.business_id || 'business-default',
+  localityId: item.localityId || item.locality_id,
+  categoryId: item.categoryId || item.category_id || 'general',
+  name: item.name || 'Producto',
+  description: item.description || '',
+  tag: item.tag || '',
+  ingredients: item.ingredients || [],
+  priceCents: Number(item.priceCents ?? item.price_cents ?? 0),
+  taxPercentage: Number(item.taxPercentage ?? item.tax_percentage ?? 0),
+  imageUrl: item.imageUrl || item.image_url || '',
+  isAvailable: item.isAvailable ?? item.is_available ?? true,
+  isSoldOut: item.isSoldOut ?? item.is_sold_out ?? false,
+  removableIngredients: item.removableIngredients || item.removable_ingredients || [],
+  additionalIngredients: item.additionalIngredients || item.additional_ingredients || [],
+  optionGroups: item.optionGroups || [],
+  allergens: item.allergens || [],
+  salesCount: Number(item.salesCount ?? 0),
+  rating: Number(item.rating ?? 0),
+  ratingCount: Number(item.ratingCount ?? 0),
+});
+
+const apiFetch = async (path: string, options?: RequestInit) => {
+  const response = await fetch(`${API_BASE}${path}`, {
+    headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
+    ...options,
+  });
+
+  if (!response.ok) {
+    let message = 'Error en la petición';
+    try {
+      const payload = await response.json();
+      message = payload?.message || payload?.error || message;
+    } catch {
+      // ignore parse errors
+    }
+    throw new Error(message);
+  }
+
+  return response.headers.get('content-type')?.includes('application/json') ? response.json() : null;
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Theme state fixed to the current dashboard design
   const [isDarkMode, setIsDarkMode] = useState<boolean>(false);
@@ -93,8 +192,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // Locality
-  const [localities, setLocalities] = useState<Locality[]>(LOCALITIES);
-  const [selectedLocality, setSelectedLocality] = useState<Locality>(LOCALITIES[0]);
+  const [localities, setLocalities] = useState<Locality[]>(() => {
+    const saved = localStorage.getItem('pidetietar_localities');
+    return saved ? JSON.parse(saved) : LOCALITIES;
+  });
+  const [selectedLocality, setSelectedLocality] = useState<Locality>(() => {
+    const saved = localStorage.getItem('pidetietar_selected_locality');
+    return saved ? JSON.parse(saved) : LOCALITIES[0];
+  });
 
   // Businesses & Products
   const [businesses, setBusinesses] = useState<Business[]>(() => {
@@ -107,12 +212,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   useEffect(() => {
+    let active = true;
+
+    const loadFromDatabase = async () => {
+      try {
+        const [localitiesData, businessesData, productsData, ordersData] = await Promise.all([
+          apiFetch('/localities').catch(() => []),
+          apiFetch('/businesses').catch(() => []),
+          apiFetch('/products').catch(() => []),
+          apiFetch('/orders').catch(() => []),
+        ]);
+
+        if (!active) return;
+
+        const nextLocalities = (localitiesData || []).map(normalizeLocality);
+        const nextBusinesses = (businessesData || []).map(normalizeBusiness);
+        const nextProducts = (productsData || []).map(normalizeProduct);
+        const nextOrders = (ordersData || []).map((item: any) => ({ ...item }));
+
+        if (nextLocalities.length) {
+          setLocalities(nextLocalities);
+          localStorage.setItem('pidetietar_localities', JSON.stringify(nextLocalities));
+        }
+        if (nextBusinesses.length) {
+          setBusinesses(nextBusinesses);
+          localStorage.setItem('pidetietar_businesses', JSON.stringify(nextBusinesses));
+        }
+        if (nextProducts.length) {
+          setProducts(nextProducts);
+          localStorage.setItem('pidetietar_products', JSON.stringify(nextProducts));
+        }
+        if (nextOrders.length) {
+          setOrders(nextOrders);
+          localStorage.setItem('pidetietar_orders', JSON.stringify(nextOrders));
+        }
+      } catch (error) {
+        console.warn('No se pudo cargar la base de datos; se usa caché local.', error);
+      }
+    };
+
+    loadFromDatabase();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
     localStorage.setItem('pidetietar_businesses', JSON.stringify(businesses));
   }, [businesses]);
 
   useEffect(() => {
     localStorage.setItem('pidetietar_products', JSON.stringify(products));
   }, [products]);
+
+  useEffect(() => {
+    localStorage.setItem('pidetietar_localities', JSON.stringify(localities));
+  }, [localities]);
+
+  useEffect(() => {
+    localStorage.setItem('pidetietar_selected_locality', JSON.stringify(selectedLocality));
+  }, [selectedLocality]);
 
   useEffect(() => {
     const handleStorageSync = (event: StorageEvent) => {
@@ -271,53 +428,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const sendGmailVerificationCode = async (): Promise<boolean> => {
     if (!currentUser) return false;
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    setGeneratedCode(code);
-    setVerificationSent(true);
 
-    const emailBody = `
-      <div style="font-family: Arial, sans-serif; padding: 20px; color: #1A0600; max-width: 500px; border: 1px solid #e5e5e5; border-radius: 8px;">
-        <h2 style="color: #FF4E00; margin-top: 0;">PideTiétar - Verificación de Cuenta</h2>
-        <p>Hola <strong>${currentUser.name}</strong>,</p>
-        <p>Tu código de seguridad para verificar tu cuenta en PideTiétar es:</p>
-        <div style="background-color: #FFF4ED; border: 2px dashed #FF4E00; padding: 14px; text-align: center; font-size: 28px; font-weight: bold; letter-spacing: 4px; color: #A32300; margin: 20px 0;">
-          ${code}
-        </div>
-        <p style="font-size: 13px; color: #666;">Válido durante 15 minutos. No compartas este código con nadie.</p>
-        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;" />
-        <small style="color: #888;">PideTiétar - Todo el valle a tu puerta</small>
-      </div>
-    `;
+    try {
+      const response = await apiFetch('/auth/send-verification-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: currentUser.email, fullName: currentUser.name }),
+      });
 
-    const res = await sendEmailViaGmail({
-      recipientEmail: currentUser.email,
-      subject: `Código de verificación PideTiétar: ${code}`,
-      bodyText: `Tu código de verificación de PideTiétar es: ${code}`,
-      htmlContent: emailBody
-    });
+      setGeneratedCode(response.code || null);
+      setVerificationSent(Boolean(response.sent || response.code));
 
-    if (res.success) {
-      showNotification(`Código de 6 dígitos enviado a ${currentUser.email} vía Gmail`, 'success');
+      if (response.sent) {
+        showNotification(`Código de 6 dígitos enviado a ${currentUser.email}.`, 'success');
+        return true;
+      }
+
+      showNotification(`Aviso: código generado para pruebas (${response.code}) porque el SMTP no está configurado.`, 'info');
       return true;
-    } else {
-      showNotification(`Aviso: Código generado (${code}) simulado en consola: ${res.error}`, 'info');
-      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo enviar el correo de verificación.';
+      showNotification(message, 'error');
+      return false;
     }
   };
 
   const verifyEmailWithGmailCode = async (code: string): Promise<boolean> => {
-    if (!generatedCode || code.trim() !== generatedCode.trim()) {
-      showNotification('Código de verificación inválido. Por favor revisa tu bandeja de Gmail.', 'error');
+    if (!currentUser || !code.trim()) {
+      showNotification('Introduce el código de verificación.', 'error');
       return false;
     }
 
-    if (currentUser) {
-      setCurrentUser({ ...currentUser, isEmailVerified: true });
+    try {
+      const response = await apiFetch('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ email: currentUser.email, code: code.trim() }),
+      });
+
+      if (response.verified) {
+        setCurrentUser(prev => prev ? { ...prev, isEmailVerified: true } : prev);
+        setGeneratedCode(null);
+        setVerificationSent(false);
+        showNotification('¡Correo verificado con éxito! Ya puedes realizar pedidos.', 'success');
+        return true;
+      }
+
+      showNotification(response.message || 'Código de verificación inválido.', 'error');
+      return false;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo verificar el correo.';
+      showNotification(message, 'error');
+      return false;
     }
-    setGeneratedCode(null);
-    setVerificationSent(false);
-    showNotification('¡Correo verificado con éxito! Ya puedes realizar pedidos.', 'success');
-    return true;
   };
 
   const addLocality = (data: Partial<Locality>): Locality => {
@@ -331,6 +492,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setLocalities(prev => [...prev, newLocality]);
+    void apiFetch('/localities', {
+      method: 'POST',
+      body: JSON.stringify(toServerLocality(newLocality)),
+    }).catch(() => {
+      console.warn('No se pudo guardar la localidad en la base de datos');
+    });
     showNotification(`Zona "${newLocality.name}" añadida.`, 'success');
     return newLocality;
   };
@@ -364,6 +531,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       name: businessData.name || 'Nuevo negocio',
       legalName: businessData.legalName || businessData.name || 'Nuevo negocio',
       cif: businessData.cif || '00000000A',
+      accountNumber: businessData.accountNumber || '',
       category: businessData.category || 'general',
       localityId: businessData.localityId || selectedLocality.id,
       address: businessData.address || 'Dirección por definir',
@@ -397,6 +565,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setBusinesses(prev => [newBusiness, ...prev]);
+    void apiFetch('/businesses', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newBusiness,
+        locality_id: newBusiness.localityId,
+        legal_name: newBusiness.legalName,
+        account_number: newBusiness.accountNumber,
+        delivery_fee_cents: newBusiness.deliveryFeeCents,
+        min_order_cents: newBusiness.minOrderCents,
+        delivery_modes: newBusiness.deliveryModes,
+        is_shift_open: newBusiness.isShiftOpen,
+        estimated_time_min: newBusiness.estimatedTimeMin,
+        estimated_time_max: newBusiness.estimatedTimeMax,
+        review_count: newBusiness.reviewCount,
+        banner_url: newBusiness.bannerUrl,
+        logo_url: newBusiness.logoUrl,
+        delivery_radius_km: newBusiness.deliveryRadiusKm,
+      }),
+    }).catch(() => {
+      console.warn('No se pudo guardar el negocio en la base de datos');
+    });
     showNotification(`Nuevo negocio creado: ${newBusiness.name}`, 'success');
     return newBusiness;
   };
@@ -417,6 +606,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setProducts((prev: Product[]) => [newProduct, ...prev]);
+    void apiFetch('/products', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...newProduct,
+        business_id: newProduct.businessId,
+        category_id: newProduct.categoryId,
+        price_cents: newProduct.priceCents,
+        tax_percentage: newProduct.taxPercentage,
+        image_url: newProduct.imageUrl,
+        is_available: newProduct.isAvailable,
+        is_sold_out: newProduct.isSoldOut,
+        removable_ingredients: newProduct.removableIngredients,
+        additional_ingredients: newProduct.additionalIngredients,
+      }),
+    }).catch(() => {
+      console.warn('No se pudo guardar el producto en la base de datos');
+    });
     showNotification(`Producto añadido a la carta: ${newProduct.name}`, 'success');
     return newProduct;
   };
@@ -663,6 +869,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(console.error);
 
     setOrders(prev => [newOrder, ...prev]);
+    void apiFetch('/orders', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: newOrder.id,
+        business_id: newOrder.businessId,
+        order_number: newOrder.orderNumber,
+        customer_name: newOrder.customerName,
+        customer_email: newOrder.customerEmail,
+        delivery_type: newOrder.deliveryType,
+        total_cents: newOrder.totalCents,
+        status: newOrder.status,
+      }),
+    }).catch(() => {
+      console.warn('No se pudo guardar el pedido en la base de datos');
+    });
     clearCart();
     showNotification(`¡Pedido ${newOrder.orderNumber} confirmado con éxito!`, 'success');
 
