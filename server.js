@@ -14,6 +14,25 @@ process.env.NODE_ENV ||= "development";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+
+// Las rutas de abajo son handlers async (p. ej. app.post("/x", async (req, res) => {...})).
+// En Express 4 un rechazo de promesa dentro de un handler async NO se reenvía a next(),
+// se convierte en un "unhandledRejection" y por defecto Node mata el proceso completo
+// (caía TODO el servidor, no solo la petición, provocando 503 para cualquier usuario).
+// Se envuelve cada handler para reenviar cualquier error al middleware de errores de Express.
+["get", "post", "put", "delete", "patch"].forEach((method) => {
+  const original = app[method].bind(app);
+  app[method] = (routePath, ...handlers) => {
+    const wrapped = handlers.map((handler) => {
+      if (typeof handler !== "function") return handler;
+      return (req, res, next) => {
+        Promise.resolve(handler(req, res, next)).catch(next);
+      };
+    });
+    return original(routePath, ...wrapped);
+  };
+});
+
 const PORT = Number(process.env.PORT || 4000);
 const CONFIGURED_DB_PATH = process.env.DB_PATH || path.join("data", "app.db");
 const DB_PATH = path.isAbsolute(CONFIGURED_DB_PATH)
@@ -690,6 +709,38 @@ async function getUserByIdentifier(identifier) {
   );
 }
 
+// A diferencia de getUserByIdentifier (que compara un único valor contra
+// username Y email), esta función comprueba el username y el email reales por
+// separado. Es necesaria porque un usuario puede existir con un email dado
+// bajo un username distinto (p. ej. la cuenta semilla del superadmin usa
+// username "RafaAdmin" con email "rafaeldesweb@gmail.com"): si alguien se
+// registra con ese mismo email derivando otro username, getUserByIdentifier(
+// username) nunca encontraba el email ya existente y la inserción posterior
+// violaba la restricción UNIQUE de la columna email.
+async function findUserByUsernameOrEmail(username, email) {
+  const cleanUsername = String(username || "").trim();
+  const cleanEmail = String(email || "").trim();
+
+  if (!cleanUsername && !cleanEmail) return null;
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM app_users WHERE (? <> '' AND username = ?) OR (? <> '' AND email = ?) LIMIT 1",
+      [cleanUsername, cleanUsername, cleanEmail, cleanEmail],
+    );
+    return rows[0] || null;
+  }
+
+  const db = getSqliteDb();
+  return (
+    db
+      .prepare(
+        "SELECT * FROM app_users WHERE (? <> '' AND username = ?) OR (? <> '' AND email = ?) LIMIT 1",
+      )
+      .get(cleanUsername, cleanUsername, cleanEmail, cleanEmail) || null
+  );
+}
+
 async function listLocalities() {
   if (mysqlPool) {
     const [rows] = await mysqlPool.execute(
@@ -846,7 +897,7 @@ app.post("/api/auth/register", async (req, res) => {
     });
   }
 
-  const existing = await getUserByIdentifier(username || email);
+  const existing = await findUserByUsernameOrEmail(username, email);
   if (existing) {
     return res
       .status(409)
@@ -1691,6 +1742,41 @@ if (fs.existsSync(distPath)) {
     });
   });
 }
+
+// Middleware de error de Express (4 argumentos): captura cualquier error
+// reenviado por los handlers async envueltos más arriba y responde con JSON
+// en lugar de dejar que Express devuelva HTML o que el proceso se caiga.
+app.use((err, _req, res, _next) => {
+  console.error("Unhandled route error:", err);
+  if (res.headersSent) return;
+
+  const isDuplicate =
+    err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
+    err?.code === "SQLITE_CONSTRAINT" ||
+    err?.code === "ER_DUP_ENTRY";
+
+  if (isDuplicate) {
+    return res.status(409).json({
+      code: "USER_EXISTS",
+      message: "El usuario o correo ya existe",
+    });
+  }
+
+  res.status(500).json({
+    code: "INTERNAL_ERROR",
+    message: "Error interno del servidor. Inténtalo de nuevo más tarde.",
+  });
+});
+
+// Red de seguridad adicional: si algún error asíncrono se generase fuera del
+// ciclo de petición/respuesta (por tanto fuera del wrapper de rutas de arriba),
+// se registra en lugar de dejar que tumbe todo el proceso y provoque un 503.
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+});
 
 // No se usa top-level await: algunos cargadores de hosting (p. ej. Hostinger)
 // arrancan este archivo con require(), y require() no puede cargar
