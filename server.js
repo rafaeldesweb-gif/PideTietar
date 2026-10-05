@@ -721,24 +721,30 @@ async function findUserByUsernameOrEmail(username, email) {
   const cleanUsername = String(username || "").trim();
   const cleanEmail = String(email || "").trim();
 
-  if (!cleanUsername && !cleanEmail) return null;
+  const conditions = [];
+  const params = [];
+
+  if (cleanUsername) {
+    conditions.push("username = ?");
+    params.push(cleanUsername);
+  }
+
+  if (cleanEmail) {
+    conditions.push("email = ?");
+    params.push(cleanEmail);
+  }
+
+  if (conditions.length === 0) return null;
+
+  const sql = `SELECT * FROM app_users WHERE (${conditions.join(" OR ")}) LIMIT 1`;
 
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT * FROM app_users WHERE (? <> '' AND username = ?) OR (? <> '' AND email = ?) LIMIT 1",
-      [cleanUsername, cleanUsername, cleanEmail, cleanEmail],
-    );
+    const [rows] = await mysqlPool.execute(sql, params);
     return rows[0] || null;
   }
 
   const db = getSqliteDb();
-  return (
-    db
-      .prepare(
-        "SELECT * FROM app_users WHERE (? <> '' AND username = ?) OR (? <> '' AND email = ?) LIMIT 1",
-      )
-      .get(cleanUsername, cleanUsername, cleanEmail, cleanEmail) || null
-  );
+  return db.prepare(sql).get(...params) || null;
 }
 
 async function listLocalities() {
