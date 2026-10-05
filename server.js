@@ -1692,12 +1692,24 @@ if (fs.existsSync(distPath)) {
   });
 }
 
-await ensureSchema();
+// No se usa top-level await: algunos cargadores de hosting (p. ej. Hostinger)
+// arrancan este archivo con require(), y require() no puede cargar
+// sincrónicamente un grafo ESM que contenga top-level await. Se envuelve el
+// arranque en una función async para mantener el mismo comportamiento sin
+// dejar ningún await en el ámbito superior del módulo.
+async function startServer() {
+  await ensureSchema();
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`PideTiétar backend running on http://0.0.0.0:${PORT}`);
-  console.log(`Database mode: ${databaseMode}`);
-  console.log(
-    `Database target: ${mysqlPool ? process.env.MYSQL_DATABASE || "mysql" : DB_PATH}`,
-  );
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`PideTiétar backend running on http://0.0.0.0:${PORT}`);
+    console.log(`Database mode: ${databaseMode}`);
+    console.log(
+      `Database target: ${mysqlPool ? process.env.MYSQL_DATABASE || "mysql" : DB_PATH}`,
+    );
+  });
+}
+
+startServer().catch((error) => {
+  console.error("Failed to start server:", error);
+  process.exit(1);
 });
