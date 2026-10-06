@@ -969,7 +969,7 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0)",
+      "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
       [id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role],
     );
     const [rows] = await mysqlPool.execute(
@@ -982,7 +982,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 0)",
+    "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
   ).run(id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role);
   return db.prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1").get(id);
 }
@@ -1068,23 +1068,12 @@ app.post("/api/auth/register", async (req, res) => {
     role: "CLIENT",
   });
 
-  const verificationCode = buildVerificationCode();
-  await setUserVerificationCode(newUser.id, verificationCode);
-  const emailDelivery = await sendVerificationEmail({
-    email: newUser.email,
-    fullName: newUser.full_name || newUser.username || "usuario",
-    code: verificationCode,
-  });
-
   res.status(201).json({
     success: true,
     user: sanitizeUser(newUser),
-    requiresEmailVerification: true,
-    emailVerificationSent: emailDelivery.sent,
-    verificationCode: emailDelivery.sent ? undefined : verificationCode,
-    message: emailDelivery.sent
-      ? "Usuario creado. Revisa tu email para verificar la cuenta."
-      : "Usuario creado. Se ha generado un código de verificación para pruebas locales.",
+    requiresEmailVerification: false,
+    emailVerificationSent: false,
+    message: "Usuario creado correctamente. Ya puedes iniciar sesión.",
   });
 });
 
@@ -1213,25 +1202,6 @@ app.post("/api/auth/login", async (req, res) => {
         "Por seguridad, debes cambiar tu contraseña antes de iniciar sesión.",
       requiresPasswordChange: true,
       identifier: user.email || user.username || identifier,
-    });
-  }
-
-  const isEmailVerified = Boolean(
-    user.email_verified === 1 ||
-    user.email_verified === true ||
-    user.email_verified_at,
-  );
-
-  if (
-    !isEmailVerified &&
-    user.email &&
-    user.email !== "rafaeldesweb@gmail.com"
-  ) {
-    return res.status(403).json({
-      code: "EMAIL_NOT_VERIFIED",
-      message: "Debes verificar tu correo antes de iniciar sesión.",
-      user: sanitizeUser(user),
-      requiresEmailVerification: true,
     });
   }
 
