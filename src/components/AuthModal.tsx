@@ -31,6 +31,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [isRegisterMode, setIsRegisterMode] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'CLIENT' | 'PLATFORM_COURIER'>('CLIENT');
+  const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
+  const [passwordChangeIdentifier, setPasswordChangeIdentifier] = useState('');
+  const [passwordChangeCurrentPassword, setPasswordChangeCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
   
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
@@ -42,6 +47,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Gmail verification code
   const [inputCode, setInputCode] = useState('');
   const [isVerifying, setIsVerifying] = useState(false);
+
+  const clearPasswordChangeFlow = () => {
+    setRequiresPasswordChange(false);
+    setPasswordChangeIdentifier('');
+    setPasswordChangeCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+  };
 
   if (!isOpen) return null;
 
@@ -149,6 +162,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (isRegisterMode && !normalizedPassword) {
+      showNotification('La contraseña es obligatoria para crear la cuenta.', 'error');
+      return;
+    }
+
+    if (isRegisterMode && normalizedPassword.length < 8) {
+      showNotification('La contraseña debe tener al menos 8 caracteres.', 'error');
+      return;
+    }
+
     const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
 
     try {
@@ -158,7 +181,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           username: normalizedUser.split('@')[0] || finalName,
           fullName: finalName,
           email: normalizedUser,
-          password: normalizedPassword || (role === 'CLIENT' ? 'cliente123' : 'repartidor123'),
+          password: normalizedPassword,
           phone: phoneNumber || undefined,
           accountNumber: accountNumber || undefined,
           role,
@@ -214,6 +237,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (data?.code === 'PASSWORD_CHANGE_REQUIRED') {
+          setRequiresPasswordChange(true);
+          setPasswordChangeIdentifier(
+            String(data?.identifier || normalizedUser).trim(),
+          );
+          setPasswordChangeCurrentPassword(normalizedPassword);
+          showNotification(
+            data?.message || 'Debes cambiar tu contraseña antes de iniciar sesión.',
+            'error',
+          );
+          return;
+        }
         throw new Error(data?.message || 'Credenciales incorrectas');
       }
 
@@ -237,6 +272,61 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       onClose();
     } catch (error) {
       showNotification(error instanceof Error ? error.message : 'No se pudo completar la operación', 'error');
+    }
+  };
+
+  const handlePasswordChangeSubmit = async () => {
+    if (!passwordChangeIdentifier || !passwordChangeCurrentPassword) {
+      showNotification('No se pudo identificar la sesión a actualizar. Vuelve a iniciar sesión.', 'error');
+      return;
+    }
+
+    const cleanNewPassword = newPassword.trim();
+    const cleanConfirmPassword = confirmNewPassword.trim();
+    if (!cleanNewPassword) {
+      showNotification('Introduce una nueva contraseña.', 'error');
+      return;
+    }
+    if (cleanNewPassword.length < 8) {
+      showNotification('La nueva contraseña debe tener al menos 8 caracteres.', 'error');
+      return;
+    }
+    if (cleanNewPassword !== cleanConfirmPassword) {
+      showNotification('La confirmación no coincide con la nueva contraseña.', 'error');
+      return;
+    }
+    if (cleanNewPassword === passwordChangeCurrentPassword) {
+      showNotification('La nueva contraseña debe ser diferente a la actual.', 'error');
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          identifier: passwordChangeIdentifier,
+          currentPassword: passwordChangeCurrentPassword,
+          newPassword: cleanNewPassword,
+        }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data?.message || 'No se pudo actualizar la contraseña');
+      }
+
+      setPassword('');
+      clearPasswordChangeFlow();
+      showNotification(
+        data?.message || 'Contraseña actualizada correctamente. Inicia sesión de nuevo.',
+        'success',
+      );
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo actualizar la contraseña',
+        'error',
+      );
     }
   };
 
@@ -528,7 +618,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <div className="grid grid-cols-2 gap-1 text-[11px] font-bold uppercase tracking-wide">
                     <button
                       type="button"
-                      onClick={() => setIsRegisterMode(true)}
+                      onClick={() => {
+                        setIsRegisterMode(true);
+                        clearPasswordChangeFlow();
+                      }}
                       className={`rounded-lg px-3 py-2 transition ${isRegisterMode ? 'bg-[#FF4E00] text-white' : 'text-stone-400 hover:text-white'}`}
                     >
                       Registro
@@ -656,6 +749,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 >
                   {isRegisterMode ? 'CREAR CUENTA' : 'INICIAR SESIÓN'}
                 </button>
+
+                {requiresPasswordChange && !isRegisterMode && (
+                  <div className="mt-4 space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5">
+                    <p className="text-xs text-amber-200">
+                      Por seguridad, esta cuenta debe cambiar su contraseña antes de iniciar sesión.
+                    </p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-xs font-bold text-stone-300 mb-1">
+                          Nueva contraseña
+                        </label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          placeholder="Mínimo 8 caracteres"
+                          className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-stone-300 mb-1">
+                          Confirmar nueva contraseña
+                        </label>
+                        <input
+                          type="password"
+                          value={confirmNewPassword}
+                          onChange={(e) => setConfirmNewPassword(e.target.value)}
+                          placeholder="Repite la nueva contraseña"
+                          className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handlePasswordChangeSubmit}
+                        className="w-full rounded-xl bg-amber-300 py-3 text-xs font-black uppercase tracking-wider text-stone-950 transition hover:bg-amber-200 cursor-pointer"
+                      >
+                        ACTUALIZAR CONTRASEÑA
+                      </button>
+                    </div>
+                  </div>
+                )}
 
               </form>
 

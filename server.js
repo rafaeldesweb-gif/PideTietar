@@ -63,6 +63,46 @@ let databaseMode = "sqlite";
 
 const emailVerificationTtlMs =
   Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 15) * 60 * 1000;
+const INSECURE_DEFAULT_PASSWORD = "PideTietar123";
+const MIN_PASSWORD_LENGTH = 8;
+
+function normalizePassword(value) {
+  return String(value ?? "").trim();
+}
+
+function validatePasswordOrThrow(passwordRaw) {
+  const password = normalizePassword(passwordRaw);
+
+  if (!password) {
+    const error = new Error("La contraseña es obligatoria");
+    error.code = "VALIDATION_ERROR";
+    throw error;
+  }
+
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    const error = new Error(
+      `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+    );
+    error.code = "VALIDATION_ERROR";
+    throw error;
+  }
+
+  return password;
+}
+
+function isUsingInsecureDefaultPassword(hash) {
+  if (!hash) return false;
+
+  try {
+    return bcrypt.compareSync(INSECURE_DEFAULT_PASSWORD, String(hash));
+  } catch (error) {
+    console.warn(
+      "Unable to validate password hash while checking insecure default:",
+      error.message,
+    );
+    return false;
+  }
+}
 
 const sqliteSchema = `
   CREATE TABLE IF NOT EXISTS app_users (
@@ -76,6 +116,8 @@ const sqliteSchema = `
     account_number TEXT,
     email_verified INTEGER DEFAULT 0,
     email_verified_at TEXT,
+    password_change_required INTEGER DEFAULT 0,
+    password_changed_at TEXT,
     email_verification_code TEXT,
     email_verification_expires_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -187,6 +229,8 @@ const mysqlSchema = `
     account_number VARCHAR(255) NULL,
     email_verified TINYINT(1) NOT NULL DEFAULT 0,
     email_verified_at DATETIME(3) NULL,
+    password_change_required TINYINT(1) NOT NULL DEFAULT 0,
+    password_changed_at DATETIME(3) NULL,
     email_verification_code VARCHAR(12) NULL,
     email_verification_expires_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -304,6 +348,40 @@ async function applyMysqlSchema(pool) {
   }
 }
 
+async function ensureMySqlSchemaShape(pool) {
+  const [columns] = await pool.query(
+    `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'app_users'`,
+  );
+
+  const existingColumns = new Set(
+    columns.map((column) => String(column.COLUMN_NAME)),
+  );
+  const pendingClauses = [];
+
+  const ensureColumn = (columnName, definition) => {
+    if (!existingColumns.has(columnName)) {
+      pendingClauses.push(`ADD COLUMN ${columnName} ${definition}`);
+    }
+  };
+
+  ensureColumn("account_number", "VARCHAR(255) NULL");
+  ensureColumn("email_verified", "TINYINT(1) NOT NULL DEFAULT 0");
+  ensureColumn("email_verified_at", "DATETIME(3) NULL");
+  ensureColumn("password_change_required", "TINYINT(1) NOT NULL DEFAULT 0");
+  ensureColumn("password_changed_at", "DATETIME(3) NULL");
+  ensureColumn("email_verification_code", "VARCHAR(12) NULL");
+  ensureColumn("email_verification_expires_at", "DATETIME(3) NULL");
+
+  if (!pendingClauses.length) {
+    return;
+  }
+
+  await pool.query(`ALTER TABLE app_users ${pendingClauses.join(", ")}`);
+}
+
 function getSqliteDb() {
   if (!sqliteDb) {
     sqliteDb = new DatabaseSync(DB_PATH);
@@ -372,6 +450,14 @@ function ensureSqliteSchemaShape() {
   }
   if (!userColumns.has("email_verified_at")) {
     db.exec("ALTER TABLE app_users ADD COLUMN email_verified_at TEXT");
+  }
+  if (!userColumns.has("password_change_required")) {
+    db.exec(
+      "ALTER TABLE app_users ADD COLUMN password_change_required INTEGER DEFAULT 0",
+    );
+  }
+  if (!userColumns.has("password_changed_at")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN password_changed_at TEXT");
   }
   if (!userColumns.has("email_verification_code")) {
     db.exec("ALTER TABLE app_users ADD COLUMN email_verification_code TEXT");
@@ -460,13 +546,15 @@ async function ensureSchema() {
 
   if (pool) {
     await applyMysqlSchema(pool);
+    await ensureMySqlSchemaShape(pool);
     await seedSuperAdmin();
+    await flagUsersWithInsecureDefaultPassword();
     return;
   }
 
-  const db = getSqliteDb();
   ensureSqliteSchemaShape();
-  seedSuperAdmin();
+  await seedSuperAdmin();
+  await flagUsersWithInsecureDefaultPassword();
 }
 
 async function seedSuperAdmin() {
@@ -499,6 +587,61 @@ async function seedSuperAdmin() {
       "RafaAdmin",
       "rafaeldesweb@gmail.com",
       hash,
+    );
+  }
+}
+
+async function flagUsersWithInsecureDefaultPassword() {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      `SELECT id, password_hash
+         FROM app_users
+        WHERE COALESCE(password_change_required, 0) = 0`,
+    );
+    const affectedIds = rows
+      .filter((row) => isUsingInsecureDefaultPassword(row.password_hash))
+      .map((row) => row.id);
+
+    if (!affectedIds.length) {
+      return;
+    }
+
+    const placeholders = affectedIds.map(() => "?").join(", ");
+    await mysqlPool.execute(
+      `UPDATE app_users
+          SET password_change_required = 1
+        WHERE id IN (${placeholders})`,
+      affectedIds,
+    );
+    console.warn(
+      `Flagged ${affectedIds.length} account(s) requiring password change due to insecure historical default password.`,
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  const rows = db
+    .prepare(
+      `SELECT id, password_hash
+         FROM app_users
+        WHERE COALESCE(password_change_required, 0) = 0`,
+    )
+    .all();
+
+  let affectedCount = 0;
+  const markStatement = db.prepare(
+    "UPDATE app_users SET password_change_required = 1 WHERE id = ?",
+  );
+
+  for (const row of rows) {
+    if (!isUsingInsecureDefaultPassword(row.password_hash)) continue;
+    markStatement.run(row.id);
+    affectedCount += 1;
+  }
+
+  if (affectedCount) {
+    console.warn(
+      `Flagged ${affectedCount} account(s) requiring password change due to insecure historical default password.`,
     );
   }
 }
@@ -820,7 +963,8 @@ async function createUser({
   const cleanEmail = String(
     email || `${cleanUsername}@pidetietar.local`,
   ).trim();
-  const hash = bcrypt.hashSync(String(password || "PideTietar123"), 10);
+  const cleanPassword = validatePasswordOrThrow(password);
+  const hash = bcrypt.hashSync(cleanPassword, 10);
 
   if (mysqlPool) {
     const id = cryptoRandomId();
@@ -896,10 +1040,17 @@ app.post("/api/auth/register", async (req, res) => {
     password,
     role = "CLIENT",
   } = req.body || {};
-  if (!email || !password) {
+  const cleanPassword = normalizePassword(password);
+  if (!email || !cleanPassword) {
     return res.status(400).json({
       code: "VALIDATION_ERROR",
       message: "Email y contraseña son obligatorios",
+    });
+  }
+  if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
     });
   }
 
@@ -914,7 +1065,7 @@ app.post("/api/auth/register", async (req, res) => {
     username,
     fullName,
     email,
-    password,
+    password: cleanPassword,
     role,
   });
 
@@ -1051,6 +1202,21 @@ app.post("/api/auth/login", async (req, res) => {
       .json({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" });
   }
 
+  const requiresPasswordChange = Boolean(
+    user.password_change_required === 1 ||
+      user.password_change_required === true,
+  );
+
+  if (requiresPasswordChange) {
+    return res.status(403).json({
+      code: "PASSWORD_CHANGE_REQUIRED",
+      message:
+        "Por seguridad, debes cambiar tu contraseña antes de iniciar sesión.",
+      requiresPasswordChange: true,
+      identifier: user.email || user.username || identifier,
+    });
+  }
+
   const isEmailVerified = Boolean(
     user.email_verified === 1 ||
     user.email_verified === true ||
@@ -1071,6 +1237,70 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   res.json({ success: true, user: sanitizeUser(user) });
+});
+
+app.post("/api/auth/change-password", async (req, res) => {
+  const { identifier, currentPassword, newPassword } = req.body || {};
+  const cleanIdentifier = String(identifier || "").trim();
+  const cleanCurrentPassword = normalizePassword(currentPassword);
+  const cleanNewPassword = normalizePassword(newPassword);
+
+  if (!cleanIdentifier || !cleanCurrentPassword || !cleanNewPassword) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Identificador, contraseña actual y nueva contraseña son obligatorios.",
+    });
+  }
+
+  if (cleanNewPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: `La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+    });
+  }
+
+  if (cleanCurrentPassword === cleanNewPassword) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "La nueva contraseña debe ser diferente a la actual.",
+    });
+  }
+
+  const user = await getUserByIdentifier(cleanIdentifier);
+  if (!user || !bcrypt.compareSync(cleanCurrentPassword, user.password_hash)) {
+    return res.status(401).json({
+      code: "INVALID_CREDENTIALS",
+      message: "No se pudo validar tu identidad para cambiar la contraseña.",
+    });
+  }
+
+  const newHash = bcrypt.hashSync(cleanNewPassword, 10);
+  const changedAt = new Date().toISOString();
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE app_users
+          SET password_hash = ?,
+              password_change_required = 0,
+              password_changed_at = ?
+        WHERE id = ?`,
+      [newHash, changedAt, user.id],
+    );
+  } else {
+    const db = getSqliteDb();
+    db.prepare(
+      `UPDATE app_users
+          SET password_hash = ?,
+              password_change_required = 0,
+              password_changed_at = ?
+        WHERE id = ?`,
+    ).run(newHash, changedAt, user.id);
+  }
+
+  return res.json({
+    success: true,
+    message: "Contraseña actualizada correctamente. Ya puedes iniciar sesión.",
+  });
 });
 
 app.get("/api/auth/me", async (req, res) => {
@@ -1226,7 +1456,20 @@ app.get("/api/users", async (_req, res) => {
 });
 
 app.post("/api/users", async (req, res) => {
-  const user = await createUser(req.body);
+  const cleanPassword = normalizePassword(req.body?.password);
+  if (!cleanPassword) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "La contraseña es obligatoria para crear usuarios",
+    });
+  }
+  if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+    });
+  }
+  const user = await createUser({ ...req.body, password: cleanPassword });
   res.status(201).json({ success: true, user: sanitizeUser(user) });
 });
 
