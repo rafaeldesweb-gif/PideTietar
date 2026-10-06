@@ -1038,7 +1038,6 @@ app.post("/api/auth/register", async (req, res) => {
     fullName,
     email,
     password,
-    role = "CLIENT",
   } = req.body || {};
   const cleanPassword = normalizePassword(password);
   if (!email || !cleanPassword) {
@@ -1066,7 +1065,7 @@ app.post("/api/auth/register", async (req, res) => {
     fullName,
     email,
     password: cleanPassword,
-    role,
+    role: "CLIENT",
   });
 
   const verificationCode = buildVerificationCode();

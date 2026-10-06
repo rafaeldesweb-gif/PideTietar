@@ -2,51 +2,37 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Menu, X, ShoppingBag, MapPin,
-  UserCheck, ShieldCheck, ChevronDown, CheckCircle2,
-  Calendar, Mail, CreditCard, AlertCircle, LogOut
+  ChevronDown, LogOut
 } from 'lucide-react';
 import { ProjectLogo } from './ProjectLogo';
-import { UserRole } from '../types';
 import { canViewOrdersPage } from '../utils/orderVisibility';
 
 interface HeaderProps {
-  currentView: string;
   setCurrentView: (v: string) => void;
   openCart: () => void;
   openAuthModal: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  currentView,
   setCurrentView,
   openCart,
   openAuthModal,
 }) => {
   const { 
     currentUser, 
-    loginAs, 
     logout, 
     selectedLocality, 
     setSelectedLocality,
     localities,
-    cart,
-    userSubscription
+    cart
   } = useApp();
 
   const [localityMenuOpen, setLocalityMenuOpen] = useState(false);
-  const [roleSwitcherOpen, setRoleSwitcherOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const cartItemsCount = cart ? cart.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
   const canAccessCourierPanel = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER') && currentUser.isEmailVerified && (currentUser.courierProfile?.confirmation === 'SUPERADMIN' || currentUser.courierProfile?.confirmation === 'BUSINESS_EMAIL');
   const canSeeOrdersPage = canViewOrdersPage(currentUser);
-
-  const roles: { role: UserRole; label: string; desc: string }[] = [
-    { role: 'CLIENT', label: 'Cliente', desc: 'Pedir y explorar locales' },
-    { role: 'BUSINESS_ADMIN', label: 'Admin Comercio', desc: 'Asador & Burger El Tiétar' },
-    { role: 'PLATFORM_COURIER', label: 'Repartidor Plataforma', desc: 'Entregas y ruta en mapa' },
-    { role: 'SUPERADMIN', label: 'Superadministrador', desc: 'rafaeldesweb@gmail.com' },
-  ];
 
   return (
     <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/95 text-stone-900 shadow-xs backdrop-blur-md transition-colors dark:border-stone-800 dark:bg-stone-900/95 dark:text-stone-100">
@@ -140,53 +126,6 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            <div className="relative hidden sm:block">
-              <button
-                id="role-switch-btn"
-                onClick={() => setRoleSwitcherOpen(!roleSwitcherOpen)}
-                className="flex items-center gap-1.5 rounded-lg border border-stone-200 bg-stone-100 px-2.5 py-1.5 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300"
-              >
-                <UserCheck className="h-3.5 w-3.5 text-[#FF4E00]" />
-                <span className="text-[#A32300] dark:text-amber-400">{currentUser ? currentUser.role : 'Invitado'}</span>
-                <ChevronDown className="h-3 w-3 text-stone-400" />
-              </button>
-
-              {roleSwitcherOpen && (
-                <div className="absolute right-0 z-50 mt-2 w-72 rounded-xl border border-stone-200 bg-white py-2 shadow-2xl dark:border-stone-800 dark:bg-stone-900">
-                  <div className="border-b border-stone-100 px-3 py-1.5 dark:border-stone-800">
-                    <p className="text-xs font-bold text-stone-800 dark:text-stone-200">Simulador de Roles</p>
-                  </div>
-                  <div className="max-h-72 divide-y divide-stone-100 overflow-y-auto dark:divide-stone-800/50">
-                    {roles.map((r) => (
-                      <button
-                        key={r.role}
-                        onClick={() => {
-                          loginAs(r.role);
-                          setRoleSwitcherOpen(false);
-                          if (r.role === 'BUSINESS_ADMIN') setCurrentView('business-dashboard');
-                          else if (r.role === 'PLATFORM_COURIER') setCurrentView('courier-dashboard');
-                          else if (r.role === 'SUPERADMIN') setCurrentView('admin-dashboard');
-                          else setCurrentView('home');
-                        }}
-                        className={`flex w-full items-start gap-2 px-3 py-2 text-left text-xs hover:bg-stone-50 dark:hover:bg-stone-800 ${
-                          currentUser?.role === r.role ? 'bg-orange-50/50 dark:bg-orange-950/20' : ''
-                        }`}
-                      >
-                        <div className="mt-1 h-2 w-2 shrink-0 rounded-full bg-[#FF4E00]" />
-                        <div>
-                          <div className="flex items-center gap-1 font-semibold text-stone-800 dark:text-stone-200">
-                            <span>{r.label}</span>
-                            {currentUser?.role === r.role && <CheckCircle2 className="h-3 w-3 text-[#FF4E00]" />}
-                          </div>
-                          <div className="text-[11px] text-stone-500">{r.desc}</div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
             {currentUser ? (
               <>
                 <button
@@ -207,7 +146,6 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={() => {
                     logout();
                     setCurrentView('home');
-                    setRoleSwitcherOpen(false);
                     setMobileNavOpen(false);
                   }}
                   className="hidden items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70 sm:inline-flex"

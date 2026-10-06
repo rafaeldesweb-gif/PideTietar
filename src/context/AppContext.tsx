@@ -34,6 +34,15 @@ interface AppContextType {
   businesses: Business[];
   products: typeof INITIAL_PRODUCTS;
   createBusiness: (businessData: Partial<Business>) => Business;
+  updateBusiness: (businessId: string, businessData: Partial<Business>) => Promise<boolean>;
+  deleteBusiness: (businessId: string) => Promise<boolean>;
+  createUserAccount: (data: {
+    username: string;
+    fullName: string;
+    email: string;
+    password: string;
+    role: User['role'];
+  }) => Promise<boolean>;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
   deleteProductFromBusiness: (productId: string) => void;
@@ -590,6 +599,92 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newBusiness;
   };
 
+  const updateBusiness = async (businessId: string, businessData: Partial<Business>): Promise<boolean> => {
+    const target = businesses.find((business) => business.id === businessId);
+    if (!target) {
+      showNotification('No se encontró el negocio que intentas editar.', 'error');
+      return false;
+    }
+
+    const updatedBusiness: Business = { ...target, ...businessData };
+
+    try {
+      await apiFetch(`/businesses/${businessId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: updatedBusiness.name,
+          legal_name: updatedBusiness.legalName,
+          cif: updatedBusiness.cif,
+          phone: updatedBusiness.phone,
+          email: updatedBusiness.email,
+          account_number: updatedBusiness.accountNumber || null,
+          address: updatedBusiness.address,
+          locality_id: updatedBusiness.localityId,
+          status: updatedBusiness.status,
+          delivery_fee_cents: updatedBusiness.deliveryFeeCents,
+          is_shift_open: updatedBusiness.isShiftOpen,
+        }),
+      });
+
+      setBusinesses((previous) =>
+        previous.map((business) =>
+          business.id === businessId ? updatedBusiness : business,
+        ),
+      );
+      showNotification(`Negocio actualizado: ${updatedBusiness.name}`, 'success');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo actualizar el negocio';
+      showNotification(message, 'error');
+      return false;
+    }
+  };
+
+  const deleteBusiness = async (businessId: string): Promise<boolean> => {
+    const target = businesses.find((business) => business.id === businessId);
+    if (!target) {
+      showNotification('No se encontró el negocio que intentas eliminar.', 'error');
+      return false;
+    }
+
+    try {
+      await apiFetch(`/businesses/${businessId}`, { method: 'DELETE' });
+      setBusinesses((previous) => previous.filter((business) => business.id !== businessId));
+      showNotification(`Negocio eliminado: ${target.name}`, 'success');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo eliminar el negocio';
+      showNotification(message, 'error');
+      return false;
+    }
+  };
+
+  const createUserAccount = async (data: {
+    username: string;
+    fullName: string;
+    email: string;
+    password: string;
+    role: User['role'];
+  }): Promise<boolean> => {
+    try {
+      await apiFetch('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          username: data.username,
+          fullName: data.fullName,
+          email: data.email,
+          password: data.password,
+          role: data.role,
+        }),
+      });
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo crear el usuario del negocio';
+      showNotification(message, 'error');
+      return false;
+    }
+  };
+
   const updateBusinessShift = (businessId: string, isOpen: boolean) => {
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
     showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, isOpen ? 'success' : 'info');
@@ -1054,6 +1149,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       businesses,
       products,
       createBusiness,
+      updateBusiness,
+      deleteBusiness,
+      createUserAccount,
       addProductToBusiness,
       updateProductInBusiness,
       deleteProductFromBusiness,

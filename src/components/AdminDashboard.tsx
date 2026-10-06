@@ -23,6 +23,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     addLocality,
     deleteLocality,
     createBusiness,
+    updateBusiness,
+    deleteBusiness,
+    createUserAccount,
     showNotification
   } = useApp();
 
@@ -35,6 +38,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const [newZoneZip, setNewZoneZip] = useState('');
 
   const [showBusinessForm, setShowBusinessForm] = useState(false);
+  const [editingBusinessId, setEditingBusinessId] = useState<string | null>(null);
 
   const [newBusinessForm, setNewBusinessForm] = useState({
     name: '',
@@ -49,6 +53,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     managerName: '',
     managerDni: '',
     bannerUrl: '',
+    adminUsername: '',
+    adminEmail: '',
+    adminPassword: '',
+    adminRole: 'BUSINESS_ADMIN' as 'BUSINESS_ADMIN' | 'BUSINESS_COURIER' | 'PLATFORM_COURIER',
     schedule: [
       { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
       { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -66,6 +74,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setNewBusinessForm({...newBusinessForm, schedule: newSchedule});
   };
 
+  const resetBusinessForm = () => {
+    setNewBusinessForm({
+      name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
+      adminUsername: '',
+      adminEmail: '',
+      adminPassword: '',
+      adminRole: 'BUSINESS_ADMIN',
+      schedule: [
+        { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
+        { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
+        { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
+        { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
+        { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
+        { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
+        { dayOfWeek: 0, openTime: '12:00', closeTime: '23:00', isOpen: true },
+      ]
+    });
+  };
+
   const handleAddZone = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newZoneName || !newZoneZip) return;
@@ -80,11 +107,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setNewZoneZip('');
   };
 
-  const handleCreateBusiness = (e: React.FormEvent) => {
+  const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newBusinessForm.name || !newBusinessForm.localityId) return;
-    
-    createBusiness({
+
+    if (!newBusinessForm.adminUsername.trim() || !newBusinessForm.adminEmail.trim() || !newBusinessForm.adminPassword.trim()) {
+      showNotification('Debes asignar usuario, email y contraseña al nuevo negocio.', 'error');
+      return;
+    }
+
+    if (newBusinessForm.adminPassword.trim().length < 8) {
+      showNotification('La contraseña del usuario del negocio debe tener al menos 8 caracteres.', 'error');
+      return;
+    }
+
+    const createdBusiness = createBusiness({
       ...newBusinessForm,
       category: newBusinessForm.category || 'Restaurante',
       rating: 5.0,
@@ -102,20 +139,87 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       schedule: newBusinessForm.schedule,
     });
 
-    setNewBusinessForm({
-      name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
-      schedule: [
-        { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
-        { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
-        { dayOfWeek: 0, openTime: '12:00', closeTime: '23:00', isOpen: true },
-      ]
+    const accountCreated = await createUserAccount({
+      username: newBusinessForm.adminUsername.trim(),
+      fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
+      email: newBusinessForm.adminEmail.trim(),
+      password: newBusinessForm.adminPassword.trim(),
+      role: newBusinessForm.adminRole,
     });
+
+    if (!accountCreated) {
+      showNotification(
+        `El negocio ${createdBusiness.name} se creó, pero no se pudo crear su usuario asignado.`,
+        'error',
+      );
+      return;
+    }
+
+    showNotification(
+      `Negocio ${createdBusiness.name} creado y usuario ${newBusinessForm.adminUsername.trim()} asignado.`,
+      'success',
+    );
+    resetBusinessForm();
     setShowBusinessForm(false);
-    showNotification('Empresa creada correctamente', 'success');
+  };
+
+  const startEditingBusiness = (business: Business) => {
+    setEditingBusinessId(business.id);
+    setShowBusinessForm(true);
+    setNewBusinessForm({
+      name: business.name,
+      legalName: business.legalName,
+      cif: business.cif,
+      accountNumber: business.accountNumber || '',
+      category: business.category || '',
+      localityId: business.localityId,
+      phone: business.phone,
+      email: business.email,
+      address: business.address,
+      managerName: business.managerName || '',
+      managerDni: business.managerDni || '',
+      bannerUrl: business.bannerUrl || '',
+      adminUsername: '',
+      adminEmail: '',
+      adminPassword: '',
+      adminRole: 'BUSINESS_ADMIN',
+      schedule: business.schedule?.length ? business.schedule : newBusinessForm.schedule,
+    });
+  };
+
+  const handleSaveBusinessEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBusinessId) return;
+
+    const saved = await updateBusiness(editingBusinessId, {
+      name: newBusinessForm.name,
+      legalName: newBusinessForm.legalName,
+      cif: newBusinessForm.cif,
+      accountNumber: newBusinessForm.accountNumber,
+      category: newBusinessForm.category,
+      localityId: newBusinessForm.localityId,
+      phone: newBusinessForm.phone,
+      email: newBusinessForm.email,
+      address: newBusinessForm.address,
+      managerName: newBusinessForm.managerName,
+      managerDni: newBusinessForm.managerDni,
+      bannerUrl: newBusinessForm.bannerUrl,
+      schedule: newBusinessForm.schedule,
+    });
+
+    if (saved) {
+      setEditingBusinessId(null);
+      resetBusinessForm();
+      setShowBusinessForm(false);
+    }
+  };
+
+  const handleDeleteBusiness = async (business: Business) => {
+    const confirmed = window.confirm(
+      `¿Seguro que deseas eliminar el negocio "${business.name}"? Esta acción no se puede deshacer.`,
+    );
+    if (!confirmed) return;
+    await deleteBusiness(business.id);
   };
 
   return (
@@ -236,17 +340,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             Gestión de Comercios y Negocios
           </h2>
           <button 
-            onClick={() => setShowBusinessForm(!showBusinessForm)} 
+            onClick={() => {
+              if (showBusinessForm) {
+                setShowBusinessForm(false);
+                setEditingBusinessId(null);
+                resetBusinessForm();
+                return;
+              }
+              setEditingBusinessId(null);
+              resetBusinessForm();
+              setShowBusinessForm(true);
+            }} 
             className="bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-900 dark:text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>Registrar Nuevo Comercio</span>
+            <span>{showBusinessForm ? 'Cerrar Formulario' : 'Registrar Nuevo Comercio'}</span>
           </button>
         </div>
 
         {/* Add Business */}
         {showBusinessForm && (
-        <form onSubmit={handleCreateBusiness} className="bg-stone-50 dark:bg-stone-800/50 p-4 rounded-2xl border border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <form onSubmit={editingBusinessId ? handleSaveBusinessEdit : handleCreateBusiness} className="bg-stone-50 dark:bg-stone-800/50 p-4 rounded-2xl border border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Nombre Comercial</label>
             <input required value={newBusinessForm.name} onChange={e => setNewBusinessForm({...newBusinessForm, name: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. El Buen Sabor" />
@@ -323,12 +437,56 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               ))}
             </div>
           </div>
+
+          {!editingBusinessId && (
+            <>
+              <div className="col-span-full border-t border-stone-200 pt-4">
+                <h3 className="text-sm font-bold text-stone-800">Cuenta asignada del negocio</h3>
+                <p className="mt-1 text-xs text-stone-500">
+                  El Superadmin crea aquí el usuario, contraseña y rol que usará el negocio.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
+                <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. elpensionista_admin" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
+                <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. admin@negocio.com" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-500 mb-1">Contraseña inicial</label>
+                <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Mínimo 8 caracteres" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-500 mb-1">Rol asignado</label>
+                <select value={newBusinessForm.adminRole} onChange={e => setNewBusinessForm({...newBusinessForm, adminRole: e.target.value as 'BUSINESS_ADMIN' | 'BUSINESS_COURIER' | 'PLATFORM_COURIER'})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black">
+                  <option value="BUSINESS_ADMIN">Admin Comercio</option>
+                  <option value="BUSINESS_COURIER">Repartidor del Negocio</option>
+                  <option value="PLATFORM_COURIER">Repartidor Plataforma</option>
+                </select>
+              </div>
+            </>
+          )}
           
           <div className="col-span-full pt-4">
             <button type="submit" className="w-full bg-[#FF4E00] text-white rounded-xl px-6 py-3 text-sm font-bold hover:bg-[#E64600] flex items-center justify-center space-x-2">
               <Plus className="w-5 h-5" />
-              <span>Guardar Comercio</span>
+              <span>{editingBusinessId ? 'Guardar Cambios del Comercio' : 'Guardar Comercio y Crear Usuario'}</span>
             </button>
+            {editingBusinessId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingBusinessId(null);
+                  resetBusinessForm();
+                  setShowBusinessForm(false);
+                }}
+                className="mt-2 w-full rounded-xl border border-stone-300 px-6 py-3 text-sm font-semibold text-stone-700 hover:bg-stone-100"
+              >
+                Cancelar edición
+              </button>
+            )}
           </div>
         </form>
         )}
@@ -377,15 +535,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                      </button>
                   </td>
                   <td className="py-3 text-right">
-                    <button
-                      onClick={() => {
-                        updateBusinessShift(biz.id, !biz.isShiftOpen);
-                        showNotification(biz.isShiftOpen ? `Turno de ${biz.name} forzado a cerrado` : `Turno de ${biz.name} forzado a abierto`, 'success');
-                      }}
-                      className="text-xs text-[#FF4E00] hover:underline font-semibold cursor-pointer"
-                    >
-                      {biz.isShiftOpen ? 'Forzar Cierre' : 'Abrir Turno'}
-                    </button>
+                    <div className="inline-flex items-center gap-3">
+                      <button
+                        onClick={() => startEditingBusiness(biz)}
+                        className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
+                      >
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDeleteBusiness(biz)}
+                        className="text-xs text-red-600 hover:underline font-semibold cursor-pointer"
+                      >
+                        Eliminar
+                      </button>
+                      <button
+                        onClick={() => {
+                          updateBusinessShift(biz.id, !biz.isShiftOpen);
+                          showNotification(biz.isShiftOpen ? `Turno de ${biz.name} forzado a cerrado` : `Turno de ${biz.name} forzado a abierto`, 'success');
+                        }}
+                        className="text-xs text-[#FF4E00] hover:underline font-semibold cursor-pointer"
+                      >
+                        {biz.isShiftOpen ? 'Forzar Cierre' : 'Abrir Turno'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

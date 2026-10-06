@@ -39,6 +39,8 @@ export default function App() {
   const [customizerProduct, setCustomizerProduct] = useState<Product | null>(null);
   const [customizerBizId, setCustomizerBizId] = useState<string | null>(null);
   const canAccessCourierDashboard = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER') && currentUser.isEmailVerified && (currentUser.courierProfile?.confirmation === 'SUPERADMIN' || currentUser.courierProfile?.confirmation === 'BUSINESS_EMAIL');
+  const canAccessBusinessDashboard = !!currentUser && (currentUser.role === 'BUSINESS_ADMIN' || currentUser.role === 'SUPERADMIN');
+  const canAccessAdminDashboard = !!currentUser && currentUser.role === 'SUPERADMIN';
 
   const handleOpenProductCustomizer = (prod: Product, bizId: string) => {
     setCustomizerProduct(prod);
@@ -73,7 +75,6 @@ export default function App() {
 
       {/* Main Header & Navbar */}
       <Header
-        currentView={currentView}
         setCurrentView={(view) => {
           setSelectedBusiness(null);
           setCurrentView(view);
@@ -122,14 +123,38 @@ export default function App() {
 
             {currentView === 'orders' && <OrdersView />}
 
-            {currentView === 'business-dashboard' && <BusinessDashboard initialBusinessId={selectedBusiness?.id} />}
+            {currentView === 'business-dashboard' && (
+              canAccessBusinessDashboard ? (
+                <BusinessDashboard initialBusinessId={selectedBusiness?.id} />
+              ) : (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                  No tienes permisos para abrir el dashboard de negocio con este usuario.
+                </div>
+              )
+            )}
 
-            {currentView === 'courier-dashboard' && canAccessCourierDashboard && <CourierDashboard />}
+            {currentView === 'courier-dashboard' && (
+              canAccessCourierDashboard ? (
+                <CourierDashboard />
+              ) : (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                  No tienes permisos para abrir el dashboard de repartidor con este usuario.
+                </div>
+              )
+            )}
 
-            {currentView === 'admin-dashboard' && <AdminDashboard onNavigateToBusiness={(bizId) => {
-              setSelectedBusiness(businesses.find(b => b.id === bizId) || null);
-              setCurrentView('business-dashboard');
-            }} />}
+            {currentView === 'admin-dashboard' && (
+              canAccessAdminDashboard ? (
+                <AdminDashboard onNavigateToBusiness={(bizId) => {
+                  setSelectedBusiness(businesses.find(b => b.id === bizId) || null);
+                  setCurrentView('business-dashboard');
+                }} />
+              ) : (
+                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                  Solo el usuario Superadmin puede acceder a este dashboard.
+                </div>
+              )
+            )}
           </>
         )}
       </main>
