@@ -56,7 +56,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     adminUsername: '',
     adminEmail: '',
     adminPassword: '',
-    adminRole: 'BUSINESS_ADMIN' as 'BUSINESS_ADMIN' | 'BUSINESS_COURIER' | 'PLATFORM_COURIER',
     schedule: [
       { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
       { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -80,7 +79,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       adminUsername: '',
       adminEmail: '',
       adminPassword: '',
-      adminRole: 'BUSINESS_ADMIN',
       schedule: [
         { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
         { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -91,6 +89,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         { dayOfWeek: 0, openTime: '12:00', closeTime: '23:00', isOpen: true },
       ]
     });
+  };
+
+  const generateBusinessAdminCredentials = () => {
+    const normalizedBase =
+      (newBusinessForm.name || 'negocio')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '')
+        .slice(0, 12) || 'negocio';
+    const username = `${normalizedBase}_admin`;
+    const password = `Adm${Math.random().toString(36).slice(2, 8)}${Math.floor(10 + Math.random() * 89)}!`;
+
+    setNewBusinessForm((prev) => ({
+      ...prev,
+      adminUsername: prev.adminUsername || username,
+      adminEmail: prev.adminEmail || prev.email || '',
+      adminPassword: password,
+    }));
+    showNotification('Credenciales de administrador generadas para este negocio.', 'info');
   };
 
   const handleAddZone = (e: React.FormEvent) => {
@@ -144,7 +162,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
       email: newBusinessForm.adminEmail.trim(),
       password: newBusinessForm.adminPassword.trim(),
-      role: newBusinessForm.adminRole,
+      role: 'BUSINESS_ADMIN',
     });
 
     if (!accountCreated) {
@@ -180,9 +198,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       managerDni: business.managerDni || '',
       bannerUrl: business.bannerUrl || '',
       adminUsername: '',
-      adminEmail: '',
+      adminEmail: business.email || '',
       adminPassword: '',
-      adminRole: 'BUSINESS_ADMIN',
       schedule: business.schedule?.length ? business.schedule : newBusinessForm.schedule,
     });
   };
@@ -208,6 +225,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     });
 
     if (saved) {
+      if (newBusinessForm.adminUsername.trim() && newBusinessForm.adminEmail.trim() && newBusinessForm.adminPassword.trim()) {
+        const accountCreated = await createUserAccount({
+          username: newBusinessForm.adminUsername.trim(),
+          fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
+          email: newBusinessForm.adminEmail.trim(),
+          password: newBusinessForm.adminPassword.trim(),
+          role: 'BUSINESS_ADMIN',
+        });
+
+        if (!accountCreated) {
+          showNotification(
+            'Los datos del negocio se guardaron, pero no se pudo crear el acceso administrador.',
+            'error',
+          );
+          return;
+        }
+        showNotification('Acceso administrador creado/actualizado para el negocio.', 'success');
+      }
+
       setEditingBusinessId(null);
       resetBusinessForm();
       setShowBusinessForm(false);
@@ -438,36 +474,35 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             </div>
           </div>
 
-          {!editingBusinessId && (
-            <>
-              <div className="col-span-full border-t border-stone-200 pt-4">
-                <h3 className="text-sm font-bold text-stone-800">Cuenta asignada del negocio</h3>
-                <p className="mt-1 text-xs text-stone-500">
-                  El Superadmin crea aquí el usuario, contraseña y rol que usará el negocio.
-                </p>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
-                <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. elpensionista_admin" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
-                <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. admin@negocio.com" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1">Contraseña inicial</label>
-                <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Mínimo 8 caracteres" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-stone-500 mb-1">Rol asignado</label>
-                <select value={newBusinessForm.adminRole} onChange={e => setNewBusinessForm({...newBusinessForm, adminRole: e.target.value as 'BUSINESS_ADMIN' | 'BUSINESS_COURIER' | 'PLATFORM_COURIER'})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black">
-                  <option value="BUSINESS_ADMIN">Admin Comercio</option>
-                  <option value="BUSINESS_COURIER">Repartidor del Negocio</option>
-                  <option value="PLATFORM_COURIER">Repartidor Plataforma</option>
-                </select>
-              </div>
-            </>
-          )}
+          <>
+            <div className="col-span-full border-t border-stone-200 pt-4">
+              <h3 className="text-sm font-bold text-stone-800">Acceso administrador del negocio</h3>
+              <p className="mt-1 text-xs text-stone-500">
+                Se asignará automáticamente el rol <strong>BUSINESS_ADMIN</strong> para este negocio.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
+              <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. elpensionista_admin" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
+              <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. admin@negocio.com" />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
+              <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Mínimo 8 caracteres" />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={generateBusinessAdminCredentials}
+                className="w-full rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-200"
+              >
+                Generar usuario y clave
+              </button>
+            </div>
+          </>
           
           <div className="col-span-full pt-4">
             <button type="submit" className="w-full bg-[#FF4E00] text-white rounded-xl px-6 py-3 text-sm font-bold hover:bg-[#E64600] flex items-center justify-center space-x-2">

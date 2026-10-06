@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
 import { 
-  X, Mail, LogOut, ArrowLeft, Eye, EyeOff
+  X, LogOut, ArrowLeft, Eye, EyeOff
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -15,6 +15,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     currentUser, 
     logout, 
     loginAs,
+    updateCurrentUserProfile,
     showNotification,
   } = useApp();
 
@@ -25,12 +26,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [passwordChangeCurrentPassword, setPasswordChangeCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [profileFullName, setProfileFullName] = useState('');
+  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
+  const [profileAccountNumber, setProfileAccountNumber] = useState('');
+  const [profileNewPassword, setProfileNewPassword] = useState('');
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phone || '');
   const [emailInput, setEmailInput] = useState(currentUser?.email || 'rafaeldesweb@gmail.com');
   const [password, setPassword] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    setProfileFullName(currentUser.name || '');
+    setProfileEmail(currentUser.email || '');
+    setProfilePhone(currentUser.phone || '');
+    setProfileAccountNumber(currentUser.accountNumber || '');
+    setProfileNewPassword('');
+    setProfileAvatarUrl(currentUser.avatarUrl || '');
+  }, [isOpen, currentUser]);
 
   const clearPasswordChangeFlow = () => {
     setRequiresPasswordChange(false);
@@ -93,11 +110,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         }
 
         const registeredUser = {
+          id: data?.user?.id,
+          username: data?.user?.username || payload.username,
           name: finalName,
           email: normalizedUser,
-          password: payload.password,
+          password: undefined,
           phone: phoneNumber || undefined,
-          isEmailVerified: false,
+          avatarUrl: data?.user?.avatarUrl || '',
+          isEmailVerified: Boolean(data?.user?.isEmailVerified),
         };
 
         loginAs('CLIENT', normalizedUser, registeredUser);
@@ -143,11 +163,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       };
 
       loginAs(user.role || 'CLIENT', normalizedUser, {
+        id: user.id,
+        username: user.username,
         name: user.name || finalName,
         email: user.email || normalizedUser,
-        password: normalizedPassword,
+        password: undefined,
         phone: user.phone || undefined,
         accountNumber: user.accountNumber || undefined,
+        avatarUrl: user.avatarUrl || '',
         isEmailVerified: Boolean(user.isEmailVerified),
         courierProfile: user.courierProfile,
       });
@@ -213,6 +236,72 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleAvatarFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showNotification('Selecciona un archivo de imagen válido.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const maxFileBytes = 1024 * 1024 * 1.5;
+    if (file.size > maxFileBytes) {
+      showNotification('La imagen no puede superar 1.5MB.', 'error');
+      event.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === 'string' ? reader.result : '';
+      if (!result) {
+        showNotification('No se pudo leer la imagen seleccionada.', 'error');
+        return;
+      }
+      setProfileAvatarUrl(result);
+      showNotification('Foto de perfil cargada desde archivo.', 'success');
+    };
+    reader.onerror = () => {
+      showNotification('No se pudo procesar el archivo de imagen.', 'error');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!currentUser) return;
+    const cleanName = profileFullName.trim();
+    const cleanEmail = profileEmail.trim();
+    const cleanPassword = profileNewPassword.trim();
+
+    if (!cleanName) {
+      showNotification('El nombre es obligatorio.', 'error');
+      return;
+    }
+    if (!cleanEmail) {
+      showNotification('El correo es obligatorio.', 'error');
+      return;
+    }
+    if (cleanPassword && cleanPassword.length < 8) {
+      showNotification('La nueva contraseña debe tener al menos 8 caracteres.', 'error');
+      return;
+    }
+
+    const updated = await updateCurrentUserProfile({
+      name: cleanName,
+      email: cleanEmail,
+      phone: profilePhone.trim(),
+      accountNumber: profileAccountNumber.trim(),
+      password: cleanPassword || undefined,
+      avatarUrl: profileAvatarUrl || undefined,
+    });
+
+    if (updated) {
+      setProfileNewPassword('');
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-0 backdrop-blur-sm animate-in fade-in duration-200 sm:items-center sm:p-4">
       <div className="relative h-[100dvh] w-full max-w-md overflow-hidden border border-stone-800 bg-[#121214] text-white shadow-2xl sm:h-auto sm:max-h-[92vh] sm:rounded-3xl">
@@ -239,43 +328,105 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         <div className="max-h-[calc(100dvh-74px)] space-y-5 overflow-y-auto p-4 pb-[calc(var(--safe-area-bottom)+1rem)] pt-3 sm:max-h-[85vh] sm:p-6 sm:pt-2">
           
           {currentUser ? (
-            /* Logged in state with Profile & Gmail Verification */
             <div className="space-y-5">
-              
-              {/* Profile Card */}
-              <div className="flex items-center space-x-3.5 p-4 rounded-2xl bg-stone-900 border border-stone-800">
-                <img
-                  src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
-                  alt={currentUser.name}
-                  className="block w-14 h-14 rounded-full object-cover object-center border-2 border-[#FF4E00] bg-stone-100"
-                  style={{ borderRadius: '9999px' }}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-white truncate text-sm">
-                    {currentUser.name}
-                  </div>
-                  <div className="text-xs text-stone-400 flex items-center space-x-1 truncate">
-                    <Mail className="w-3 h-3 text-[#FF4E00]" />
-                    <span>{currentUser.email}</span>
-                  </div>
-                  <div className="text-[11px] font-bold text-[#FF4E00] mt-0.5">
-                    Rol: {currentUser.role}
+              <div className="rounded-2xl border border-stone-800 bg-stone-900 p-4">
+                <div className="flex items-center space-x-3.5">
+                  <img
+                    src={profileAvatarUrl || currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
+                    alt={currentUser.name}
+                    className="block h-14 w-14 rounded-full border-2 border-[#FF4E00] bg-stone-100 object-cover object-center"
+                    style={{ borderRadius: '9999px' }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-bold text-white">{currentUser.name}</div>
+                    <div className="mt-0.5 truncate text-[11px] font-bold text-[#FF4E00]">
+                      Rol: {currentUser.role}
+                    </div>
                   </div>
                 </div>
               </div>
 
-              {/* Logout Button */}
+              <div className="grid grid-cols-1 gap-3">
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Foto de perfil (archivo)</label>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleAvatarFileSelected}
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-3 py-2 text-xs text-stone-200 file:mr-3 file:rounded-lg file:border-0 file:bg-[#FF4E00] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Nombre completo</label>
+                  <input
+                    type="text"
+                    value={profileFullName}
+                    onChange={(event) => setProfileFullName(event.target.value)}
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Correo electrónico</label>
+                  <input
+                    type="email"
+                    value={profileEmail}
+                    onChange={(event) => setProfileEmail(event.target.value)}
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Teléfono</label>
+                  <input
+                    type="tel"
+                    value={profilePhone}
+                    onChange={(event) => setProfilePhone(event.target.value)}
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Cuenta bancaria (opcional)</label>
+                  <input
+                    type="text"
+                    value={profileAccountNumber}
+                    onChange={(event) => setProfileAccountNumber(event.target.value)}
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-bold text-stone-300">Nueva contraseña (opcional)</label>
+                  <input
+                    type="password"
+                    value={profileNewPassword}
+                    onChange={(event) => setProfileNewPassword(event.target.value)}
+                    placeholder="Mínimo 8 caracteres"
+                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveProfile}
+                className="w-full rounded-xl bg-[#FF4E00] py-3 text-xs font-bold text-white transition hover:bg-[#E04600]"
+              >
+                Guardar cambios
+              </button>
+
               <button
                 onClick={() => {
                   logout();
                   onClose();
                 }}
-                className="w-full py-3 text-xs font-bold text-red-400 hover:text-red-300 bg-red-500/10 hover:bg-red-500/20 rounded-xl flex items-center justify-center space-x-2 transition"
+                className="flex w-full items-center justify-center space-x-2 rounded-xl bg-red-500/10 py-3 text-xs font-bold text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="h-4 w-4" />
                 <span>Cerrar Sesión</span>
               </button>
-
             </div>
           ) : (
             /* Registration / Login Form (Matching Image 4) */

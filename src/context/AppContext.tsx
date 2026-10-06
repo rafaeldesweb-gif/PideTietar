@@ -14,7 +14,7 @@ interface AppContextType {
   currentUser: User | null;
   loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>) => void;
   logout: () => void;
-  updateCurrentUserProfile: (data: Partial<User>) => void;
+  updateCurrentUserProfile: (data: Partial<User>) => Promise<boolean>;
   setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
   toggleCourierAvailability: (online?: boolean) => void;
   verifyEmailWithGmailCode: (code: string) => Promise<boolean>;
@@ -384,6 +384,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newUser: User = {
       id: `usr-${role.toLowerCase()}`,
+      username: targetEmail.includes('@') ? targetEmail.split('@')[0] : targetEmail,
       name: roleNames[role],
       email: targetEmail,
       password: 'admin123',
@@ -426,13 +427,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification('Has cerrado la sesión.', 'info');
   };
 
-  const updateCurrentUserProfile = (data: Partial<User>) => {
-    setCurrentUser(prev => {
-      if (!prev) return prev;
-      const nextUser = { ...prev, ...data };
-      return nextUser;
-    });
-    showNotification('Perfil actualizado correctamente.', 'success');
+  const updateCurrentUserProfile = async (data: Partial<User>) => {
+    if (!currentUser?.id) {
+      showNotification('No hay una sesión activa para actualizar.', 'error');
+      return false;
+    }
+
+    const payload: Record<string, unknown> = {};
+    if (data.name !== undefined) payload.fullName = data.name;
+    if (data.email !== undefined) payload.email = data.email;
+    if (data.phone !== undefined) payload.phone = data.phone;
+    if (data.password !== undefined && String(data.password).trim()) payload.password = data.password;
+    if (data.avatarUrl !== undefined) payload.avatarUrl = data.avatarUrl;
+    if (data.accountNumber !== undefined) payload.accountNumber = data.accountNumber;
+
+    if (!Object.keys(payload).length) {
+      showNotification('No hay cambios para actualizar.', 'info');
+      return false;
+    }
+
+    try {
+      const response = await apiFetch(`/users/${encodeURIComponent(currentUser.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      const updatedUser = response?.user;
+      if (!updatedUser) {
+        showNotification('No se pudo refrescar el perfil tras guardar.', 'error');
+        return false;
+      }
+
+      setCurrentUser((prev) =>
+        prev
+          ? {
+              ...prev,
+              id: updatedUser.id ?? prev.id,
+              username: updatedUser.username ?? prev.username,
+              name: updatedUser.name ?? prev.name,
+              email: updatedUser.email ?? prev.email,
+              phone: updatedUser.phone ?? prev.phone,
+              accountNumber: updatedUser.accountNumber ?? prev.accountNumber,
+              avatarUrl: updatedUser.avatarUrl ?? prev.avatarUrl,
+            }
+          : prev,
+      );
+      showNotification('Perfil actualizado correctamente.', 'success');
+      return true;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'No se pudo actualizar el perfil.';
+      showNotification(message, 'error');
+      return false;
+    }
   };
 
   const sendGmailVerificationCode = async (): Promise<boolean> => {

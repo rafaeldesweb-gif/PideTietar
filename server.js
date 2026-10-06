@@ -110,6 +110,8 @@ const sqliteSchema = `
     username TEXT UNIQUE,
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
+    phone TEXT,
+    avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'CLIENT',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -223,6 +225,8 @@ const mysqlSchema = `
     username VARCHAR(64) NULL,
     full_name VARCHAR(180) NOT NULL,
     email VARCHAR(255) NOT NULL,
+    phone VARCHAR(30) NULL,
+    avatar_url TEXT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
@@ -368,6 +372,8 @@ async function ensureMySqlSchemaShape(pool) {
   };
 
   ensureColumn("account_number", "VARCHAR(255) NULL");
+  ensureColumn("phone", "VARCHAR(30) NULL");
+  ensureColumn("avatar_url", "TEXT NULL");
   ensureColumn("email_verified", "TINYINT(1) NOT NULL DEFAULT 0");
   ensureColumn("email_verified_at", "DATETIME(3) NULL");
   ensureColumn("password_change_required", "TINYINT(1) NOT NULL DEFAULT 0");
@@ -442,6 +448,12 @@ function ensureSqliteSchemaShape() {
   const userColumns = getColumnNames("app_users");
   if (!userColumns.has("account_number")) {
     db.exec("ALTER TABLE app_users ADD COLUMN account_number TEXT");
+  }
+  if (!userColumns.has("phone")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN phone TEXT");
+  }
+  if (!userColumns.has("avatar_url")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN avatar_url TEXT");
   }
   if (!userColumns.has("email_verified")) {
     db.exec(
@@ -661,6 +673,8 @@ function sanitizeUser(row) {
     username: row.username || row.email?.split("@")[0] || "",
     name: row.full_name || row.name || row.username || "Usuario",
     email: row.email,
+    phone: row.phone || "",
+    avatarUrl: row.avatar_url || row.avatarUrl || "",
     role: row.role || "CLIENT",
     status: row.status || "ACTIVE",
     accountNumber: row.account_number || row.accountNumber || "",
@@ -955,6 +969,8 @@ async function createUser({
   fullName,
   email,
   password,
+  phone,
+  avatarUrl,
   role = "CLIENT",
 }) {
   const cleanUsername = String(
@@ -969,8 +985,17 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
-      [id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role],
+      "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
+      [
+        id,
+        cleanUsername,
+        fullName || cleanUsername,
+        cleanEmail,
+        phone || null,
+        avatarUrl || null,
+        hash,
+        role,
+      ],
     );
     const [rows] = await mysqlPool.execute(
       "SELECT * FROM app_users WHERE id = ? LIMIT 1",
@@ -982,8 +1007,17 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
-  ).run(id, cleanUsername, fullName || cleanUsername, cleanEmail, hash, role);
+    "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
+  ).run(
+    id,
+    cleanUsername,
+    fullName || cleanUsername,
+    cleanEmail,
+    phone || null,
+    avatarUrl || null,
+    hash,
+    role,
+  );
   return db.prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1").get(id);
 }
 
@@ -1038,6 +1072,8 @@ app.post("/api/auth/register", async (req, res) => {
     fullName,
     email,
     password,
+    phone,
+    avatarUrl,
   } = req.body || {};
   const cleanPassword = normalizePassword(password);
   if (!email || !cleanPassword) {
@@ -1065,6 +1101,8 @@ app.post("/api/auth/register", async (req, res) => {
     fullName,
     email,
     password: cleanPassword,
+    phone,
+    avatarUrl,
     role: "CLIENT",
   });
 
@@ -1465,8 +1503,23 @@ app.put("/api/users/:id", async (req, res) => {
     values.push(body.email);
   }
   if (body.password !== undefined) {
+    const cleanPassword = normalizePassword(body.password);
+    if (!cleanPassword) {
+      return res.status(400).json({
+        success: false,
+        code: "VALIDATION_ERROR",
+        message: "La contraseña no puede estar vacía.",
+      });
+    }
+    if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
+      return res.status(400).json({
+        success: false,
+        code: "VALIDATION_ERROR",
+        message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+      });
+    }
     updates.push("password_hash = ?");
-    values.push(bcrypt.hashSync(String(body.password), 10));
+    values.push(bcrypt.hashSync(cleanPassword, 10));
   }
   if (body.role !== undefined) {
     updates.push("role = ?");
@@ -1479,6 +1532,10 @@ app.put("/api/users/:id", async (req, res) => {
   if (body.phone !== undefined) {
     updates.push("phone = ?");
     values.push(body.phone);
+  }
+  if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
+    updates.push("avatar_url = ?");
+    values.push(body.avatarUrl ?? body.avatar_url ?? null);
   }
   if (body.accountNumber !== undefined || body.account_number !== undefined) {
     updates.push("account_number = ?");
