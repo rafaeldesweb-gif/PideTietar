@@ -51,6 +51,7 @@ import {
   toBusinessFieldErrors,
 } from './FormErrors';
 import { fileToDataUrl } from '../utils/imageUpload';
+import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
 
 interface ManualOrderLine {
@@ -149,6 +150,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     username: '',
     email: '',
     password: '',
+    phone: '',
+    address: '',
+    dni: '',
   });
   const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
   const [courierSubmitting, setCourierSubmitting] = useState(false);
@@ -210,7 +214,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     cif: '',
     accountNumber: '',
     category: 'hamburguesas',
-    localityId: selectedLocality.id,
+    localityId: selectedLocality?.id || '',
     address: '',
     phone: '',
     email: '',
@@ -321,6 +325,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (courierForm.password.length < 8) {
       errors.password = 'La contraseña debe tener al menos 8 caracteres.';
     }
+    Object.assign(errors, validateCourierContact(courierForm, { required: true }));
 
     setCourierFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -331,6 +336,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       username: courierForm.username.trim(),
       email: courierForm.email.trim(),
       password: courierForm.password,
+      phone: courierForm.phone.trim(),
+      address: courierForm.address.trim(),
+      dni: normalizeDni(courierForm.dni),
       role: 'BUSINESS_COURIER',
       businessId: business?.id,
       courierBusinessIds: business?.id ? [business.id] : [],
@@ -339,7 +347,15 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setCourierSubmitting(false);
 
     if (ok) {
-      setCourierForm({ fullName: '', username: '', email: '', password: '' });
+      setCourierForm({
+        fullName: '',
+        username: '',
+        email: '',
+        password: '',
+        phone: '',
+        address: '',
+        dni: '',
+      });
       setCourierFormErrors({});
       await refreshCouriers();
     }
@@ -637,6 +653,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       0,
     );
 
+    // La dirección de la comanda usa la zona activa o, si no hay ninguna
+    // seleccionada, la zona real del negocio. Nunca inventa una localidad.
+    const deliveryLocality =
+      selectedLocality || localities.find((loc) => loc.id === business.localityId) || null;
+
     createManualOrder({
       businessId: business.id,
       businessName: business.name,
@@ -648,9 +669,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             id: `manual-delivery-${Date.now()}`,
             label: 'Entrega a domicilio',
             street: manualAddress.trim(),
-            locality: selectedLocality.name,
-            postalCode: selectedLocality.postalCode,
-            coordinates: selectedLocality.coordinates,
+            locality: deliveryLocality?.name || '',
+            postalCode: deliveryLocality?.postalCode || '',
+            coordinates: deliveryLocality?.coordinates || { lat: 0, lng: 0 },
             reference: manualTableNumber.trim() || undefined,
           }
         : undefined,
@@ -996,7 +1017,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       cif: '',
       accountNumber: '',
       category: 'hamburguesas',
-      localityId: selectedLocality.id,
+      localityId: selectedLocality?.id || '',
       address: '',
       phone: '',
       email: '',
@@ -1707,7 +1728,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
               <div className="bg-white rounded-2xl border border-[#eadcc7] overflow-hidden shadow-sm">
                 <div className="p-4 border-b border-[#f0e2d5] flex items-center justify-between text-xs text-stone-600">
                   <span className="font-bold text-stone-800 text-sm">Negocios de la misma zona</span>
-                  <span>{selectedLocality.name}</span>
+                  <span>{selectedLocality?.name || 'Sin localidad'}</span>
                 </div>
 
                 <div className="divide-y divide-[#f3e8dd]">
@@ -1806,7 +1827,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
               <p className="mt-2 text-sm text-stone-600">Turno del local: {business.isShiftOpen ? 'Abierto' : 'Cerrado'}</p>
               <div className="mt-4 space-y-3 text-sm text-stone-700">
                 <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3"><span>Responsable</span><span>{currentUser?.name || 'Sin asignar'}</span></div>
-                <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3"><span>Localidad</span><span>{selectedLocality.name}</span></div>
+                <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3"><span>Localidad</span><span>{selectedLocality?.name || 'Sin localidad'}</span></div>
                 <div className="flex items-center justify-between rounded-xl bg-stone-50 p-3"><span>Pedidos pendientes</span><span>{activeUnfinishedOrders.length}</span></div>
               </div>
 
@@ -1873,6 +1894,41 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     />
                     <FieldError message={courierFormErrors.password} />
                   </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-stone-500">Teléfono</label>
+                    <input
+                      type="tel"
+                      value={courierForm.phone}
+                      onChange={(e) => setCourierForm({ ...courierForm, phone: e.target.value })}
+                      className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] placeholder-stone-400', Boolean(courierFormErrors.phone))}
+                      placeholder="+34 600 000 000"
+                    />
+                    <FieldError message={courierFormErrors.phone} />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-semibold text-stone-500">DNI / NIE</label>
+                    <input
+                      value={courierForm.dni}
+                      onChange={(e) => setCourierForm({ ...courierForm, dni: e.target.value.toUpperCase() })}
+                      className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] placeholder-stone-400 uppercase', Boolean(courierFormErrors.dni))}
+                      placeholder="12345678Z"
+                    />
+                    <p className="mt-1 text-[10px] text-stone-400">
+                      DNI (8 dígitos + letra) o NIE (X/Y/Z + 7 dígitos + letra).
+                    </p>
+                    <FieldError message={courierFormErrors.dni} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="mb-1 block text-xs font-semibold text-stone-500">Dirección</label>
+                    <input
+                      value={courierForm.address}
+                      onChange={(e) => setCourierForm({ ...courierForm, address: e.target.value })}
+                      className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] placeholder-stone-400', Boolean(courierFormErrors.address))}
+                      placeholder="Calle, número, código postal y localidad"
+                      autoComplete="street-address"
+                    />
+                    <FieldError message={courierFormErrors.address} />
+                  </div>
                   <div className="sm:col-span-2">
                     <button
                       type="submit"
@@ -1899,6 +1955,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                           <div>
                             <p className="text-sm font-semibold text-stone-800">{courier.name}</p>
                             <p className="text-xs text-stone-500">{courier.email}</p>
+                            <p className="mt-0.5 text-xs text-stone-400">
+                              {courier.phone || 'Sin teléfono'} ·{' '}
+                              {courier.dni ? `DNI/NIE ${courier.dni}` : 'Sin DNI/NIE'}
+                            </p>
                           </div>
                           {confirmation === 'PENDING' ? (
                             <button
@@ -2550,6 +2610,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     </button>
                   </div>
                   <select
+                    required
                     value={newBusinessForm.localityId}
                     onChange={(event) => setNewBusinessForm((prev) => ({ ...prev, localityId: event.target.value }))}
                     className={fieldClass(
@@ -2557,10 +2618,16 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       Boolean(businessFormErrors.localityId),
                     )}
                   >
+                    <option value="">Seleccionar...</option>
                     {localities.map((loc) => (
                       <option key={loc.id} value={loc.id}>{loc.name}</option>
                     ))}
                   </select>
+                  {localities.length === 0 && (
+                    <p className="mt-1 text-[11px] text-amber-600">
+                      No hay zonas creadas. Usa «Gestionar zonas» antes de registrar el negocio.
+                    </p>
+                  )}
                   <FieldError message={businessFormErrors.localityId} />
                 </div>
                 <div>

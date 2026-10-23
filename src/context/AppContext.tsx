@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { User, Cart, CartItem, Order, Business, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected } from '../types';
-import { INITIAL_BUSINESSES, LOCALITIES, INITIAL_PRODUCTS } from '../data/mockData';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
 import { isSingleBusinessOrder } from '../utils/orderValidation';
@@ -25,8 +24,8 @@ interface AppContextType {
   generatedCode: string | null;
 
   // Active locality
-  selectedLocality: Locality;
-  setSelectedLocality: (loc: Locality) => void;
+  selectedLocality: Locality | null;
+  setSelectedLocality: (loc: Locality | null) => void;
   localities: Locality[];
   addLocality: (data: Partial<Locality>) => Locality;
   updateLocality: (localityId: string, data: Partial<Locality>) => void;
@@ -34,7 +33,11 @@ interface AppContextType {
 
   // Businesses & Catalog
   businesses: Business[];
-  products: typeof INITIAL_PRODUCTS;
+  products: Product[];
+  // Sincroniza los negocios con el servidor y reemplaza la lista (también si
+  // llega vacía). El panel de superadmin la usa para no editar filas que sólo
+  // existen en la caché del navegador. Devuelve null si la consulta falla.
+  refreshBusinesses: () => Promise<Business[] | null>;
   createBusiness: (
     businessData: Partial<Business>,
     owner?: BusinessOwnerInput | null,
@@ -47,17 +50,23 @@ interface AppContextType {
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
   deleteBusiness: (businessId: string) => Promise<boolean>;
-  createUserAccount: (data: {
-    username: string;
-    fullName: string;
-    email: string;
-    password: string;
-    role: User['role'];
-    businessId?: string;
-    courierBusinessIds?: string[];
-    accountNumber?: string;
-    courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
-  }) => Promise<boolean>;
+  createUserAccount: (
+    data: {
+      username: string;
+      fullName: string;
+      email: string;
+      password: string;
+      phone?: string;
+      address?: string;
+      dni?: string;
+      role: User['role'];
+      businessId?: string;
+      courierBusinessIds?: string[];
+      accountNumber?: string;
+      courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
+    },
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ) => Promise<boolean>;
   listCouriers: () => Promise<User[]>;
   setCourierConfirmation: (
     userId: string,
@@ -67,8 +76,12 @@ interface AppContextType {
     userId: string,
     data: {
       courierBusinessIds: string[];
+      phone?: string;
+      address?: string;
+      dni?: string;
       accountNumber?: string;
     },
+    onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
@@ -120,18 +133,45 @@ const AppContext = createContext<AppContextType | null>(null);
 
 const API_BASE = '/api';
 
+// La versión anterior guardaba en localStorage negocios, productos y zonas de
+// demostración. Se limpian una sola vez para que una instalación existente no
+// siga mostrando filas que no están en la base de datos. El token de sesión no
+// se toca.
+const LEGACY_DATA_CACHE_KEYS = [
+  'pidetietar_localities',
+  'pidetietar_businesses',
+  'pidetietar_products',
+  'pidetietar_selected_locality',
+  'pidetietar_orders',
+  'pidetietar_cart',
+];
+const DATA_CACHE_RESET_KEY = 'pidetietar_seed_cache_cleared_v1';
+
+if (typeof window !== 'undefined') {
+  try {
+    if (!window.localStorage.getItem(DATA_CACHE_RESET_KEY)) {
+      for (const key of LEGACY_DATA_CACHE_KEYS) {
+        window.localStorage.removeItem(key);
+      }
+      window.localStorage.setItem(DATA_CACHE_RESET_KEY, '1');
+    }
+  } catch {
+    // Si el navegador bloquea localStorage, la app sigue funcionando sin caché.
+  }
+}
+
 const toServerLocality = (item: Partial<Locality> & { postal_code?: string; is_active?: boolean; latitude?: number; longitude?: number; postalCode?: string; active?: boolean; coordinates?: { lat: number; lng: number } }) => ({
   name: item.name || 'Nueva zona',
   postalCode: item.postalCode ?? item.postal_code ?? '00000',
   active: item.active ?? item.is_active ?? true,
-  coordinates: item.coordinates || { lat: item.latitude ?? 40.2891, lng: item.longitude ?? -4.5824 },
+  coordinates: item.coordinates || { lat: item.latitude ?? 0, lng: item.longitude ?? 0 },
 });
 
 const normalizeLocality = (item: any): Locality => ({
   id: item.id || `loc-${Date.now()}`,
   name: item.name || 'Zona',
   postalCode: item.postalCode ?? item.postal_code ?? '00000',
-  coordinates: item.coordinates || { lat: Number(item.latitude ?? 40.2891), lng: Number(item.longitude ?? -4.5824) },
+  coordinates: item.coordinates || { lat: Number(item.latitude ?? 0), lng: Number(item.longitude ?? 0) },
   active: item.active ?? item.is_active ?? true,
   coverImage: item.coverImage || item.cover_image,
 });
@@ -179,35 +219,45 @@ const normalizeSchedule = (schedule: any): BusinessHours[] => {
     .sort((a, b) => dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek));
 };
 
-const normalizeBusiness = (item: any): Business => ({
-  id: item.id || `biz-${Date.now()}`,
-  name: item.name || 'Negocio',
-  legalName: item.legalName ?? item.legal_name ?? item.name ?? 'Negocio',
-  cif: item.cif || '00000000A',
-  accountNumber: item.accountNumber ?? item.account_number ?? '',
-  category: item.category || 'general',
-  localityId: item.localityId ?? item.locality_id ?? 'locality-default',
-  address: item.address || 'Dirección por definir',
-  phone: item.phone || '+34 600 000 000',
-  email: item.email || 'contacto@negocio.es',
-  coordinates: item.coordinates || { lat: Number(item.latitude ?? 40.2891), lng: Number(item.longitude ?? -4.5824) },
-  rating: Number(item.rating ?? 4.5),
-  reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
-  estimatedTimeMin: Number(item.estimatedTimeMin ?? item.estimated_time_min ?? 20),
-  estimatedTimeMax: Number(item.estimatedTimeMax ?? item.estimated_time_max ?? 40),
-  deliveryFeeCents: Number(item.deliveryFeeCents ?? item.delivery_fee_cents ?? 250),
-  minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
-  bannerUrl: item.bannerUrl || item.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
-  logoUrl: item.logoUrl || item.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
-  isShiftOpen: Boolean(item.isShiftOpen ?? item.is_shift_open ?? true),
-  deliveryModes: parseModeList(item.deliveryModes ?? item.delivery_modes, ['PLATFORM_COURIER', 'PICKUP']) as Business['deliveryModes'],
-  deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
-  status: item.status || 'APPROVED',
-  schedule: normalizeSchedule(item.schedule),
-  featuredProducts: item.featuredProducts || [],
-  managerName: item.managerName || item.manager_name || '',
-  managerDni: item.managerDni || item.manager_dni || '',
-});
+const normalizeBusiness = (item: any): Business => {
+  const deliveryModes = parseModeList(
+    item.deliveryModes ?? item.delivery_modes,
+    ['PLATFORM_COURIER', 'PICKUP'],
+  ) as Business['deliveryModes'];
+
+  return {
+    id: item.id || `biz-${Date.now()}`,
+    name: item.name || 'Negocio',
+    legalName: item.legalName ?? item.legal_name ?? item.name ?? 'Negocio',
+    cif: item.cif || '00000000A',
+    accountNumber: item.accountNumber ?? item.account_number ?? '',
+    category: item.category || 'general',
+    localityId: item.localityId ?? item.locality_id ?? 'locality-default',
+    address: item.address || 'Dirección por definir',
+    phone: item.phone || '+34 600 000 000',
+    email: item.email || 'contacto@negocio.es',
+    coordinates: item.coordinates || { lat: Number(item.latitude ?? 40.2891), lng: Number(item.longitude ?? -4.5824) },
+    rating: Number(item.rating ?? 4.5),
+    reviewCount: Number(item.reviewCount ?? item.review_count ?? 0),
+    estimatedTimeMin: Number(item.estimatedTimeMin ?? item.estimated_time_min ?? 20),
+    estimatedTimeMax: Number(item.estimatedTimeMax ?? item.estimated_time_max ?? 40),
+    deliveryFeeCents: Number(item.deliveryFeeCents ?? item.delivery_fee_cents ?? 250),
+    minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
+    bannerUrl: item.bannerUrl || item.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
+    logoUrl: item.logoUrl || item.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
+    isShiftOpen: Boolean(item.isShiftOpen ?? item.is_shift_open ?? true),
+    // Un negocio antiguo puede tener la lista vacía. El formulario de edición
+    // no tiene selector de modos de entrega y el backend rechaza una lista
+    // vacía, así que se normaliza a recogida en tienda para poder guardarlo.
+    deliveryModes: deliveryModes.length ? deliveryModes : ['PICKUP'],
+    deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
+    status: item.status || 'APPROVED',
+    schedule: normalizeSchedule(item.schedule),
+    featuredProducts: item.featuredProducts || [],
+    managerName: item.managerName || item.manager_name || '',
+    managerDni: item.managerDni || item.manager_dni || '',
+  };
+};
 
 // El backend guarda estas listas como texto JSON y las devuelve sin parsear,
 // así que un producto leído de la base de datos llegaba con `ingredients`
@@ -500,72 +550,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // login mientras restaura.
   const [sessionChecked, setSessionChecked] = useState(false);
 
-  // Locality
-  const [localities, setLocalities] = useState<Locality[]>(() => {
-    const saved = localStorage.getItem('pidetietar_localities');
-    return saved ? JSON.parse(saved) : LOCALITIES;
-  });
-  const [selectedLocality, setSelectedLocality] = useState<Locality>(() => {
-    const saved = localStorage.getItem('pidetietar_selected_locality');
-    return saved ? JSON.parse(saved) : LOCALITIES[0];
-  });
+  // Locality. El servidor es la única fuente: una instalación nueva empieza
+  // sin zonas y el superadmin las crea desde su panel.
+  const [localities, setLocalities] = useState<Locality[]>([]);
+  const [selectedLocality, setSelectedLocality] = useState<Locality | null>(null);
 
   // Businesses & Products
-  const [businesses, setBusinesses] = useState<Business[]>(() => {
-    const saved = localStorage.getItem('pidetietar_businesses');
-    return saved ? JSON.parse(saved) : INITIAL_BUSINESSES;
-  });
-  const [products, setProducts] = useState(() => {
-    const saved = localStorage.getItem('pidetietar_products');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
     let active = true;
 
     const loadFromDatabase = async () => {
-      try {
-        // /api/orders exige sesión: sin token no se consulta para no provocar
-        // un 401 en la portada pública.
-        const ordersRequest = getSessionToken()
-          ? apiFetch('/orders', { cache: 'no-store' }).catch(() => null)
-          : Promise.resolve(null);
-        const [localitiesData, businessesData, productsData, ordersData] = await Promise.all([
-          apiFetch('/localities').catch(() => []),
-          apiFetch('/businesses').catch(() => []),
-          apiFetch('/products').catch(() => []),
-          // null = no se pudo consultar o no hay sesión; [] = el servidor no tiene pedidos.
-          ordersRequest,
-        ]);
+      // null = la petición falló; se conserva lo que ya hubiera en pantalla.
+      // [] = el servidor respondió y no hay filas: se reemplaza por vacío.
+      const fetchRows = async (path: string): Promise<any[] | null> => {
+        try {
+          const data = await apiFetch(path, { cache: 'no-store' });
+          return Array.isArray(data) ? data : [];
+        } catch {
+          return null;
+        }
+      };
 
-        if (!active) return;
+      // /api/orders exige sesión: sin token no se consulta para no provocar
+      // un 401 en la portada pública.
+      const ordersRequest = getSessionToken()
+        ? apiFetch('/orders', { cache: 'no-store' }).catch(() => null)
+        : Promise.resolve(null);
+      const [localitiesData, businessesData, productsData, ordersData] = await Promise.all([
+        fetchRows('/localities'),
+        fetchRows('/businesses'),
+        fetchRows('/products'),
+        // null = no se pudo consultar o no hay sesión; [] = el servidor no tiene pedidos.
+        ordersRequest,
+      ]);
 
-        const nextLocalities = (localitiesData || []).map(normalizeLocality);
-        const nextBusinesses = (businessesData || []).map(normalizeBusiness);
-        const nextProducts = (productsData || []).map(normalizeProduct);
+      if (!active) return;
 
-        if (nextLocalities.length) {
-          setLocalities(nextLocalities);
-          localStorage.setItem('pidetietar_localities', JSON.stringify(nextLocalities));
-        }
-        if (nextBusinesses.length) {
-          setBusinesses(nextBusinesses);
-          localStorage.setItem('pidetietar_businesses', JSON.stringify(nextBusinesses));
-        }
-        if (nextProducts.length) {
-          setProducts(nextProducts);
-          localStorage.setItem('pidetietar_products', JSON.stringify(nextProducts));
-        }
-        if (Array.isArray(ordersData)) {
-          // A diferencia de las demás entidades, los pedidos sí se reemplazan
-          // aunque la lista esté vacía: el servidor es la fuente de verdad y
-          // la caché local no debe resucitar pedidos ya borrados.
-          const nextOrders = ordersData.map(normalizeOrder);
-          setOrders(nextOrders);
-          localStorage.setItem('pidetietar_orders', JSON.stringify(nextOrders));
-        }
-      } catch (error) {
-        console.warn('No se pudo cargar la base de datos; se usa caché local.', error);
+      if (localitiesData) {
+        const nextLocalities = localitiesData.map(normalizeLocality);
+        setLocalities(nextLocalities);
+        // Si la zona elegida sigue existiendo se conserva; si no, se elige la
+        // primera o se queda en null cuando el catálogo está vacío.
+        setSelectedLocality((current) => {
+          if (!nextLocalities.length) return null;
+          if (!current) return nextLocalities[0];
+          return nextLocalities.find((locality) => locality.id === current.id) || nextLocalities[0];
+        });
+      }
+      if (businessesData) {
+        setBusinesses(businessesData.map(normalizeBusiness));
+      }
+      if (productsData) {
+        setProducts(productsData.map(normalizeProduct));
+      }
+      if (Array.isArray(ordersData)) {
+        // A diferencia de las demás entidades, los pedidos sí se reemplazan
+        // aunque la lista esté vacía: el servidor es la fuente de verdad y
+        // la caché local no debe resucitar pedidos ya borrados.
+        const nextOrders = ordersData.map(normalizeOrder);
+        setOrders(nextOrders);
+        localStorage.setItem('pidetietar_orders', JSON.stringify(nextOrders));
       }
     };
 
@@ -574,33 +621,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('pidetietar_businesses', JSON.stringify(businesses));
-  }, [businesses]);
-
-  useEffect(() => {
-    localStorage.setItem('pidetietar_products', JSON.stringify(products));
-  }, [products]);
-
-  useEffect(() => {
-    localStorage.setItem('pidetietar_localities', JSON.stringify(localities));
-  }, [localities]);
-
-  useEffect(() => {
-    localStorage.setItem('pidetietar_selected_locality', JSON.stringify(selectedLocality));
-  }, [selectedLocality]);
-
-  useEffect(() => {
     const handleStorageSync = (event: StorageEvent) => {
       if (!event.key) return;
 
       if (event.key === 'pidetietar_orders') {
         setOrders(event.newValue ? JSON.parse(event.newValue) : []);
-      }
-      if (event.key === 'pidetietar_businesses') {
-        setBusinesses(event.newValue ? JSON.parse(event.newValue) : INITIAL_BUSINESSES);
-      }
-      if (event.key === 'pidetietar_products') {
-        setProducts(event.newValue ? JSON.parse(event.newValue) : INITIAL_PRODUCTS);
       }
       if (event.key === 'pidetietar_cart') {
         setCart(event.newValue ? JSON.parse(event.newValue) : null);
@@ -736,53 +761,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     showNotification(online ? 'Repartidor activo y disponible para entregas.' : 'Repartidor marcado como fuera de línea.', 'info');
   };
 
-  // Switch roles for instant testing of all roles
+  // La sesión se construye con los datos reales del backend. No se rellenan
+  // direcciones, suscripciones ni perfiles de ejemplo: si el servidor no los
+  // envía, quedan vacíos.
   const loginAs = (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => {
-    const roleNames: Record<User['role'], string> = {
-      CLIENT: 'Lucía Morales (Cliente)',
-      BUSINESS_ADMIN: 'Carlos Gómez (Admin Asador)',
-      PLATFORM_COURIER: 'Marcos Ruiz (Repartidor Patinete)',
-      BUSINESS_COURIER: 'Javier Adrada (Repartidor Pizzería)',
-      SUPERADMIN: 'Rafael Santos (Superadmin)'
-    };
-
-    const targetEmail = customEmail || (role === 'SUPERADMIN' ? 'rafaeldesweb@gmail.com' : `${role.toLowerCase()}@pidetietar.es`);
+    const targetEmail = customEmail || extraData?.email || '';
     const fallbackCourierProfile: NonNullable<User['courierProfile']> = {
-      businessIds: role === 'BUSINESS_COURIER' ? ['biz-2'] : ['biz-1'],
-      localityIds: ['sotillo'],
-      isOnline: true,
-      confirmation: role === 'SUPERADMIN' ? 'SUPERADMIN' : 'PENDING'
+      businessIds: [],
+      localityIds: [],
+      isOnline: false,
+      confirmation: 'PENDING',
     };
 
     const newUser: User = {
-      id: `usr-${role.toLowerCase()}`,
-      username: targetEmail.includes('@') ? targetEmail.split('@')[0] : targetEmail,
-      name: roleNames[role],
+      ...extraData,
+      id: extraData?.id || `usr-${role.toLowerCase()}`,
+      username: extraData?.username || (targetEmail.includes('@') ? targetEmail.split('@')[0] : targetEmail),
+      name: extraData?.name || (targetEmail.includes('@') ? targetEmail.split('@')[0] : targetEmail) || role,
       email: targetEmail,
-      password: 'admin123',
-      phone: '+34 612 345 678',
       role: role,
-      businessId: (role === 'BUSINESS_ADMIN') ? 'biz-1' : (role === 'BUSINESS_COURIER' ? 'biz-2' : undefined),
-      isEmailVerified: extraData?.isEmailVerified ?? (role === 'CLIENT' || role === 'PLATFORM_COURIER' || role === 'BUSINESS_COURIER' ? false : true),
-      createdAt: new Date().toISOString(),
-      avatarUrl: `https://images.unsplash.com/photo-${role === 'CLIENT' ? '1544005313-94ddf0286df2' : '1507003211169-0a1dd7228f2d'}?w=120&auto=format&fit=crop&q=80`,
-      subscriptionPlan: role === 'CLIENT' ? 'PRO_MONTHLY' : (role === 'BUSINESS_ADMIN' ? 'PREMIUM_PARTNER' : 'FREE'),
-      subscriptionStatus: 'active',
-      addresses: [
-        {
-          id: 'addr-test',
-          label: 'Dirección habitual',
-          street: 'Calle Real 8',
-          locality: 'Sotillo de la Adrada',
-          postalCode: '05420',
-          coordinates: { lat: 40.2889, lng: -4.5828 },
-          isDefault: true
-        }
-      ],
+      businessId: extraData?.businessId,
+      isEmailVerified: extraData?.isEmailVerified ?? false,
+      createdAt: extraData?.createdAt || new Date().toISOString(),
+      addresses: extraData?.addresses ?? [],
+      subscriptionPlan: extraData?.subscriptionPlan ?? 'FREE',
+      subscriptionStatus: extraData?.subscriptionStatus ?? 'active',
       courierProfile: (role === 'PLATFORM_COURIER' || role === 'BUSINESS_COURIER')
         ? (extraData?.courierProfile || fallbackCourierProfile)
         : undefined,
-      ...extraData
     };
 
     if (role === 'BUSINESS_ADMIN' || role === 'SUPERADMIN') {
@@ -810,7 +816,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // la app, cada recarga (F5) o cada petición 401 "cerraba" la sesión aunque
   // el token siguiera siendo válido. Al montar se comprueba contra el backend
   // y se reutiliza loginAs (silent) para mantener la misma forma de Usuario
-  // que un login normal (dirección demo, suscripción, etc.).
+  // que un login normal, sin inventar direcciones ni suscripciones.
   useEffect(() => {
     const restoreSession = async () => {
       if (!getSessionToken()) {
@@ -823,8 +829,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const raw = (data as { user?: any } | null)?.user;
         if (raw) {
           // No se pasan addresses ni subscriptionPlan: el backend no los
-          // persiste y se conservan los mismos valores demo que un login
-          // normal (paridad de datos entre login y restauración).
+          // persiste y loginAs deja los valores neutros por defecto.
           loginAs(
             (raw.role as User['role']) || 'CLIENT',
             raw.email,
@@ -834,6 +839,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               name: raw.name,
               email: raw.email,
               phone: raw.phone || '',
+              address: raw.address || '',
+              dni: raw.dni || '',
               accountNumber: raw.accountNumber || '',
               avatarUrl: raw.avatarUrl || '',
               isEmailVerified: Boolean(raw.isEmailVerified),
@@ -991,7 +998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: tempId,
       name: data.name || 'Nueva zona',
       postalCode: data.postalCode || '00000',
-      coordinates: data.coordinates || { lat: 40.2891, lng: -4.5824 },
+      coordinates: data.coordinates || { lat: 0, lng: 0 },
       active: data.active ?? true,
       coverImage: data.coverImage,
     };
@@ -1006,7 +1013,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
         const created = response?.locality;
         const serverId = created?.id;
-        if (!serverId || serverId === tempId) return;
+        if (!serverId || serverId === tempId) {
+          setSelectedLocality(current => current ?? newLocality);
+          return;
+        }
 
         // El backend genera su propio id y antes se descartaba la respuesta:
         // la zona quedaba sólo en el navegador y "Crear comercio" fallaba
@@ -1015,12 +1025,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setLocalities(prev =>
           prev.map(loc => (loc.id === tempId ? { ...loc, ...adopted, id: serverId } : loc)),
         );
-        setSelectedLocality(prev => (prev.id === tempId ? { ...prev, ...adopted, id: serverId } : prev));
+        setSelectedLocality(current => {
+          if (!current) return { ...newLocality, ...adopted, id: serverId };
+          return current.id === tempId ? { ...current, ...adopted, id: serverId } : current;
+        });
       })
       .catch((error) => {
         // Se retira la zona provisional para no mostrar un alta que no ocurrió.
         setLocalities(prev => prev.filter(loc => loc.id !== tempId));
-        setSelectedLocality(cur => (cur.id === tempId ? (localities[0] ?? cur) : cur));
+        setSelectedLocality(current => (current?.id === tempId ? null : current));
         showNotification(
           error instanceof Error ? error.message : 'No se pudo guardar la zona en el servidor.',
           'error',
@@ -1032,7 +1045,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateLocality = (localityId: string, data: Partial<Locality>) => {
     const next = { ...data };
     setLocalities(prev => prev.map(loc => (loc.id === localityId ? { ...loc, ...next } : loc)));
-    setSelectedLocality(prev => (prev.id === localityId ? { ...prev, ...next } : prev));
+    setSelectedLocality(prev => (prev?.id === localityId ? { ...prev, ...next } : prev));
 
     // Antes sólo se tocaba el estado local: la zona volvía a su valor
     // antiguo al recargar. Ahora se guarda también en el servidor.
@@ -1057,15 +1070,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const removed = localities.find(loc => loc.id === localityId);
+    const wasSelected = selectedLocality?.id === localityId;
     const remaining = localities.filter(loc => loc.id !== localityId);
 
-    setLocalities(prev => {
-      const rest = prev.filter(loc => loc.id !== localityId);
-      if (selectedLocality.id === localityId && rest.length > 0) {
-        setSelectedLocality(rest[0]);
-      }
-      return rest;
-    });
+    setLocalities(remaining);
+    if (wasSelected) {
+      setSelectedLocality(remaining[0] || null);
+    }
 
     void apiFetch(`/localities/${encodeURIComponent(localityId)}`, { method: 'DELETE' })
       .then(() => {
@@ -1081,9 +1092,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Se restaura para no mostrar un borrado que no llegó a producirse.
         if (removed) {
           setLocalities(prev => [...prev, removed]);
-          if (remaining.length === 0) setSelectedLocality(removed);
+          if (wasSelected) setSelectedLocality(removed);
         }
       });
+  };
+
+  // El panel de administración llama a esta función antes de editar, eliminar
+  // o asignar negocios a un repartidor: así sólo se trabaja con IDs que el
+  // servidor reconoce. La lista del servidor reemplaza siempre a la anterior,
+  // incluida una lista vacía.
+  const refreshBusinesses = async (): Promise<Business[] | null> => {
+    try {
+      const data = await apiFetch('/businesses', { cache: 'no-store' });
+      const rows = (Array.isArray(data) ? data : []).map(normalizeBusiness);
+      setBusinesses(rows);
+      return rows;
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'No se pudo actualizar la lista de negocios.';
+      showNotification(message, 'error');
+      // null (y no una lista vacía) para que quien llama sepa que la consulta
+      // falló y no borre selecciones que quizá sigan siendo válidas.
+      return null;
+    }
   };
 
   // El registro de negocios es una operación de plataforma: sólo el superadmin
@@ -1095,13 +1127,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     owner?: BusinessOwnerInput | null,
     onFieldErrors?: (errors: Record<string, string>) => void,
   ): Promise<Business | null> => {
+    const localityId = businessData.localityId || selectedLocality?.id || '';
+    if (!localityId) {
+      showNotification('Crea o selecciona una localidad antes de registrar el negocio.', 'error');
+      return null;
+    }
+
     const payload = {
       name: businessData.name || '',
       legal_name: businessData.legalName || businessData.name || '',
       cif: businessData.cif || '',
       account_number: businessData.accountNumber || '',
       category: businessData.category || '',
-      locality_id: businessData.localityId || selectedLocality.id,
+      locality_id: localityId,
       phone: businessData.phone || '',
       email: businessData.email || '',
       address: businessData.address || '',
@@ -1171,7 +1209,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updatedBusiness: Business = { ...target, ...businessData };
 
     try {
-      await apiFetch(`/businesses/${businessId}`, {
+      const response = await apiFetch(`/businesses/${businessId}`, {
         method: 'PUT',
         body: JSON.stringify({
           name: updatedBusiness.name,
@@ -1212,15 +1250,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }),
       });
 
+      // El servidor devuelve el negocio tal y como quedó guardado (incluida la
+      // cuenta del propietario). Se usa esa copia para que la tabla no muestre
+      // valores que el backend haya normalizado o descartado.
+      const saved = response?.business
+        ? normalizeBusiness(response.business)
+        : updatedBusiness;
+
       setBusinesses((previous) =>
         previous.map((business) =>
-          business.id === businessId ? updatedBusiness : business,
+          business.id === businessId ? saved : business,
         ),
       );
-      showNotification(`Negocio actualizado: ${updatedBusiness.name}`, 'success');
+      showNotification(`Negocio actualizado: ${saved.name}`, 'success');
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo actualizar el negocio';
+      if ((error as { status?: number })?.status === 404) {
+        // La fila venía de la caché y ya no existe en el servidor. Se quita
+        // para que no se vuelva a intentar editar algo fantasma.
+        setBusinesses((previous) =>
+          previous.filter((business) => business.id !== businessId),
+        );
+        showNotification(
+          'Ese negocio ya no existe en el servidor. Se ha quitado de la lista.',
+          'error',
+        );
+        return false;
+      }
       onFieldErrors?.(
         (error as { errors?: Record<string, string> })?.errors || {},
       );
@@ -1242,23 +1299,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showNotification(`Negocio eliminado: ${target.name}`, 'success');
       return true;
     } catch (error) {
+      if ((error as { status?: number })?.status === 404) {
+        setBusinesses((previous) =>
+          previous.filter((business) => business.id !== businessId),
+        );
+        showNotification(
+          'Ese negocio ya no existe en el servidor. Se ha quitado de la lista.',
+          'error',
+        );
+        return false;
+      }
       const message = error instanceof Error ? error.message : 'No se pudo eliminar el negocio';
       showNotification(message, 'error');
       return false;
     }
   };
 
-  const createUserAccount = async (data: {
-    username: string;
-    fullName: string;
-    email: string;
-    password: string;
-    role: User['role'];
-    businessId?: string;
-    courierBusinessIds?: string[];
-    accountNumber?: string;
-    courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
-  }): Promise<boolean> => {
+  const createUserAccount = async (
+    data: {
+      username: string;
+      fullName: string;
+      email: string;
+      password: string;
+      phone?: string;
+      address?: string;
+      dni?: string;
+      role: User['role'];
+      businessId?: string;
+      courierBusinessIds?: string[];
+      accountNumber?: string;
+      courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
+    },
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ): Promise<boolean> => {
     try {
       await apiFetch('/users', {
         method: 'POST',
@@ -1267,6 +1340,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           fullName: data.fullName,
           email: data.email,
           password: data.password,
+          phone: data.phone,
+          address: data.address,
+          dni: data.dni,
           role: data.role,
           businessId: data.businessId,
           courierBusinessIds: data.courierBusinessIds,
@@ -1277,7 +1353,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showNotification('Cuenta creada correctamente.', 'success');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo crear el usuario';
+      const serverErrors =
+        (error as { errors?: Record<string, string> })?.errors || {};
+      onFieldErrors?.(serverErrors);
+
+      // Si el backend detalla qué campo falla, se muestra ese motivo en vez
+      // del aviso genérico "revisa el formulario".
+      const firstServerError = Object.values(serverErrors).find(Boolean);
+      const message = firstServerError
+        || (error instanceof Error ? error.message : 'No se pudo crear el usuario');
       showNotification(message, 'error');
       return false;
     }
@@ -1304,6 +1388,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             name: row.name || 'Repartidor',
             email: row.email || '',
             phone: row.phone || '',
+            address: row.address || '',
+            dni: row.dni || '',
             role: row.role,
             businessId: row.businessId || undefined,
             accountNumber: row.accountNumber || '',
@@ -1344,27 +1430,39 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Edita los negocios asignados y la cuenta bancaria de un repartidor. El
-  // backend restringe ambos campos al superadmin.
+  // Edita los datos de contacto, los negocios asignados y la cuenta bancaria
+  // de un repartidor. El backend restringe la cuenta bancaria al superadmin.
   const updateCourierDetails = async (
     userId: string,
     data: {
       courierBusinessIds: string[];
+      phone?: string;
+      address?: string;
+      dni?: string;
       accountNumber?: string;
     },
+    onFieldErrors?: (errors: Record<string, string>) => void,
   ): Promise<boolean> => {
     try {
       await apiFetch(`/users/${userId}`, {
         method: 'PUT',
         body: JSON.stringify({
           courierBusinessIds: data.courierBusinessIds,
+          phone: data.phone ?? '',
+          address: data.address ?? '',
+          dni: data.dni ?? '',
           accountNumber: data.accountNumber ?? '',
         }),
       });
       showNotification('Repartidor actualizado correctamente.', 'success');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo actualizar el repartidor';
+      const serverErrors =
+        (error as { errors?: Record<string, string> })?.errors || {};
+      onFieldErrors?.(serverErrors);
+      const firstServerError = Object.values(serverErrors).find(Boolean);
+      const message = firstServerError
+        || (error instanceof Error ? error.message : 'No se pudo actualizar el repartidor');
       showNotification(message, 'error');
       return false;
     }
@@ -1900,12 +1998,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const newOrder: Order = {
       id: 'ord-' + Date.now(),
       orderNumber: orderNum,
-      businessId: orderData.businessId || 'biz-1',
-      businessName: orderData.businessName || 'La Bodeguita de Sotillo',
+      businessId: orderData.businessId || '',
+      businessName: orderData.businessName || '',
       customerId: 'usr-manual',
       customerName: orderData.customerName || 'Cliente en Barra / Mesa',
-      customerPhone: orderData.customerPhone || '+34 600 000 000',
-      customerEmail: orderData.customerEmail || 'mostrador@labodeguita.es',
+      customerPhone: orderData.customerPhone || '',
+      customerEmail: orderData.customerEmail || '',
       deliveryType: orderData.deliveryType || 'PICKUP',
       deliveryAddress: orderData.deliveryAddress,
       scheduledTime: 'Inmediato (Comanda Mesa/Barra)',
@@ -1992,6 +2090,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deleteLocality,
       businesses,
       products,
+      refreshBusinesses,
       createBusiness,
       updateBusiness,
       deleteBusiness,

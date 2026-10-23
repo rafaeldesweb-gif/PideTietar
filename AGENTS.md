@@ -1,39 +1,75 @@
 # AGENTS.md
 
-App de pedidos para el Valle del Tiétar: frontend React 19 + Vite y backend Express en un único `server.js`. Código, comentarios y UI en español.
+App de pedidos para el Valle del Tiétar: frontend React 19 + Vite 8 y backend Express 4 en un único `server.js`. Código, comentarios y UI en español.
 
 ## Comandos
 
-- `npm run lint` → `tsc --noEmit`. **No hay ESLint, ni test runner, ni suite de tests en el repo**: es la única comprobación estática.
+- `npm run lint` → `tsc --noEmit`. **No hay ESLint ni formateador**: es la única comprobación estática. También typechequea los `*.test.ts`.
 - `npm run build` → `vite build`. Orden habitual: `npm run lint` → `npm run build`.
-- `npm run dev` → **solo** el frontend (Vite, puerto 3000). El backend es otro proceso: `npm run server` (puerto 4000). Vite proxyea `/api` → `http://localhost:4000`.
-- Smoke test de API: `curl http://localhost:4000/api/health`.
-- `npm run test:responsive` → Playwright sobre 10 viewports; arranca Vite él mismo si el 3000 no responde. Requiere los navegadores de Playwright instalados.
+- `npm run dev` → **solo** el frontend (Vite, puerto 3000). El backend es otro proceso: `npm run server` (puerto 4000). `npm start` es equivalente a `npm run server` y sirve `dist/` si existe. Vite proxea `/api` → `http://localhost:4000`.
+- `npm run preview` → sirve el build de Vite en el 4173 y hereda el proxy `/api` → 4000 (`server.proxy`), pero no arranca el backend.
+- Tests: `node --import tsx --test "src/**/*.test.ts"`. Son tests de `node:test` sobre utilidades del frontend; **no hay script npm, tests de backend ni de componentes**. `node --test` a secas falla porque los imports TS no llevan extensión.
+- Smoke test de API: `curl http://localhost:4000/api/health` (devuelve `mode: "mysql" | "sqlite"`).
+- `npm run test:responsive` → Playwright/Chromium sobre 10 viewports; arranca Vite en el 3000 si no responde. Solo comprueba desbordamiento horizontal de la portada. Requiere `npx playwright install chromium`.
 - `npm run clean` → solo borra `dist/`. No toca el código ni la base de datos.
 
 ## Arquitectura
 
-- `server.js` (~4.700 líneas, JS plano sin build) es todo el backend. Al arrancar **intenta MySQL** con `.env` y, si la conexión falla, **cae a SQLite local** `data/app.db`. El modo activo vive en la variable `databaseMode`.
-- El servidor **crea y migra su propio esquema** SQLite al arrancar (`ensureSqliteSchemaShape`, añadiendo columnas con `ALTER TABLE`). Tocar la BD real = tocar ese esquema.
-- `database/schema.sql` y `database/mysql_schema.sql` son **solo documentación**: el servidor nunca los ejecuta. Son dialectos distintos (PostgreSQL vs MySQL/MariaDB); ejecutar uno en el motor equivocado produce errores de sintaxis.
-- Entrada frontend: `index.html` → `src/main.tsx`. Estado global en `src/context/AppContext.tsx`; tipos compartidos en `src/types.ts`; errores de formulario en `src/components/FormErrors.tsx`.
-- Auth: token HMAC stateless (`requireAuth` / `requireRole(...)`). Existe un superadmin que entra **sin necesitar BD**; sus credenciales se configuran con `SUPERADMIN_USERNAME` / `SUPERADMIN_PASSWORD` (hay un valor de respaldo en `server.js` solo para desarrollo). `POST /api/auth/login` acepta `username` o `email`.
-- `GET /api/orders` exige sesión y filtra por rol en el servidor: superadmin ve todo; el administrador y los repartidores de negocio ven su negocio; el repartidor de plataforma cubre todo el valle; el cliente solo sus pedidos (con respaldo por email para pedidos antiguos). Los endpoints `/api/debug/*` son solo de superadmin.
-- La **cuenta bancaria (IBAN) es un dato del negocio** (`businesses.account_number`), no del cliente: se recoge en el alta y la edita el propio usuario del negocio desde "DATOS DEL NEGOCIO" en `BusinessDashboard` (para conectar la pasarela de pago). No la añadas a los formularios de cliente (`AuthModal`), que la tienen eliminada a propósito.
-- `server.js` sirve `dist/` estáticamente si existe: un build viejo puede confundir tus pruebas en el puerto 4000.
+- `server.js` (JS plano sin build) es todo el backend. Al arrancar **intenta MySQL** con `.env` y, si la conexión falla, **cae a SQLite local** `data/app.db` (WAL). El modo activo vive en `databaseMode` y se ve en `/api/health`.
+- El servidor **crea y migra su propio esquema** en ambos motores: SQLite con `sqliteSchema` + `ensureSqliteSchemaShape` (`ALTER TABLE`); MySQL con `mysqlSchema` + `ensureMySqlSchemaShape`. Tocar la BD real = tocar ese esquema.
+- `database/schema.sql` es **solo documentación PostgreSQL** (el backend no soporta PostgreSQL); `database/mysql_schema.sql` es la variante MySQL/MariaDB. El servidor no ejecuta ninguno de los dos: su esquema MySQL está embebido en `server.js`. Ejecutar un dialecto en el motor equivocado da errores de sintaxis.
+- Frontend: `index.html` → `src/main.tsx` → `src/App.tsx`. No hay router: la vista (`home`, `orders`, `business-dashboard`, etc.) es estado de React. Estado global en `src/context/AppContext.tsx`; tipos en `src/types.ts`; catálogos estáticos (categorías y planes) en `src/data/mockData.ts`; errores de formulario en `src/components/FormErrors.tsx`.
+- **No hay datos demo ni seed de localidades, negocios o productos**: el frontend arranca vacío y la API es la única fuente de esas entidades. Los datos reales se crean desde el panel de superadministración.
+- `AppContext` centraliza las llamadas con `apiFetch` (`/api`, `Authorization: Bearer <token>`). Al montar carga localidades/negocios/productos desde la API (aunque devuelva listas vacías) y, si hay token, pedidos; los pedidos se refrescan cada 4 s y al recuperar el foco. `refreshBusinesses()` reemplaza la lista de negocios con la del servidor (también vacía) y la usa `AdminDashboard` antes de editar/eliminar o asignar negocios a un repartidor. Localidades, negocios y productos **no se cachean en localStorage**.
+- Servicios: `src/services/googleWorkspace.ts` (GIS/Calendar/Gmail) y `src/services/paymentService.ts` (ledger y checkout). Utilidades: `orderValidation.ts`, `orderVisibility.ts`, `productOptions.ts`, `imageUpload.ts`, `courierValidation.ts`.
+- `server.js` sirve `dist/` estáticamente si existe **al arrancar**: un build viejo puede confundir tus pruebas en el 4000. Si no existía, el catch-all devuelve JSON hasta reiniciar.
+- No hay CORS, helmet ni rate limiting: el frontend debe usar el proxy de Vite en desarrollo o el mismo origen en producción.
+
+## Auth, roles y permisos
+
+- Roles: `CLIENT`, `BUSINESS_ADMIN`, `BUSINESS_COURIER`, `PLATFORM_COURIER`, `SUPERADMIN`.
+- Sesión: token HMAC-SHA256 stateless (no JWT) con `sub`, `role`, `businessId`, `iat`, `exp`; TTL por defecto 168 h (`SESSION_TTL_HOURS`). Se acepta en `Authorization: Bearer ...` o `x-auth-token`. `requireAuth` / `requireRole(...)` lo validan; `requireSuperAdmin` = `requireRole("SUPERADMIN")`.
+- Contraseñas con bcrypt. `POST /api/auth/register` siempre crea `CLIENT`. El superadmin puede entrar **sin BD** con `SUPERADMIN_PASSWORD`; el identificador de ese acceso de emergencia está fijado en `server.js` y **no** lo cambia `SUPERADMIN_USERNAME` (esa variable solo bautiza el usuario sembrado en la BD). En producción define siempre `SUPERADMIN_PASSWORD` y `SESSION_SECRET`.
+- `POST /api/auth/login` acepta `username` o `email`. Si la cuenta tiene `password_change_required`, responde 403 `PASSWORD_CHANGE_REQUIRED`; `POST /api/auth/change-password` permite fijar la nueva sin sesión presentando identificador + contraseña actual.
+- `GET /api/orders` exige sesión y filtra en servidor:
+  - `SUPERADMIN` y `PLATFORM_COURIER`: todos (el de plataforma cubre el valle).
+  - `BUSINESS_ADMIN`: solo su `business_id`.
+  - `BUSINESS_COURIER`: pedidos de sus negocios asignados (`courier_business_ids`) **o** asignados a él (`courier_id`).
+  - `CLIENT`: `customer_id` propio; los pedidos antiguos sin `customer_id` se aceptan por email.
+- Los endpoints `/api/debug/*` son solo de superadmin.
+
+## Reglas de negocio
+
+- **IBAN**: la cuenta bancaria es del negocio (`businesses.account_number`) y, para repartidores, un dato de cobro (`app_users.account_number`). El cliente no la maneja (`AuthModal` la tiene eliminada a propósito). El dueño edita la de su negocio desde "DATOS DEL NEGOCIO"; la del repartidor solo la configura el superadmin y el dueño no puede verla ni editarla, solo confirmar al repartidor.
+- **Negocios**: `GET` público; alta solo `SUPERADMIN` (crea negocio + horario + cuenta del propietario en una transacción); edición `SUPERADMIN` o el propietario de ese negocio; borrado `SUPERADMIN`, bloqueado con 409 `BUSINESS_HAS_ORDERS` si hay pedidos.
+- **Usuarios**: `GET /api/users` solo superadmin y dueño de negocio (este ve únicamente sus `BUSINESS_COURIER`). El dueño solo crea repartidores de su negocio y con confirmación `PENDING`; el superadmin puede crear cualquier rol. `PUT /api/users/:id` permite al propio usuario, al superadmin o al dueño confirmar a su repartidor (este último solo `courierConfirmation`). `DELETE` solo superadmin y no permite borrarse a sí mismo.
+- **Repartidores**: `courier_confirmation` ∈ `PENDING` | `BUSINESS_EMAIL` | `SUPERADMIN`; `BUSINESS_COURIER` necesita al menos un negocio. La ficha guarda teléfono, dirección y DNI/NIE en `app_users.phone/address/dni`; el alta exige esos tres datos en la UI y la edición permite completarlos. El panel de repartidor exige email verificado **y** confirmación (`BUSINESS_EMAIL` o `SUPERADMIN`) en el frontend. En el panel de superadmin el alta vive detrás del botón "Actualizar" (desplegar/ocultar), la clave se puede mostrar/ocultar y los errores del servidor se pintan en su campo (`toCourierFieldErrors`).
+- **Pedidos**: importes siempre en **céntimos enteros**. Comisión de plataforma: 5 % del subtotal + 20 % del envío; `business_payout` y `courier_payout` se guardan en el pedido. El PIN de entrega lo genera el cliente y el repartidor lo valida para marcar `DELIVERED`. `POST /api/orders` y `PUT /api/orders/:id` aceptan camelCase y snake_case, y el servidor **confía en los importes/estado que envía el cliente**. Ojo: `PUT` y `DELETE /api/orders/:id` no comprueban que el pedido pertenezca al negocio del usuario; si tocas esta zona, valida en servidor.
+- **Catálogo**: `GET /api/products` público; `POST/PUT/DELETE` solo `SUPERADMIN`/`BUSINESS_ADMIN`, pero el servidor **no comprueba que el producto pertenezca al negocio de la sesión**. Las mutaciones de localidades también admiten `BUSINESS_ADMIN` sin comprobar ámbito.
+- **Email**: código de 6 dígitos vía SMTP (`SMTP_*`/`EMAIL_*`) o devuelto en la respuesta si no hay SMTP. Pero `createUser` inserta `email_verified = 1`: las cuentas nuevas nacen verificadas y el flujo de verificación no bloquea el alta; `send-verification-email` vuelve a marcar la cuenta como no verificada hasta introducir el código.
+- **Pagos y Google**: `paymentService.ts` está simulado (IDs fake, sin Stripe/PayPal real); `googleWorkspace.ts` puede usar GIS real con `VITE_GOOGLE_CLIENT_ID`, pero sin token válido cae a enlaces de Calendar y logs de Gmail. No los presentes como integraciones reales sin configurar claves.
 
 ## Trampas
 
-- **localStorage cachea** localidades/negocios/productos/pedidos (`pidetietar_*`); si la API devuelve vacío se conservan, y si no hay nada quedan los datos demo de `src/data/`. Una "BD vacía" puede parecer poblada: limpia localStorage al probar la UI.
-- `node:sqlite` (`DatabaseSync`) exige **Node ≥ 22.5**; `package.json` ya lo declara en `engines`.
-- `node:sqlite` rechaza bindings booleanos: pasa siempre `Number(...)`.
-- Los handlers async de Express se envuelven globalmente (línea ~24) para reenviar rejections a `next()`; una ruta nueva queda cubierta, pero no elimines ese wrapper.
-- Límite `express.json({ limit: "2mb" })`: las imágenes van como data URL o `http(s)://` sin espacios.
-- `vite.config.ts` admite `DISABLE_HMR=true` para desactivar HMR y file watching durante ediciones.
+- **localStorage solo cachea** `pidetietar_orders` (con fusión entre pestañas), `pidetietar_cart`, `pidetietar_token`, `pidetietar_theme` y `pidetietar_google_token`. Localidades, negocios y productos **no se guardan**: la API es la fuente de verdad y una respuesta vacía deja la UI vacía. La clave `pidetietar_seed_cache_cleared_v1` limpia una sola vez las cachés antiguas de entidades (`localities`, `businesses`, `products`, `selected_locality`, `orders`, `cart`) para que una instalación vieja no siga mostrando datos demo; el token no se toca. Si pruebas la UI con un perfil antiguo, limpia localStorage.
+- `loginAs` y la restauración de sesión **no inventan** direcciones ni suscripciones: usan lo que envíe el backend y dejan valores neutros si faltan. El backend **no persiste** `addresses` ni `subscriptionPlan`; no los uses como datos reales.
+- Los pedidos locales se fusionan con los remotos (`mergeOrderLists`) y hay actualizaciones optimistas con rollback; no dupliques esa lógica ni elimines el refresco periódico.
+- `node:sqlite` (`DatabaseSync`) exige **Node ≥ 22.5**; `package.json` ya lo declara en `engines`. Rechaza bindings booleanos: pasa siempre `Number(...)`.
+- Los handlers async de Express se envuelven globalmente (línea ~24) para reenviar rejections a `next()`; no elimines ese wrapper ni el middleware de errores de 4 argumentos. También hay `unhandledRejection`/`uncaughtException` como red de seguridad.
+- Límite `express.json({ limit: "2mb" })`: las imágenes van como data URL o `http(s)://` sin espacios. `fileToDataUrl` reescala a ~900.000 caracteres; respeta ese margen para no provocar 413.
+- `vite.config.ts` admite `DISABLE_HMR=true` para desactivar HMR y file watching durante ediciones; el watcher ignora `data/`, `*.db*` y `dist/` (la BD se escribe en cada pedido y recargaba la página).
 - `data/` está excluido de git (`data/*.db*`, `data/.session_secret`): no subas la base de datos ni el secreto de sesión.
+- La contraseña histórica por defecto (`INSECURE_DEFAULT_PASSWORD` en `server.js`) está marcada como insegura: al arrancar, las cuentas que la usan reciben `password_change_required = 1`. No la reutilices en datos de prueba ni la copies a la documentación.
+- `firebase-applet-config.json` y `metadata.json` son restos de AI Studio; no hay SDK de Firebase ni Gemini en el código.
 
 ## Contrato de errores de la API
 
-- Validación: `400 { code: "VALIDATION_ERROR", message, errors }`, con `errors` indexado por **snake_case** (nombres de columna reales de la BD).
-- El frontend los traduce a campos camelCase del formulario dentro de `src/components/FormErrors.tsx` (`owner_username` → `adminUsername`, etc.). Si añades un campo nuevo, mápealo ahí.
-- Códigos de dominio en el cuerpo: `BUSINESS_HAS_ORDERS` (409), `INVALID_CREDENTIALS` (401), entre otros.
+- Validación: `400 { code: "VALIDATION_ERROR", message, errors }`. `errors` suele usar **snake_case** (columnas reales de la BD), pero usuarios y cuenta del propietario usan camelCase (`fullName`, `ownerUsername`, `courierBusinessIds`, etc.).
+- El frontend los traduce a campos camelCase del formulario dentro de `src/components/FormErrors.tsx` (`owner_username`/`ownerUsername` → `adminUsername`, etc.). Si añades un campo nuevo, mápalo ahí.
+- Códigos de dominio: `INVALID_CREDENTIALS` (401), `PASSWORD_CHANGE_REQUIRED` (403), `UNAUTHORIZED` (401), `FORBIDDEN` (403), `NOT_FOUND` (404), `USER_EXISTS` (409), `BUSINESS_HAS_ORDERS` (409), `INVALID_CODE` (400), `EXPIRED_CODE` (410), `FOREIGN_KEY_CONFLICT` (409), `PAYLOAD_TOO_LARGE` (413), `INTERNAL_ERROR` (500).
+- Algunas rutas antiguas (p. ej. `PUT /api/localities/:id` sin campos) devuelven `{ success: false, message }` sin `code`; no asumas que todo error trae `errors`.
+
+## Entorno
+
+- `.env.example` documenta `PORT`, `DB_PATH`, MySQL (`MYSQL_*` o `DB_*`), `SUPERADMIN_*`, `SESSION_SECRET`, `APP_URL`, claves Stripe/PayPal y `VITE_GOOGLE_CLIENT_ID`.
+- El código además lee `SESSION_TTL_HOURS`, `EMAIL_VERIFICATION_TTL_MINUTES` y SMTP (`SMTP_HOST/PORT/USER/PASS/SECURE/FROM` o alias `EMAIL_*`), que **no están en `.env.example`**.

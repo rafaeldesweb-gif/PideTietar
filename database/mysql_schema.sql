@@ -64,6 +64,8 @@ CREATE TABLE users (
   full_name VARCHAR(150) NOT NULL,
   email VARCHAR(255) NOT NULL,
   phone VARCHAR(30) NULL,
+  address TEXT NULL,
+  dni VARCHAR(20) NULL,
   password_hash VARCHAR(255) NULL,
   avatar_url TEXT NULL,
   is_email_verified TINYINT(1) NOT NULL DEFAULT 0,

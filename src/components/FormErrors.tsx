@@ -34,9 +34,44 @@ const BUSINESS_ERROR_FIELD_MAP: Record<string, string> = {
   owner: 'adminUsername',
 };
 
+// El alta de repartidores usa los nombres del backend (courierBusinessIds,
+// courier_business_ids...) y el formulario agrupa los negocios en `businessIds`.
+// Sin este mapa el aviso quedaba en el mensaje genérico y no se veía el campo.
+const COURIER_ERROR_FIELD_MAP: Record<string, string> = {
+  fullName: 'fullName',
+  full_name: 'fullName',
+  username: 'username',
+  email: 'email',
+  password: 'password',
+  phone: 'phone',
+  address: 'address',
+  dni: 'dni',
+  documentNumber: 'dni',
+  document_number: 'dni',
+  role: 'role',
+  businessId: 'businessIds',
+  business_id: 'businessIds',
+  courierBusinessIds: 'businessIds',
+  courier_business_ids: 'businessIds',
+  accountNumber: 'accountNumber',
+  account_number: 'accountNumber',
+  courierConfirmation: 'courierConfirmation',
+  courier_confirmation: 'courierConfirmation',
+};
+
 export const extractFieldErrors = (error: unknown): FieldErrors => {
   const candidate = (error as { errors?: FieldErrors } | null)?.errors;
   return candidate && typeof candidate === 'object' ? candidate : {};
+};
+
+export const toCourierFieldErrors = (errors: FieldErrors): FieldErrors => {
+  const mapped: FieldErrors = {};
+
+  for (const [key, message] of Object.entries(errors)) {
+    mapped[COURIER_ERROR_FIELD_MAP[key] || key] = message;
+  }
+
+  return mapped;
 };
 
 export const toBusinessFieldErrors = (errors: FieldErrors): FieldErrors => {

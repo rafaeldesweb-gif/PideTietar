@@ -40,66 +40,45 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
     });
   };
 
-  const localityProducts = products.filter(
-    (product) => product.localityId === selectedLocality.id && product.isAvailable,
-  );
+  const activeLocalityId = selectedLocality?.id || null;
 
-  const bannerSourceProducts = getTopRatedProductsByBusiness(
-    localityProducts,
-    selectedLocality.id,
-    10,
-  );
+  const localityProducts = activeLocalityId
+    ? products.filter(
+        (product) => product.localityId === activeLocalityId && product.isAvailable,
+      )
+    : [];
 
-  const bannerSlides = bannerSourceProducts.length > 0
-    ? bannerSourceProducts.map((product, index) => {
-        const business = businesses.find((biz) => biz.id === product.businessId);
-        const category = CATEGORIES.find((cat) => cat.id === product.categoryId);
+  const localityBusinesses = activeLocalityId
+    ? businesses.filter((biz) => biz.localityId === activeLocalityId)
+    : [];
 
-        return {
-          id: `slide-${product.id}`,
-          tag: (category?.name || 'DESTACADO').toUpperCase(),
-          title: product.name,
-          discount: `${(product.rating ?? 4.5).toFixed(1)}★`,
-          description: product.description,
-          image: product.imageUrl,
-          ctaText: business ? `Pedir de ${business.name}` : 'Pedir ahora',
-          bgColor: ['from-[#1A0600] via-[#330c00] to-[#FF4E00]', 'from-[#180e03] via-[#2d1b06] to-[#A32300]', 'from-[#0b1712] via-[#10291e] to-[#046A38]'][index % 3]
-        };
-      })
-    : [
-        {
-          id: 'slide-fallback-burger',
-          tag: 'OFERTA ESPECIAL',
-          title: 'Burger del Valle',
-          discount: '4.9★',
-          description: 'Hamburguesas gourmet elaboradas con carne 100% IGP Ternera de Ávila y quesos artesanales del Tiétar.',
-          image: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=800&auto=format&fit=crop&q=80',
-          ctaText: 'Pedir Ahora',
-          bgColor: 'from-[#1A0600] via-[#330c00] to-[#FF4E00]'
-        },
-        {
-          id: 'slide-fallback-asado',
-          tag: 'TRADICIÓN DEL VALLE',
-          title: 'Asados & Chuletones',
-          discount: '4.8★',
-          description: 'Carnes a la brasa con denominación de origen y raciones típicas de nuestros asadores locales.',
-          image: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=800&auto=format&fit=crop&q=80',
-          ctaText: 'Ver Asadores',
-          bgColor: 'from-[#180e03] via-[#2d1b06] to-[#A32300]'
-        },
-        {
-          id: 'slide-fallback-pizza',
-          tag: 'PIZZAS ARTESANAS',
-          title: 'Pizzas al Horno de Piedra',
-          discount: '4.7★',
-          description: 'Masa madre fermentada durante 48 horas con ingredientes frescos traídos directamente de la huerta.',
-          image: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=800&auto=format&fit=crop&q=80',
-          ctaText: 'Explorar Pizzerías',
-          bgColor: 'from-[#0b1712] via-[#10291e] to-[#046A38]'
-        }
-      ];
+  const bannerSourceProducts = activeLocalityId
+    ? getTopRatedProductsByBusiness(localityProducts, activeLocalityId, 10)
+    : [];
+
+  const bannerSlides = bannerSourceProducts.map((product, index) => {
+    const business = businesses.find((biz) => biz.id === product.businessId);
+    const category = CATEGORIES.find((cat) => cat.id === product.categoryId);
+
+    return {
+      id: `slide-${product.id}`,
+      tag: (category?.name || 'DESTACADO').toUpperCase(),
+      title: product.name,
+      discount: `${(product.rating ?? 4.5).toFixed(1)}★`,
+      description: product.description,
+      image: product.imageUrl,
+      ctaText: business ? `Pedir de ${business.name}` : 'Pedir ahora',
+      bgColor: ['from-[#1A0600] via-[#330c00] to-[#FF4E00]', 'from-[#180e03] via-[#2d1b06] to-[#A32300]', 'from-[#0b1712] via-[#10291e] to-[#046A38]'][index % 3]
+    };
+  });
+  const activeBanner = bannerSlides[activeSlide] || bannerSlides[0];
 
   useEffect(() => {
+    if (bannerSlides.length === 0) {
+      setActiveSlide(0);
+      return;
+    }
+
     if (activeSlide >= bannerSlides.length) {
       setActiveSlide(0);
     }
@@ -111,87 +90,106 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
   }, [bannerSlides.length, activeSlide]);
 
   // Filter businesses by locality and optional search / category
-  const filteredBusinesses = [...businesses.filter((biz) => {
-    const matchesLocality = biz.localityId === selectedLocality.id;
-    const matchesCat = !selectedCategory ||
-      biz.category === selectedCategory ||
-      products.some((p) => p.businessId === biz.id && p.categoryId === selectedCategory);
-    const matchesOpen = !filterOpenOnly || biz.isShiftOpen;
+  const filteredBusinesses = activeLocalityId
+    ? [...businesses.filter((biz) => {
+        const matchesLocality = biz.localityId === activeLocalityId;
+        const matchesCat = !selectedCategory ||
+          biz.category === selectedCategory ||
+          products.some((p) => p.businessId === biz.id && p.categoryId === selectedCategory);
+        const matchesOpen = !filterOpenOnly || biz.isShiftOpen;
 
-    return matchesLocality && matchesCat && matchesOpen;
-  })].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0));
+        return matchesLocality && matchesCat && matchesOpen;
+      })].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+    : [];
 
-  const featuredProducts = getTopRatedProductsForLocality(
-    localityProducts,
-    selectedLocality.id,
-    4,
-  );
+  const featuredProducts = activeLocalityId
+    ? getTopRatedProductsForLocality(localityProducts, activeLocalityId, 4)
+    : [];
 
   return (
     <div className="space-y-8 pb-16">
       
-      {/* 1. HERO PROMOTIONAL BANNER CAROUSEL (Matching Image 1 & 2) */}
-      <section className="relative overflow-hidden rounded-3xl bg-[#140600] text-white shadow-2xl border border-stone-800">
-        <div className="relative min-h-[300px] sm:min-h-[360px] overflow-hidden">
-          <img
-            src={bannerSlides[activeSlide].image}
-            alt={bannerSlides[activeSlide].title}
-            className="absolute inset-0 h-full w-full object-cover opacity-80 saturate-125 contrast-110"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#1a0802]/90 via-[#1a0802]/75 to-[#1a0802]/20" />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#1a0802]/80 via-transparent to-transparent" />
+      {/* 1. HERO PROMOCIONAL: sólo se pinta con productos reales */}
+      {activeBanner ? (
+        <section className="relative overflow-hidden rounded-3xl bg-[#140600] text-white shadow-2xl border border-stone-800">
+          <div className="relative min-h-[300px] sm:min-h-[360px] overflow-hidden">
+            <img
+              src={activeBanner.image}
+              alt={activeBanner.title}
+              className="absolute inset-0 h-full w-full object-cover opacity-80 saturate-125 contrast-110"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#1a0802]/90 via-[#1a0802]/75 to-[#1a0802]/20" />
+            <div className="absolute inset-0 bg-gradient-to-t from-[#1a0802]/80 via-transparent to-transparent" />
 
-          <div className="relative z-10 h-full min-h-[300px] sm:min-h-[360px] p-4 sm:p-6 lg:p-8">
-            <div className="absolute left-4 top-4 z-20 sm:left-6 sm:top-6 lg:left-8 lg:top-8">
-              <div className="inline-flex items-center space-x-2 rounded-full border border-[#FF4E00]/50 bg-[#1F0C06]/60 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#F5BB00] backdrop-blur-sm">
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>{bannerSlides[activeSlide].tag}</span>
-              </div>
-            </div>
-
-            <div className="absolute bottom-5 left-4 max-w-[78%] sm:bottom-7 sm:left-6 sm:max-w-[60%] lg:bottom-8 lg:left-8 lg:max-w-[58%]">
-              <div className="space-y-2 sm:space-y-3">
-                <h1 className="text-3xl font-black font-serif leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.7)] sm:text-4xl lg:text-5xl">
-                  {bannerSlides[activeSlide].title}
-                </h1>
-                <div className="text-2xl font-black tracking-tight text-[#FF4E00] drop-shadow-[0_4px_14px_rgba(0,0,0,0.6)] sm:text-3xl lg:text-4xl">
-                  {bannerSlides[activeSlide].discount}
+            <div className="relative z-10 h-full min-h-[300px] sm:min-h-[360px] p-4 sm:p-6 lg:p-8">
+              <div className="absolute left-4 top-4 z-20 sm:left-6 sm:top-6 lg:left-8 lg:top-8">
+                <div className="inline-flex items-center space-x-2 rounded-full border border-[#FF4E00]/50 bg-[#1F0C06]/60 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#F5BB00] backdrop-blur-sm">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{activeBanner.tag}</span>
                 </div>
-                <p className="max-w-md text-[11px] leading-relaxed text-stone-200/95 sm:text-sm">
-                  {bannerSlides[activeSlide].description}
-                </p>
+              </div>
+
+              <div className="absolute bottom-5 left-4 max-w-[78%] sm:bottom-7 sm:left-6 sm:max-w-[60%] lg:bottom-8 lg:left-8 lg:max-w-[58%]">
+                <div className="space-y-2 sm:space-y-3">
+                  <h1 className="text-3xl font-black font-serif leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.7)] sm:text-4xl lg:text-5xl">
+                    {activeBanner.title}
+                  </h1>
+                  <div className="text-2xl font-black tracking-tight text-[#FF4E00] drop-shadow-[0_4px_14px_rgba(0,0,0,0.6)] sm:text-3xl lg:text-4xl">
+                    {activeBanner.discount}
+                  </div>
+                  <p className="max-w-md text-[11px] leading-relaxed text-stone-200/95 sm:text-sm">
+                    {activeBanner.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="pointer-events-none absolute right-4 top-4 h-36 w-36 sm:right-6 sm:top-6 sm:h-52 sm:w-52 lg:right-8 lg:top-8 lg:h-64 lg:w-64">
+                <div className="relative h-full w-full">
+                  <img
+                    src={activeBanner.image}
+                    alt={activeBanner.title}
+                    className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 object-cover shadow-[0_0_40px_rgba(255,78,0,0.28)]"
+                  />
+                </div>
               </div>
             </div>
 
-            <div className="pointer-events-none absolute right-4 top-4 h-36 w-36 sm:right-6 sm:top-6 sm:h-52 sm:w-52 lg:right-8 lg:top-8 lg:h-64 lg:w-64">
-              <div className="relative h-full w-full">
-                <img
-                  src={bannerSlides[activeSlide].image}
-                  alt={bannerSlides[activeSlide].title}
-                  className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 object-cover shadow-[0_0_40px_rgba(255,78,0,0.28)]"
+            <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center space-x-2">
+              {bannerSlides.map((slide, idx) => (
+                <button
+                  key={slide.id}
+                  onClick={() => setActiveSlide(idx)}
+                  className={`transition-all duration-300 rounded-full cursor-pointer ${
+                    activeSlide === idx
+                      ? 'h-2 w-6 bg-[#FF4E00]'
+                      : 'h-2 w-2 bg-white/40 hover:bg-white/70'
+                  }`}
+                  aria-label={`Ir a diapositiva ${idx + 1}`}
                 />
-              </div>
+              ))}
             </div>
           </div>
+        </section>
+      ) : businesses.length === 0 ? (
+        <section className="rounded-3xl border border-stone-200 bg-white p-8 text-center shadow-xs dark:border-stone-800 dark:bg-stone-900 sm:p-12">
+          <Store className="mx-auto mb-3 h-12 w-12 text-stone-300 dark:text-stone-700" />
+          <h1 className="text-xl font-black font-serif text-stone-900 dark:text-stone-100 sm:text-2xl">
+            La plataforma está lista para empezar
+          </h1>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-stone-500 dark:text-stone-400">
+            Todavía no hay comercios ni productos. Crea la primera localidad y el primer negocio
+            desde el panel de superadministración para que aparezcan aquí.
+          </p>
+          {currentUser?.role === 'SUPERADMIN' && (
+            <p className="mt-3 text-xs font-semibold text-[#A32300] dark:text-[#FF4E00]">
+              Abre «Superadministración» en el menú para dar de alta los datos reales.
+            </p>
+          )}
+        </section>
+      ) : null}
 
-          <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center space-x-2">
-            {bannerSlides.map((slide, idx) => (
-              <button
-                key={slide.id}
-                onClick={() => setActiveSlide(idx)}
-                className={`transition-all duration-300 rounded-full cursor-pointer ${
-                  activeSlide === idx 
-                    ? 'h-2 w-6 bg-[#FF4E00]' 
-                    : 'h-2 w-2 bg-white/40 hover:bg-white/70'
-                }`}
-                aria-label={`Ir a diapositiva ${idx + 1}`}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 2. CIRCULAR CATEGORY STRIP (Matching Image 1 & 2) */}
+      {/* 2. CIRCULAR CATEGORY STRIP (sólo cuando la zona tiene comercios) */}
+      {localityBusinesses.length > 0 && (
       <section className="space-y-4">
         <div>
           <h2 className="text-xl sm:text-2xl font-black font-serif text-stone-900 dark:text-stone-100 tracking-tight">
@@ -275,6 +273,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
           </button>
         </div>
       </section>
+      )}
 
       {/* 3. FEATURED LOCAL SPECIALTIES */}
       {featuredProducts.length > 0 && (
@@ -284,7 +283,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               <div className="flex items-center space-x-2">
                 <Sparkles className="w-4 h-4 text-[#FF4E00]" />
                 <h2 className="text-lg sm:text-xl font-black font-serif text-stone-900 dark:text-stone-100">
-                  Platos Estrella en {selectedLocality.name}
+                  Platos Estrella en {selectedLocality?.name || 'tu localidad'}
                 </h2>
               </div>
               <p className="text-xs text-stone-500">
@@ -350,7 +349,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               Restaurantes Cerca de Ti
             </h2>
             <p className="text-xs sm:text-sm text-stone-500">
-              Comercios con fogones y hornos en marcha en {selectedLocality.name}
+              Comercios con fogones y hornos en marcha en {selectedLocality?.name || 'tu localidad'}
             </p>
           </div>
 
@@ -372,10 +371,18 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
           <div className="text-center py-12 bg-white dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 p-6">
             <Store className="w-12 h-12 text-stone-300 dark:text-stone-700 mx-auto mb-3" />
             <h3 className="font-bold text-stone-800 dark:text-stone-200 text-sm">
-              No hay comercios disponibles con estos filtros en {selectedLocality.name}
+              {!selectedLocality
+                ? 'Todavía no hay localidades de reparto'
+                : localityBusinesses.length === 0
+                  ? `No hay comercios en ${selectedLocality.name}`
+                  : `No hay comercios disponibles con estos filtros en ${selectedLocality.name}`}
             </h3>
             <p className="text-xs text-stone-400 mt-1 max-w-sm mx-auto">
-              Prueba seleccionando otra localidad en la cabecera o restableciendo la categoría.
+              {!selectedLocality
+                ? 'Crea la primera localidad desde Superadministración para empezar a dar de alta negocios.'
+                : localityBusinesses.length === 0
+                  ? 'Crea el primer negocio desde Superadministración o selecciona otra localidad en la cabecera.'
+                  : 'Prueba seleccionando otra localidad en la cabecera o restableciendo la categoría.'}
             </p>
           </div>
         ) : (

@@ -112,6 +112,8 @@ const sqliteSchema = `
     full_name TEXT NOT NULL,
     email TEXT UNIQUE NOT NULL,
     phone TEXT,
+    address TEXT,
+    dni TEXT,
     avatar_url TEXT,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'CLIENT',
@@ -276,6 +278,8 @@ const mysqlSchema = `
     full_name VARCHAR(180) NOT NULL,
     email VARCHAR(255) NOT NULL,
     phone VARCHAR(30) NULL,
+    address TEXT NULL,
+    dni VARCHAR(20) NULL,
     avatar_url TEXT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
@@ -536,6 +540,8 @@ async function ensureMySqlSchemaShape(pool) {
     ["business_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
     ["phone", "VARCHAR(30) NULL"],
+    ["address", "TEXT NULL"],
+    ["dni", "VARCHAR(20) NULL"],
     ["avatar_url", "TEXT NULL"],
     ["email_verified", "TINYINT(1) NOT NULL DEFAULT 0"],
     ["email_verified_at", "DATETIME(3) NULL"],
@@ -737,6 +743,12 @@ function ensureSqliteSchemaShape() {
   }
   if (!userColumns.has("phone")) {
     db.exec("ALTER TABLE app_users ADD COLUMN phone TEXT");
+  }
+  if (!userColumns.has("address")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN address TEXT");
+  }
+  if (!userColumns.has("dni")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN dni TEXT");
   }
   if (!userColumns.has("avatar_url")) {
     db.exec("ALTER TABLE app_users ADD COLUMN avatar_url TEXT");
@@ -975,63 +987,20 @@ async function ensureMySqlConnection() {
   }
 }
 
-// Zonas iniciales: mismas que el catálogo del frontend (src/data/mockData.ts).
-const DEFAULT_LOCALITIES = [
-  ["sotillo", "Sotillo de la Adrada", "05420", 40.2889, -4.5828],
-  ["la-adrada", "La Adrada", "05430", 40.2989, -4.6361],
-  ["santa-maria", "Santa María del Tiétar", "05429", 40.3031, -4.5519],
-  ["casillas", "Casillas", "05428", 40.3275, -4.5775],
-  ["piedralaves", "Piedralaves", "05440", 40.3144, -4.6989],
-];
-
 async function ensureSchema() {
   const pool = await ensureMySqlConnection();
 
   if (pool) {
     await applyMysqlSchema(pool);
     await ensureMySqlSchemaShape(pool);
-    await seedLocalitiesIfEmpty();
     await seedSuperAdmin();
     await flagUsersWithInsecureDefaultPassword();
     return;
   }
 
   ensureSqliteSchemaShape();
-  await seedLocalitiesIfEmpty();
   await seedSuperAdmin();
   await flagUsersWithInsecureDefaultPassword();
-}
-
-async function seedLocalitiesIfEmpty() {
-  // Las zonas son un catálogo de la plataforma. En una instalación nueva no hay
-  // ninguna y el alta de negocios exige que la zona elegida exista, así que se
-  // siembran las mismas del catálogo del frontend para que todo cuadre desde el
-  // primer arranque. Si ya hay zonas (creadas desde el panel) no se toca nada.
-  if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT COUNT(*) AS c FROM localities",
-    );
-    if (Number(rows[0]?.c || 0) > 0) return;
-
-    for (const [id, name, postalCode, latitude, longitude] of DEFAULT_LOCALITIES) {
-      await mysqlPool.execute(
-        "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, 1)",
-        [id, name, postalCode, latitude, longitude],
-      );
-    }
-    return;
-  }
-
-  const db = getSqliteDb();
-  const existing = db.prepare("SELECT COUNT(*) AS c FROM localities").get();
-  if (Number(existing?.c || 0) > 0) return;
-
-  const insert = db.prepare(
-    "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, 1)",
-  );
-  for (const [id, name, postalCode, latitude, longitude] of DEFAULT_LOCALITIES) {
-    insert.run(id, name, postalCode, latitude, longitude);
-  }
 }
 
 async function seedSuperAdmin() {
@@ -1182,6 +1151,8 @@ function sanitizeUser(row) {
     name: row.full_name || row.name || row.username || "Usuario",
     email: row.email,
     phone: row.phone || "",
+    address: row.address || "",
+    dni: row.dni || "",
     avatarUrl: row.avatar_url || row.avatarUrl || "",
     role: role,
     status: row.status || "ACTIVE",
@@ -1810,6 +1781,8 @@ async function createUser({
   email,
   password,
   phone,
+  address,
+  dni,
   avatarUrl,
   role = "CLIENT",
   businessId = null,
@@ -1847,17 +1820,23 @@ async function createUser({
   const cleanAccountNumber = accountNumber
     ? String(accountNumber).replace(/\s+/g, "").toUpperCase()
     : null;
+  const cleanAddress = address ? String(address).trim() : null;
+  const cleanDni = dni
+    ? String(dni).replace(/\s+/g, "").toUpperCase()
+    : null;
 
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
+      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
       [
         id,
         cleanUsername,
         fullName || cleanUsername,
         cleanEmail,
         phone || null,
+        cleanAddress,
+        cleanDni,
         avatarUrl || null,
         hash,
         role,
@@ -1877,13 +1856,15 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
+    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
   ).run(
     id,
     cleanUsername,
     fullName || cleanUsername,
     cleanEmail,
     phone || null,
+    cleanAddress,
+    cleanDni,
     avatarUrl || null,
     hash,
     role,
@@ -3268,6 +3249,13 @@ app.post("/api/users", requireAuth, async (req, res) => {
   )
     .replace(/\s+/g, "")
     .toUpperCase();
+  const phone = cleanString(body.phone);
+  const address = cleanString(body.address);
+  const dni = cleanString(
+    body.dni ?? body.documentNumber ?? body.document_number,
+  )
+    .replace(/\s+/g, "")
+    .toUpperCase();
   const requestedBusinessIds =
     body.courierBusinessIds ?? body.courier_business_ids;
   let courierBusinessIds = Array.isArray(requestedBusinessIds)
@@ -3367,6 +3355,23 @@ app.post("/api/users", requireAuth, async (req, res) => {
   if (accountNumber && !IBAN_REGEX.test(accountNumber)) {
     errors.accountNumber = "El número de cuenta (IBAN) no es válido.";
   }
+  if (phone) {
+    const digits = phone.replace(/\D/g, "");
+    if (
+      !/^\+?[\d\s.()-]+$/.test(phone) ||
+      digits.length < 7 ||
+      digits.length > 15
+    ) {
+      errors.phone =
+        "El teléfono debe contener entre 7 y 15 dígitos (ej. +34 600 000 000).";
+    }
+  }
+  if (address && (address.length < 5 || address.length > 500)) {
+    errors.address = "La dirección debe tener entre 5 y 500 caracteres.";
+  }
+  if (dni && !DNI_REGEX.test(dni)) {
+    errors.dni = "El DNI/NIE no es válido.";
+  }
 
   assertValid(errors);
 
@@ -3375,7 +3380,9 @@ app.post("/api/users", requireAuth, async (req, res) => {
     fullName,
     email,
     password,
-    phone: cleanString(body.phone) || null,
+    phone: phone || null,
+    address: address || null,
+    dni: dni || null,
     avatarUrl: cleanString(body.avatarUrl || body.avatar_url) || null,
     role,
     businessId,
@@ -3546,11 +3553,42 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
   if (body.phone !== undefined) {
     const phone = cleanString(body.phone);
     const digits = phone.replace(/\D/g, "");
-    if (phone && (digits.length < 7 || digits.length > 15)) {
+    if (
+      phone &&
+      (!/^\+?[\d\s.()-]+$/.test(phone) ||
+        digits.length < 7 ||
+        digits.length > 15)
+    ) {
       errors.phone = "El teléfono debe contener entre 7 y 15 dígitos.";
     } else {
       updates.push("phone = ?");
       values.push(phone || null);
+    }
+  }
+  if (body.address !== undefined) {
+    const address = cleanString(body.address);
+    if (address && (address.length < 5 || address.length > 500)) {
+      errors.address = "La dirección debe tener entre 5 y 500 caracteres.";
+    } else {
+      updates.push("address = ?");
+      values.push(address || null);
+    }
+  }
+  if (
+    body.dni !== undefined ||
+    body.documentNumber !== undefined ||
+    body.document_number !== undefined
+  ) {
+    const dni = cleanString(
+      body.dni ?? body.documentNumber ?? body.document_number,
+    )
+      .replace(/\s+/g, "")
+      .toUpperCase();
+    if (dni && !DNI_REGEX.test(dni)) {
+      errors.dni = "El DNI/NIE no es válido.";
+    } else {
+      updates.push("dni = ?");
+      values.push(dni || null);
     }
   }
   if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {

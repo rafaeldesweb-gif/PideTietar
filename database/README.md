@@ -29,11 +29,14 @@ La base de datos soporta:
    psql -d pidetietar_prod -f database/schema.sql
    ```
 
-3. Cargar datos iniciales:
+3. Cargar los catálogos base (roles y categorías):
 
    ```bash
    psql -d pidetietar_prod -f database/seed.sql
    ```
+
+   No hay datos de ejemplo: las localidades, negocios y productos se crean
+   desde el panel de superadministración.
 
 ## Principales relaciones
 

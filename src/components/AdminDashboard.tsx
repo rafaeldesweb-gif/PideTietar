@@ -3,7 +3,8 @@ import { useApp } from '../context/AppContext';
 import { 
   ShieldCheck, Users, Store, DollarSign, 
   MapPin, AlertCircle, BarChart3, CheckCircle2, 
-  Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X
+  Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X,
+  Eye, EyeOff
 } from 'lucide-react';
 import { CATEGORIES } from '../data/mockData';
 import { Business, Locality, User } from '../types';
@@ -13,8 +14,10 @@ import {
   fieldClass,
   firstErrorMessage,
   toBusinessFieldErrors,
+  toCourierFieldErrors,
 } from './FormErrors';
 import { fileToDataUrl } from '../utils/imageUpload';
+import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 
 const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -66,6 +69,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     localities,
     addLocality,
     deleteLocality,
+    refreshBusinesses,
     createBusiness,
     updateBusiness,
     deleteBusiness,
@@ -154,7 +158,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       name: newZoneName,
       postalCode: newZoneZip,
       active: true,
-      coordinates: { lat: 40.3, lng: -4.6 }, // Default mock coords
+      coordinates: { lat: 0, lng: 0 },
     });
     showNotification('Zona añadida correctamente', 'success');
     setNewZoneName('');
@@ -164,11 +168,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   // --- Repartidores -------------------------------------------------------
   const [couriers, setCouriers] = useState<User[]>([]);
   const [couriersLoading, setCouriersLoading] = useState(false);
+  // El formulario de alta se despliega con el botón "Actualizar" de la
+  // cabecera, en vez de ocupar sitio permanentemente.
+  const [showCourierForm, setShowCourierForm] = useState(false);
+  const [showCourierPassword, setShowCourierPassword] = useState(false);
+  // Los negocios se recargan del servidor al entrar para que la lista coincida
+  // siempre con la base de datos; así el alta de repartidor y la edición/borrado
+  // de comercios no trabajan con datos obsoletos.
+  const [businessesLoading, setBusinessesLoading] = useState(true);
   const [courierForm, setCourierForm] = useState({
     fullName: '',
     username: '',
     email: '',
     password: '',
+    phone: '',
+    address: '',
+    dni: '',
     role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
     businessIds: [] as string[],
     accountNumber: '',
@@ -180,6 +195,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const [editingCourier, setEditingCourier] = useState<User | null>(null);
   const [courierEditForm, setCourierEditForm] = useState({
     businessIds: [] as string[],
+    phone: '',
+    address: '',
+    dni: '',
     accountNumber: '',
   });
   const [courierEditErrors, setCourierEditErrors] = useState<FieldErrors>({});
@@ -192,11 +210,43 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setCouriersLoading(false);
   };
 
+  const refreshBusinessCatalog = async () => {
+    setBusinessesLoading(true);
+    const rows = await refreshBusinesses();
+    setBusinessesLoading(false);
+    return rows;
+  };
+
+  // Quita de una selección los IDs que ya no existen en el servidor. Sólo se
+  // aplica si la recarga fue correcta: si falló, se conserva lo que hubiera.
+  const keepExistingBusinessIds = (ids: string[], rows: Business[] | null) =>
+    rows ? ids.filter((id) => rows.some((business) => business.id === id)) : ids;
+
   useEffect(() => {
     void refreshCouriers();
+    void refreshBusinessCatalog();
     // Sólo al montar el panel: los cambios se refrescan tras crear o confirmar.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const toggleCourierForm = () => {
+    const next = !showCourierForm;
+    setShowCourierForm(next);
+    setShowCourierPassword(false);
+    setCourierFormErrors({});
+
+    if (next) {
+      // Al abrir el formulario se consulta el servidor: los checkboxes deben
+      // enseñar negocios reales, no los que quedaron cacheados en el navegador.
+      void refreshCouriers();
+      void refreshBusinessCatalog().then((rows) => {
+        setCourierForm((previous) => ({
+          ...previous,
+          businessIds: keepExistingBusinessIds(previous.businessIds, rows),
+        }));
+      });
+    }
+  };
 
   const toggleCourierBusiness = (businessId: string) => {
     setCourierForm((previous) => ({
@@ -220,6 +270,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     }
     if (!courierForm.username.trim()) {
       errors.username = 'El usuario es obligatorio.';
+    } else if (!/^[a-zA-Z0-9._-]{3,64}$/.test(courierForm.username.trim())) {
+      errors.username =
+        'El usuario debe tener entre 3 y 64 caracteres y sólo admite letras, números, punto, guion bajo o guion.';
     }
     if (!courierForm.email.trim()) {
       errors.email = 'El email es obligatorio.';
@@ -229,6 +282,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     if (courierForm.password.length < 8) {
       errors.password = 'La contraseña debe tener al menos 8 caracteres.';
     }
+    Object.assign(errors, validateCourierContact(courierForm, { required: true }));
     Object.assign(
       errors,
       validateCourierBanking(
@@ -242,18 +296,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     if (Object.keys(errors).length > 0) return;
 
     setCourierSubmitting(true);
-    const ok = await createUserAccount({
-      fullName: courierForm.fullName.trim(),
-      username: courierForm.username.trim(),
-      email: courierForm.email.trim(),
-      password: courierForm.password,
-      role: courierForm.role,
-      // `businessId` se conserva como negocio de referencia (el primero).
-      businessId: courierForm.businessIds[0],
-      courierBusinessIds: courierForm.businessIds,
-      accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
-      courierConfirmation: 'PENDING',
-    });
+    const ok = await createUserAccount(
+      {
+        fullName: courierForm.fullName.trim(),
+        username: courierForm.username.trim(),
+        email: courierForm.email.trim(),
+        password: courierForm.password,
+        phone: courierForm.phone.trim(),
+        address: courierForm.address.trim(),
+        dni: normalizeDni(courierForm.dni),
+        role: courierForm.role,
+        // `businessId` se conserva como negocio de referencia (el primero).
+        businessId: courierForm.businessIds[0],
+        courierBusinessIds: courierForm.businessIds,
+        accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
+        courierConfirmation: 'PENDING',
+      },
+      // Si el backend rechaza un campo (por ejemplo, un negocio que ya no
+      // existe), se marca ese campo concreto en el formulario.
+      (serverErrors) => setCourierFormErrors(toCourierFieldErrors(serverErrors)),
+    );
     setCourierSubmitting(false);
 
     if (ok) {
@@ -262,11 +324,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         username: '',
         email: '',
         password: '',
+        phone: '',
+        address: '',
+        dni: '',
         role: 'PLATFORM_COURIER',
         businessIds: [],
         accountNumber: '',
       });
       setCourierFormErrors({});
+      setShowCourierPassword(false);
       await refreshCouriers();
     }
   };
@@ -283,9 +349,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setEditingCourier(courier);
     setCourierEditForm({
       businessIds: assignedBusinessIds(courier),
+      phone: courier.phone || '',
+      address: courier.address || '',
+      dni: courier.dni || '',
       accountNumber: courier.accountNumber || '',
     });
     setCourierEditErrors({});
+    // La lista de checkboxes debe venir del servidor, igual que en el alta.
+    void refreshBusinessCatalog().then((rows) => {
+      setCourierEditForm((previous) => ({
+        ...previous,
+        businessIds: keepExistingBusinessIds(previous.businessIds, rows),
+      }));
+    });
   };
 
   const closeCourierEdit = () => {
@@ -311,19 +387,29 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     e.preventDefault();
     if (!editingCourier) return;
 
-    const errors = validateCourierBanking(
-      editingCourier.role,
-      courierEditForm.businessIds,
-      courierEditForm.accountNumber,
-    );
+    const errors = {
+      ...validateCourierContact(courierEditForm),
+      ...validateCourierBanking(
+        editingCourier.role,
+        courierEditForm.businessIds,
+        courierEditForm.accountNumber,
+      ),
+    };
     setCourierEditErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setCourierEditSaving(true);
-    const ok = await updateCourierDetails(editingCourier.id, {
-      courierBusinessIds: courierEditForm.businessIds,
-      accountNumber: normalizeIban(courierEditForm.accountNumber),
-    });
+    const ok = await updateCourierDetails(
+      editingCourier.id,
+      {
+        courierBusinessIds: courierEditForm.businessIds,
+        phone: courierEditForm.phone.trim(),
+        address: courierEditForm.address.trim(),
+        dni: normalizeDni(courierEditForm.dni),
+        accountNumber: normalizeIban(courierEditForm.accountNumber),
+      },
+      (serverErrors) => setCourierEditErrors(toCourierFieldErrors(serverErrors)),
+    );
     setCourierEditSaving(false);
 
     if (ok) {
@@ -417,16 +503,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   const startEditingBusiness = (business: Business) => {
-    setBusinessFormErrors({});
+    // Si la zona guardada ya no existe (por ejemplo, se borró la localidad) el
+    // select se queda vacío y se pide elegir una válida antes de guardar.
+    const localityStillExists = localities.some((loc) => loc.id === business.localityId);
+
     setEditingBusinessId(business.id);
     setShowBusinessForm(true);
+    setBusinessFormErrors(
+      localityStillExists
+        ? {}
+        : { localityId: 'La zona de este negocio ya no existe. Selecciona una zona válida.' },
+    );
     setNewBusinessForm({
       name: business.name,
       legalName: business.legalName,
       cif: business.cif,
       accountNumber: business.accountNumber || '',
       category: business.category || '',
-      localityId: business.localityId,
+      localityId: localityStillExists ? business.localityId : '',
       phone: business.phone,
       email: business.email,
       address: business.address,
@@ -434,7 +528,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       managerDni: business.managerDni || '',
       bannerUrl: business.bannerUrl || '',
       adminUsername: '',
-      adminEmail: business.email || '',
+      // El acceso del propietario es opcional al editar. Dejar el email
+      // prellenado hacía que el formulario creyera que se quería cambiar el
+      // acceso y bloqueara el guardado hasta rellenar usuario y clave.
+      adminEmail: '',
       adminPassword: '',
       schedule: business.schedule?.length ? business.schedule : newBusinessForm.schedule,
     });
@@ -604,6 +701,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
         {/* List Zones */}
         <div className="divide-y divide-stone-100 dark:divide-stone-800">
+          {localities.length === 0 && (
+            <p className="py-4 text-xs text-stone-400">
+              Todavía no hay zonas. Añade la primera para poder registrar comercios.
+            </p>
+          )}
           {localities.map(loc => (
             <div key={loc.id} className="py-3 flex items-center justify-between">
               <div>
@@ -611,10 +713,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 <p className="text-xs text-stone-500">CP: {loc.postalCode} • {businesses.filter(b => b.localityId === loc.id).length} comercios</p>
               </div>
               <button
-                onClick={() => {
-                  deleteLocality(loc.id);
-                  showNotification('Localidad eliminada', 'success');
-                }}
+                onClick={() => deleteLocality(loc.id)}
                 className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                 title="Eliminar localidad"
               >
@@ -639,14 +738,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <button
             type="button"
-            onClick={() => void refreshCouriers()}
+            onClick={toggleCourierForm}
+            aria-expanded={showCourierForm}
+            title={showCourierForm
+              ? 'Ocultar el formulario de nuevo repartidor'
+              : 'Mostrar el formulario de nuevo repartidor'}
             className="flex items-center space-x-2 rounded-xl border border-stone-200 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 dark:border-stone-800 dark:text-stone-300 dark:hover:bg-stone-800"
           >
-            <RefreshCw className={`h-4 w-4 ${couriersLoading ? 'animate-spin' : ''}`} />
+            {couriersLoading || businessesLoading ? (
+              <RefreshCw className="h-4 w-4 animate-spin" />
+            ) : showCourierForm ? (
+              <X className="h-4 w-4" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
             <span>Actualizar</span>
           </button>
         </div>
 
+        {showCourierForm && (
         <form
           onSubmit={handleCreateCourier}
           className="grid gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-4 dark:border-stone-800 dark:bg-stone-800/50 sm:grid-cols-2 lg:grid-cols-3"
@@ -684,14 +794,53 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-stone-500">Clave inicial</label>
-            <input
-              type="password"
-              value={courierForm.password}
-              onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
-              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.password))}
-              placeholder="Mínimo 8 caracteres"
-            />
+            <div className="relative">
+              <input
+                type={showCourierPassword ? 'text' : 'password'}
+                value={courierForm.password}
+                onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
+                className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 pr-10 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.password))}
+                placeholder="Mínimo 8 caracteres"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCourierPassword((previous) => !previous)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                title={showCourierPassword ? 'Ocultar la clave' : 'Mostrar la clave'}
+                aria-label={showCourierPassword ? 'Ocultar la clave' : 'Mostrar la clave'}
+              >
+                {showCourierPassword ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
+            </div>
             <FieldError message={courierFormErrors.password} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Teléfono</label>
+            <input
+              type="tel"
+              value={courierForm.phone}
+              onChange={(e) => setCourierForm({ ...courierForm, phone: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.phone))}
+              placeholder="+34 600 000 000"
+            />
+            <FieldError message={courierFormErrors.phone} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">DNI / NIE</label>
+            <input
+              value={courierForm.dni}
+              onChange={(e) => setCourierForm({ ...courierForm, dni: e.target.value.toUpperCase() })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 uppercase', Boolean(courierFormErrors.dni))}
+              placeholder="12345678Z"
+            />
+            <p className="mt-1 text-[10px] text-stone-400">
+              DNI (8 dígitos + letra) o NIE (X/Y/Z + 7 dígitos + letra).
+            </p>
+            <FieldError message={courierFormErrors.dni} />
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-stone-500">Tipo de repartidor</label>
@@ -703,6 +852,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               <option value="PLATFORM_COURIER">Plataforma (todo el valle)</option>
               <option value="BUSINESS_COURIER">De uno o varios negocios</option>
             </select>
+          </div>
+          <div className="sm:col-span-1 lg:col-span-2">
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Dirección</label>
+            <input
+              value={courierForm.address}
+              onChange={(e) => setCourierForm({ ...courierForm, address: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.address))}
+              placeholder="Calle, número, código postal y localidad"
+              autoComplete="street-address"
+            />
+            <FieldError message={courierFormErrors.address} />
           </div>
           {courierForm.role === 'BUSINESS_COURIER' ? (
             <div className="sm:col-span-2 lg:col-span-3">
@@ -769,6 +929,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             </button>
           </div>
         </form>
+        )}
 
         <div className="divide-y divide-stone-100 dark:divide-stone-800">
           {couriers.length === 0 ? (
@@ -810,6 +971,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       {courier.role === 'PLATFORM_COURIER'
                         ? 'Repartidor de plataforma'
                         : `Repartidor de ${assignedNames || 'sin negocio asignado'}`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-stone-400">
+                      {courier.phone || 'Sin teléfono'} ·{' '}
+                      {courier.dni ? `DNI/NIE ${courier.dni}` : 'Sin DNI/NIE'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-stone-400">
+                      {courier.address || 'Sin dirección'}
                     </p>
                     <p className="mt-0.5 text-xs text-stone-400">
                       {courier.accountNumber
@@ -854,10 +1022,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
       {/* BUSINESSES SECTION */}
       <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 space-y-6 shadow-xs">
-        <div className="flex items-center justify-between">
-          <h2 className="text-base font-bold font-serif text-stone-900 dark:text-stone-100">
-            Gestión de Comercios y Negocios
-          </h2>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold font-serif text-stone-900 dark:text-stone-100">
+              Gestión de Comercios y Negocios
+            </h2>
+            {businessesLoading && (
+              <p className="mt-1 text-xs text-stone-400">
+                Sincronizando comercios con el servidor...
+              </p>
+            )}
+          </div>
           <button 
             onClick={() => {
               if (showBusinessForm) {
@@ -887,7 +1062,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Razón Social</label>
-            <input required value={newBusinessForm.legalName} onChange={e => setNewBusinessForm({...newBusinessForm, legalName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.legalName))} placeholder="Ej. El Buen Sabor S.L." />
+            <input required={!editingBusinessId} value={newBusinessForm.legalName} onChange={e => setNewBusinessForm({...newBusinessForm, legalName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.legalName))} placeholder="Ej. El Buen Sabor S.L." />
             <FieldError message={businessFormErrors.legalName} />
           </div>
           <div>
@@ -919,6 +1094,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
+            {localities.length === 0 && (
+              <p className="mt-1 text-[11px] text-amber-600">
+                Añade una zona en «Zonas y Localidades de Reparto» antes de guardar el comercio.
+              </p>
+            )}
             <FieldError message={businessFormErrors.localityId} />
           </div>
           <div>
@@ -938,12 +1118,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Nombre del Responsable</label>
-            <input required value={newBusinessForm.managerName} onChange={e => setNewBusinessForm({...newBusinessForm, managerName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.managerName))} placeholder="Ej. Juan Pérez" />
+            <input required={!editingBusinessId} value={newBusinessForm.managerName} onChange={e => setNewBusinessForm({...newBusinessForm, managerName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.managerName))} placeholder="Ej. Juan Pérez" />
             <FieldError message={businessFormErrors.managerName} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">DNI/NIE del Responsable</label>
-            <input required value={newBusinessForm.managerDni} onChange={e => setNewBusinessForm({...newBusinessForm, managerDni: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 uppercase', Boolean(businessFormErrors.managerDni))} placeholder="Ej. 12345678Z" />
+            <input required={!editingBusinessId} value={newBusinessForm.managerDni} onChange={e => setNewBusinessForm({...newBusinessForm, managerDni: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 uppercase', Boolean(businessFormErrors.managerDni))} placeholder="Ej. 12345678Z" />
             <p className="mt-1 text-[11px] text-stone-400">8 dígitos y la letra (12345678Z) o NIE (X1234567L).</p>
             <FieldError message={businessFormErrors.managerDni} />
           </div>
@@ -999,24 +1179,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <div className="col-span-full border-t border-stone-200 pt-4">
               <h3 className="text-sm font-bold text-stone-800">Acceso administrador del negocio</h3>
               <p className="mt-1 text-xs text-stone-500">
-                El usuario y la clave que escribas aquí son los únicos que se crean para este
-                negocio (rol <strong>BUSINESS_ADMIN</strong>). No se genera nada automáticamente:
-                el propietario podrá cambiar su clave desde su perfil.
+                {editingBusinessId
+                  ? 'Déjalo en blanco para conservar el acceso actual. Si quieres cambiarlo, rellena usuario, email y clave.'
+                  : 'El usuario y la clave que escribas aquí son los únicos que se crean para este negocio (rol BUSINESS_ADMIN). No se genera nada automáticamente: el propietario podrá cambiar su clave desde su perfil.'}
               </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
-              <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminUsername))} placeholder="ej. elpensionista_admin" />
+              <input required={!editingBusinessId} value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminUsername))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. elpensionista_admin'} />
               <FieldError message={businessFormErrors.adminUsername} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
-              <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminEmail))} placeholder="ej. admin@negocio.com" />
+              <input required={!editingBusinessId} type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminEmail))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. admin@negocio.com'} />
               <FieldError message={businessFormErrors.adminEmail} />
             </div>
             <div className="col-span-1 sm:col-span-2">
               <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
-              <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))} placeholder="Mínimo 8 caracteres" />
+              <input required={!editingBusinessId} type="password" minLength={editingBusinessId ? undefined : 8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))} placeholder={editingBusinessId ? 'Sin cambios' : 'Mínimo 8 caracteres'} />
               <FieldError message={businessFormErrors.adminPassword} />
             </div>
           </>
@@ -1090,13 +1270,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                     <div className="inline-flex items-center gap-3">
                       <button
                         onClick={() => startEditingBusiness(biz)}
-                        className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer"
+                        disabled={businessesLoading}
+                        className="text-xs text-blue-600 hover:underline font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Editar
                       </button>
                       <button
                         onClick={() => handleDeleteBusiness(biz)}
-                        className="text-xs text-red-600 hover:underline font-semibold cursor-pointer"
+                        disabled={businessesLoading}
+                        className="text-xs text-red-600 hover:underline font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Eliminar
                       </button>
@@ -1113,6 +1295,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   </td>
                 </tr>
               ))}
+              {businesses.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-xs text-stone-400">
+                    {businessesLoading
+                      ? 'Cargando comercios...'
+                      : 'No hay comercios registrados. Crea el primero con el botón de arriba.'}
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1141,7 +1332,63 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               </button>
             </div>
 
-            <form onSubmit={handleSaveCourierDetails} className="space-y-4 p-5">
+            <form onSubmit={handleSaveCourierDetails} className="max-h-[70vh] space-y-4 overflow-y-auto p-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-stone-500">
+                    Teléfono
+                  </label>
+                  <input
+                    type="tel"
+                    value={courierEditForm.phone}
+                    onChange={(e) =>
+                      setCourierEditForm((previous) => ({
+                        ...previous,
+                        phone: e.target.value,
+                      }))
+                    }
+                    className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierEditErrors.phone))}
+                    placeholder="+34 600 000 000"
+                  />
+                  <FieldError message={courierEditErrors.phone} />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-stone-500">
+                    DNI / NIE
+                  </label>
+                  <input
+                    value={courierEditForm.dni}
+                    onChange={(e) =>
+                      setCourierEditForm((previous) => ({
+                        ...previous,
+                        dni: e.target.value.toUpperCase(),
+                      }))
+                    }
+                    className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 uppercase', Boolean(courierEditErrors.dni))}
+                    placeholder="12345678Z"
+                  />
+                  <FieldError message={courierEditErrors.dni} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="mb-1 block text-xs font-semibold text-stone-500">
+                    Dirección
+                  </label>
+                  <input
+                    value={courierEditForm.address}
+                    onChange={(e) =>
+                      setCourierEditForm((previous) => ({
+                        ...previous,
+                        address: e.target.value,
+                      }))
+                    }
+                    className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierEditErrors.address))}
+                    placeholder="Calle, número, código postal y localidad"
+                    autoComplete="street-address"
+                  />
+                  <FieldError message={courierEditErrors.address} />
+                </div>
+              </div>
+
               <div>
                 <label className="mb-1 block text-xs font-semibold text-stone-500">
                   Negocios asignados{' '}

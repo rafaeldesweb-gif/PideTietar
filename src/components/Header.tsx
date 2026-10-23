@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="flex max-w-[150px] items-center gap-1.5 rounded-full border border-stone-200 bg-stone-100 px-2.5 py-1.5 text-left text-[11px] font-medium text-stone-800 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:max-w-[190px] sm:text-sm"
             >
               <MapPin className="h-3.5 w-3.5 shrink-0 text-[#FF4E00]" />
-              <span className="truncate">{selectedLocality.name}</span>
+              <span className="truncate">{selectedLocality?.name || 'Sin localidad'}</span>
               <ChevronDown className="h-3 w-3 shrink-0 text-stone-500" />
             </button>
 
@@ -54,21 +54,27 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-stone-400">
                   Localidades del Tiétar
                 </div>
-                {localities.map((loc) => (
-                  <button
-                    key={loc.id}
-                    onClick={() => {
-                      setSelectedLocality(loc);
-                      setLocalityMenuOpen(false);
-                    }}
-                    className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-100 dark:hover:bg-stone-800 ${
-                      selectedLocality.id === loc.id ? 'bg-[#FF4E00]/5 font-semibold text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
-                    }`}
-                  >
-                    <span>{loc.name}</span>
-                    <span className="text-[10px] text-stone-400">{loc.postalCode}</span>
-                  </button>
-                ))}
+                {localities.length === 0 ? (
+                  <p className="px-3 py-2 text-xs text-stone-500">
+                    Todavía no hay localidades creadas.
+                  </p>
+                ) : (
+                  localities.map((loc) => (
+                    <button
+                      key={loc.id}
+                      onClick={() => {
+                        setSelectedLocality(loc);
+                        setLocalityMenuOpen(false);
+                      }}
+                      className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-100 dark:hover:bg-stone-800 ${
+                        selectedLocality?.id === loc.id ? 'bg-[#FF4E00]/5 font-semibold text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
+                      }`}
+                    >
+                      <span>{loc.name}</span>
+                      <span className="text-[10px] text-stone-400">{loc.postalCode}</span>
+                    </button>
+                  ))
+                )}
               </div>
             )}
           </div>

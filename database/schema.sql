@@ -45,6 +45,8 @@ CREATE TABLE users (
   full_name VARCHAR(150) NOT NULL,
   email VARCHAR(255) NOT NULL UNIQUE,
   phone VARCHAR(30),
+  address TEXT,
+  dni VARCHAR(20),
   password_hash TEXT,
   avatar_url TEXT,
   is_email_verified BOOLEAN NOT NULL DEFAULT FALSE,

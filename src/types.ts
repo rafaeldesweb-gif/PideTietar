@@ -14,6 +14,8 @@ export interface User {
   email: string;
   password?: string;
   phone?: string;
+  address?: string;
+  dni?: string; // DNI o NIE del repartidor
   accountNumber?: string;
   role: UserRole;
   businessId?: string; // If bound to a business
