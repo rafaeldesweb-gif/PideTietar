@@ -2,8 +2,9 @@ import React, { useEffect, useState } from 'react';
 import { useApp, setSessionToken } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
 import { fileToDataUrl } from '../utils/imageUpload';
+import { SensitiveInput } from './SensitiveInput';
 import { 
-  X, LogOut, ArrowLeft, Eye, EyeOff
+  X, LogOut, ArrowLeft
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -31,7 +32,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   } = useApp();
 
   const [isRegisterMode, setIsRegisterMode] = useState(true);
-  const [showPassword, setShowPassword] = useState(false);
   const [requiresPasswordChange, setRequiresPasswordChange] = useState(false);
   const [passwordChangeIdentifier, setPasswordChangeIdentifier] = useState('');
   const [passwordChangeCurrentPassword, setPasswordChangeCurrentPassword] = useState('');
@@ -413,12 +413,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="mb-1 block text-xs font-bold text-stone-300">Nueva contraseña (opcional)</label>
-                  <input
+                  <SensitiveInput
                     type="password"
                     value={profileNewPassword}
                     onChange={(event) => setProfileNewPassword(event.target.value)}
                     placeholder="Mínimo 8 caracteres"
                     className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
+                    toggleClassName="text-stone-400 hover:bg-white/10 hover:text-white"
+                    toggleLabel="contraseña"
                   />
                 </div>
               </div>
@@ -539,22 +541,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <label className="block text-xs font-bold text-stone-300 mb-1">
                     Contraseña (mín. 8 caracteres)
                   </label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full pl-4 pr-10 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-white"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
+                  <SensitiveInput
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full pl-4 pr-10 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                    toggleClassName="text-stone-400 hover:bg-white/10 hover:text-white"
+                    toggleLabel="contraseña"
+                  />
                 </div>
 
                 {/* Big White Button with Black Text (Exact Match to Image 4) */}
@@ -575,24 +570,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         <label className="block text-xs font-bold text-stone-300 mb-1">
                           Nueva contraseña
                         </label>
-                        <input
+                        <SensitiveInput
                           type="password"
                           value={newPassword}
                           onChange={(e) => setNewPassword(e.target.value)}
                           placeholder="Mínimo 8 caracteres"
                           className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                          toggleClassName="text-stone-400 hover:bg-white/10 hover:text-white"
+                          toggleLabel="contraseña"
                         />
                       </div>
                       <div>
                         <label className="block text-xs font-bold text-stone-300 mb-1">
                           Confirmar nueva contraseña
                         </label>
-                        <input
+                        <SensitiveInput
                           type="password"
                           value={confirmNewPassword}
                           onChange={(e) => setConfirmNewPassword(e.target.value)}
                           placeholder="Repite la nueva contraseña"
                           className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                          toggleClassName="text-stone-400 hover:bg-white/10 hover:text-white"
+                          toggleLabel="contraseña"
                         />
                       </div>
                       <button

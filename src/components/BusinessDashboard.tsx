@@ -15,7 +15,6 @@ import {
   Coffee,
   Download,
   Edit3,
-  Eye,
   FileText,
   Flame,
   LogOut,
@@ -43,6 +42,7 @@ import {
 import { Order, OrderStatus, Product, CartItemOptionSelected, BusinessHours, User } from '../types';
 import { ProjectLogo } from './ProjectLogo';
 import { CategoryManagerModal } from './CategoryManagerModal';
+import { SensitiveInput } from './SensitiveInput';
 import {
   FieldError,
   FieldErrors,
@@ -384,6 +384,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   const categoryOptions = categories;
   const canManageOrders = !!currentUser && (currentUser.role === 'BUSINESS_ADMIN' || currentUser.role === 'SUPERADMIN');
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  // En el control de pedidos global no hay un negocio seleccionado: la
+  // cabecera no debe mostrar el nombre ni el estado del primer negocio.
+  const hideBusinessHeader = !!isSuperAdmin && activeTab === 'orders' && ordersBusinessFilter === 'all';
 
   if (!currentUser || !canManageOrders) {
     return (
@@ -998,54 +1001,58 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             </svg>
           </div>
 
-          <div className="flex items-center space-x-2.5">
-            <span className="font-extrabold text-sm sm:text-base tracking-tight text-stone-900 uppercase font-serif">
-              {business.name.toUpperCase()}
-            </span>
-            <div className={`hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-bold ${
-              business.isShiftOpen 
-                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700' 
-                : 'bg-red-500/10 border-red-500/30 text-red-700'
-            }`}>
-              <span className={`w-2 h-2 rounded-full ${business.isShiftOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
-              <span>{business.isShiftOpen ? 'COCINA EN LÍNEA' : 'SERVICIO CERRADO'}</span>
+          {!hideBusinessHeader && (
+            <div className="flex items-center space-x-2.5">
+              <span className="font-extrabold text-sm sm:text-base tracking-tight text-stone-900 uppercase font-serif">
+                {business.name.toUpperCase()}
+              </span>
+              <div className={`hidden sm:inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full border text-[11px] font-bold ${
+                business.isShiftOpen 
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700' 
+                  : 'bg-red-500/10 border-red-500/30 text-red-700'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${business.isShiftOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></span>
+                <span>{business.isShiftOpen ? 'COCINA EN LÍNEA' : 'SERVICIO CERRADO'}</span>
+              </div>
             </div>
+          )}
+        </div>
+
+
+
+        {!hideBusinessHeader && (
+          <div className="flex items-center space-x-2 sm:space-x-4">
+            <button
+              onClick={handleToggleShift}
+              className={`px-2.5 py-1.5 rounded-full text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
+                currentUser && business.isShiftOpen
+                  ? 'bg-emerald-600/20 text-emerald-700 border border-emerald-500/30'
+                  : 'bg-red-500/20 text-red-600 border border-red-500/30'
+              }`}
+              title={currentUser ? 'Cambiar estado del local' : 'No hay sesión de administrador'}
+              disabled={!currentUser}
+            >
+              <Power className="w-3 h-3" />
+              <span className="hidden md:inline">{currentUser ? (business.isShiftOpen ? 'Servicio Abierto' : 'Servicio Cerrado') : 'Servicio Cerrado'}</span>
+            </button>
+
+            <button
+              onClick={() => setSettingsModal(true)}
+              className="inline-flex rounded-lg p-1.5 text-stone-600 transition hover:bg-stone-100 md:hidden"
+              aria-label="Abrir configuracion"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={openBusinessDataModal}
+              className="inline-flex rounded-lg p-1.5 text-stone-600 transition hover:bg-stone-100 md:hidden"
+              aria-label="Editar datos del negocio"
+            >
+              <FileText className="w-4 h-4" />
+            </button>
           </div>
-        </div>
-
-
-
-        <div className="flex items-center space-x-2 sm:space-x-4">
-          <button
-            onClick={handleToggleShift}
-            className={`px-2.5 py-1.5 rounded-full text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer ${
-              currentUser && business.isShiftOpen
-                ? 'bg-emerald-600/20 text-emerald-700 border border-emerald-500/30'
-                : 'bg-red-500/20 text-red-600 border border-red-500/30'
-            }`}
-            title={currentUser ? 'Cambiar estado del local' : 'No hay sesión de administrador'}
-            disabled={!currentUser}
-          >
-            <Power className="w-3 h-3" />
-            <span className="hidden md:inline">{currentUser ? (business.isShiftOpen ? 'Servicio Abierto' : 'Servicio Cerrado') : 'Servicio Cerrado'}</span>
-          </button>
-
-          <button
-            onClick={() => setSettingsModal(true)}
-            className="inline-flex rounded-lg p-1.5 text-stone-600 transition hover:bg-stone-100 md:hidden"
-            aria-label="Abrir configuracion"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-          <button
-            onClick={openBusinessDataModal}
-            className="inline-flex rounded-lg p-1.5 text-stone-600 transition hover:bg-stone-100 md:hidden"
-            aria-label="Editar datos del negocio"
-          >
-            <FileText className="w-4 h-4" />
-          </button>
-        </div>
+        )}
         </div>
       </header>
 
@@ -1839,12 +1846,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-semibold text-stone-500">Clave inicial</label>
-                    <input
+                    <SensitiveInput
                       type="password"
                       value={courierForm.password}
                       onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
                       className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] placeholder-stone-400', Boolean(courierFormErrors.password))}
                       placeholder="Mínimo 8 caracteres"
+                      toggleLabel="clave"
                     />
                     <FieldError message={courierFormErrors.password} />
                   </div>
@@ -2273,12 +2281,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
               <div>
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Contraseña</label>
-                <input
+                <SensitiveInput
                   type="password"
                   value={userSettingsForm.password}
                   onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, password: event.target.value }))}
                   className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                   placeholder="Nueva contraseña"
+                  toggleLabel="contraseña"
                 />
               </div>
 
@@ -2385,11 +2394,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
               <div>
                 <label className="mb-1 block text-xs font-bold text-stone-700">Cuenta bancaria (IBAN)</label>
-                <input
+                <SensitiveInput
+                  type="text"
                   value={businessDataForm.accountNumber}
                   onChange={(event) => setBusinessDataForm({ ...businessDataForm, accountNumber: event.target.value })}
                   placeholder="ES91 2100 0418 4502 0005 1332"
                   className={fieldClass('w-full rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-900 outline-none focus:border-[#FF4E00]', Boolean(businessDataErrors.accountNumber))}
+                  toggleLabel="IBAN"
                 />
                 <p className="mt-1 text-[11px] text-stone-500">Obligatoria para conectar la pasarela de pago y recibir los ingresos.</p>
                 <FieldError message={businessDataErrors.accountNumber} />
@@ -2662,7 +2673,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
               <div>
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Nº de cuenta (IBAN)</label>
-                <input
+                <SensitiveInput
+                  type="text"
                   value={newBusinessForm.accountNumber}
                   onChange={(event) => setNewBusinessForm((prev) => ({ ...prev, accountNumber: event.target.value }))}
                   placeholder="ES9121000418450200051332"
@@ -2670,6 +2682,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     'w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner',
                     Boolean(businessFormErrors.accountNumber),
                   )}
+                  toggleLabel="IBAN"
                 />
                 <p className="mt-1 text-[11px] text-stone-500">
                   Opcional. Formato IBAN: ES + 20 dígitos (sin espacios ni letras).
@@ -2717,7 +2730,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Contraseña temporal</label>
-                  <input
+                  <SensitiveInput
                     type="password"
                     value={newBusinessForm.adminPassword}
                     onChange={(event) => setNewBusinessForm((prev) => ({ ...prev, adminPassword: event.target.value }))}
@@ -2726,6 +2739,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       'w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner',
                       Boolean(businessFormErrors.adminPassword),
                     )}
+                    toggleLabel="clave"
                   />
                   <FieldError message={businessFormErrors.adminPassword} />
                 </div>

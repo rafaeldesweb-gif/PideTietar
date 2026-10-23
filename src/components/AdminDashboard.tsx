@@ -3,8 +3,7 @@ import { useApp } from '../context/AppContext';
 import { 
   ShieldCheck, Users, Store, DollarSign, 
   MapPin, AlertCircle, BarChart3, CheckCircle2, 
-  Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X,
-  Eye, EyeOff
+  Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X
 } from 'lucide-react';
 import { Business, Locality, User } from '../types';
 import {
@@ -18,6 +17,7 @@ import {
 import { fileToDataUrl } from '../utils/imageUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { CategoryManagerModal } from './CategoryManagerModal';
+import { SensitiveInput } from './SensitiveInput';
 
 const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -187,7 +187,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   // El formulario de alta se despliega con el botón "Actualizar" de la
   // cabecera, en vez de ocupar sitio permanentemente.
   const [showCourierForm, setShowCourierForm] = useState(false);
-  const [showCourierPassword, setShowCourierPassword] = useState(false);
   // Los negocios se recargan del servidor al entrar para que la lista coincida
   // siempre con la base de datos; así el alta de repartidor y la edición/borrado
   // de comercios no trabajan con datos obsoletos.
@@ -248,7 +247,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const toggleCourierForm = () => {
     const next = !showCourierForm;
     setShowCourierForm(next);
-    setShowCourierPassword(false);
     setCourierFormErrors({});
 
     if (next) {
@@ -348,7 +346,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         accountNumber: '',
       });
       setCourierFormErrors({});
-      setShowCourierPassword(false);
       await refreshCouriers();
     }
   };
@@ -810,28 +807,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-stone-500">Clave inicial</label>
-            <div className="relative">
-              <input
-                type={showCourierPassword ? 'text' : 'password'}
-                value={courierForm.password}
-                onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
-                className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 pr-10 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.password))}
-                placeholder="Mínimo 8 caracteres"
-              />
-              <button
-                type="button"
-                onClick={() => setShowCourierPassword((previous) => !previous)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
-                title={showCourierPassword ? 'Ocultar la clave' : 'Mostrar la clave'}
-                aria-label={showCourierPassword ? 'Ocultar la clave' : 'Mostrar la clave'}
-              >
-                {showCourierPassword ? (
-                  <EyeOff className="h-4 w-4" />
-                ) : (
-                  <Eye className="h-4 w-4" />
-                )}
-              </button>
-            </div>
+            <SensitiveInput
+              type="password"
+              value={courierForm.password}
+              onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.password))}
+              placeholder="Mínimo 8 caracteres"
+              toggleLabel="clave"
+            />
             <FieldError message={courierFormErrors.password} />
           </div>
           <div>
@@ -923,11 +906,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               Cuenta bancaria (IBAN){' '}
               <span className="font-normal text-stone-400">opcional</span>
             </label>
-            <input
+            <SensitiveInput
+              type="text"
               value={courierForm.accountNumber}
               onChange={(e) => setCourierForm({ ...courierForm, accountNumber: e.target.value })}
               className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.accountNumber))}
               placeholder="ES91 2100 0418 4502 0005 1332"
+              toggleLabel="IBAN"
             />
             <p className="mt-1 text-[10px] text-stone-400">
               Para las transferencias del informe diario. Después sólo lo puede cambiar el superadmin.
@@ -1155,7 +1140,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Número de cuenta para transferencias (IBAN)</label>
-            <input value={newBusinessForm.accountNumber} onChange={e => setNewBusinessForm({...newBusinessForm, accountNumber: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.accountNumber))} placeholder="ES91 2100 0418 4502 0005 1332" />
+            <SensitiveInput
+              type="text"
+              value={newBusinessForm.accountNumber}
+              onChange={e => setNewBusinessForm({...newBusinessForm, accountNumber: e.target.value})}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.accountNumber))}
+              placeholder="ES91 2100 0418 4502 0005 1332"
+              toggleLabel="IBAN"
+            />
             <p className="mt-1 text-[11px] text-stone-400">Opcional. Formato IBAN: ES + 20 dígitos (sin espacios ni letras).</p>
             <FieldError message={businessFormErrors.accountNumber} />
           </div>
@@ -1222,7 +1214,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             </div>
             <div className="col-span-1 sm:col-span-2">
               <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
-              <input required={!editingBusinessId} type="password" minLength={editingBusinessId ? undefined : 8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))} placeholder={editingBusinessId ? 'Sin cambios' : 'Mínimo 8 caracteres'} />
+              <SensitiveInput
+                required={!editingBusinessId}
+                type="password"
+                minLength={editingBusinessId ? undefined : 8}
+                value={newBusinessForm.adminPassword}
+                onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})}
+                className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))}
+                placeholder={editingBusinessId ? 'Sin cambios' : 'Mínimo 8 caracteres'}
+                toggleLabel="clave"
+              />
               <FieldError message={businessFormErrors.adminPassword} />
             </div>
           </>
@@ -1458,7 +1459,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   Cuenta bancaria (IBAN){' '}
                   <span className="font-normal text-stone-400">opcional</span>
                 </label>
-                <input
+                <SensitiveInput
+                  type="text"
                   value={courierEditForm.accountNumber}
                   onChange={(e) =>
                     setCourierEditForm((previous) => ({
@@ -1468,6 +1470,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   }
                   className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierEditErrors.accountNumber))}
                   placeholder="ES91 2100 0418 4502 0005 1332"
+                  toggleLabel="IBAN"
                 />
                 <p className="mt-1 text-[10px] text-stone-400">
                   Déjalo vacío para quitar la cuenta. Sólo el superadmin puede modificar este dato.

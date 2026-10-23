@@ -5,6 +5,7 @@ import {
   Clock, Phone, AlertCircle, KeyRound, ArrowRight
 } from 'lucide-react';
 import { Order } from '../types';
+import { SensitiveInput } from './SensitiveInput';
 
 export const CourierDashboard: React.FC = () => {
   const { orders, verifyDeliveryPin, showNotification, currentUser, toggleCourierAvailability } = useApp();
@@ -172,13 +173,18 @@ export const CourierDashboard: React.FC = () => {
                   </p>
 
                   <div className="flex max-w-sm flex-col gap-2 pt-1 sm:flex-row">
-                    <input
+                    <SensitiveInput
                       type="text"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
                       maxLength={4}
                       placeholder="PIN ej. 4921"
                       value={inputPins[ord.id] || ''}
                       onChange={(e) => setInputPins({ ...inputPins, [ord.id]: e.target.value })}
-                      className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-center font-mono text-sm font-bold tracking-widest dark:border-stone-700 dark:bg-stone-800"
+                      className="w-full rounded-xl border border-stone-300 bg-white px-3 py-2 text-center font-mono text-sm font-bold tracking-widest dark:border-stone-700 dark:bg-stone-800 dark:text-stone-100"
+                      wrapperClassName="relative min-w-0 flex-1"
+                      toggleClassName="text-stone-400 hover:text-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-100"
+                      toggleLabel="PIN"
                     />
                     <button
                       onClick={() => handleVerifyPin(ord.id)}
