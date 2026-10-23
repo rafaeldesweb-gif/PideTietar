@@ -142,6 +142,22 @@ const sqliteSchema = `
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    slug TEXT UNIQUE NOT NULL,
+    icon_name TEXT,
+    image_url TEXT,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS platform_meta (
+    meta_key TEXT PRIMARY KEY,
+    meta_value TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS businesses (
     id TEXT PRIMARY KEY,
     locality_id TEXT,
@@ -310,6 +326,25 @@ const mysqlSchema = `
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS categories (
+    id CHAR(36) NOT NULL DEFAULT (UUID()),
+    name VARCHAR(120) NOT NULL,
+    slug VARCHAR(120) NOT NULL,
+    icon_name VARCHAR(80) NULL,
+    image_url MEDIUMTEXT NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_categories_slug (slug)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS platform_meta (
+    meta_key VARCHAR(80) NOT NULL,
+    meta_value TEXT NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (meta_key)
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
   CREATE TABLE IF NOT EXISTS businesses (
@@ -987,18 +1022,97 @@ async function ensureMySqlConnection() {
   }
 }
 
+// Catálogo inicial de categorías de la plataforma. Se inserta una sola vez,
+// cuando la tabla `categories` se crea por primera vez. Si el superadmin borra
+// una categoría después, no vuelve a aparecer al reiniciar el servidor.
+const DEFAULT_CATEGORIES = [
+  ["biriyani", "Arroces & Paellas", "arroces", "Flame", "https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=160&auto=format&fit=crop&q=80"],
+  ["rolls", "Rolls & Wraps", "rolls", "Utensils", "https://images.unsplash.com/photo-1626700051175-6818013e1d4f?w=160&auto=format&fit=crop&q=80"],
+  ["postres", "Postres & Dulces", "postres", "IceCream", "https://images.unsplash.com/photo-1587314168485-3236d6710814?w=160&auto=format&fit=crop&q=80"],
+  ["bocadillos", "Sandwich & Bocatas", "bocadillos", "Sandwich", "https://images.unsplash.com/photo-1528735602780-2552fd46c7af?w=160&auto=format&fit=crop&q=80"],
+  ["tartas", "Tartas & Cakes", "tartas", "Sparkles", "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=160&auto=format&fit=crop&q=80"],
+  ["vegano", "Pure Veg / Verde", "vegano", "Soup", "https://images.unsplash.com/photo-1540420773420-3366772f4999?w=160&auto=format&fit=crop&q=80"],
+  ["pasta", "Pasta Italiana", "pasta", "Utensils", "https://images.unsplash.com/photo-1621996346565-e3d5d6281691?w=160&auto=format&fit=crop&q=80"],
+  ["noodles", "Fideos & Wok", "noodles", "Soup", "https://images.unsplash.com/photo-1612927601601-6638404737ce?w=160&auto=format&fit=crop&q=80"],
+  ["pizzas", "Pizzas", "pizzas", "Pizza", "https://images.unsplash.com/photo-1534308983496-4fabb1a015ee?w=160&auto=format&fit=crop&q=80"],
+  ["hamburguesas", "Burgers", "hamburguesas", "Sandwich", "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=160&auto=format&fit=crop&q=80"],
+  ["patatas-raciones", "Snacks & Patatas", "patatas-raciones", "Soup", "https://images.unsplash.com/photo-1576107232684-1279f3908594?w=160&auto=format&fit=crop&q=80"],
+  ["bebidas", "Bebidas & Zumos", "bebidas", "Wine", "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=160&auto=format&fit=crop&q=80"],
+  ["desayunos", "Desayunos & Café", "desayunos", "Coffee", "https://images.unsplash.com/photo-1501339847302-ac426a4a7cbb?w=160&auto=format&fit=crop&q=80"],
+  ["tapas-carnes", "Carnes & Asados", "carnes-asados", "Flame", "https://images.unsplash.com/photo-1544025162-d76694265947?w=160&auto=format&fit=crop&q=80"],
+  ["kioscos", "Golosinas & Kiosco", "kioscos", "Candy", "https://images.unsplash.com/photo-1582058091505-f87a2e55a40f?w=160&auto=format&fit=crop&q=80"],
+];
+
+const CATEGORY_SEED_MARKER = "categories_seeded_v1";
+
+// Siembra el catálogo inicial sólo una vez. El marcador evita que las
+// categorías borradas por el superadmin reaparezcan al reiniciar, pero también
+// permite recuperar una tabla `categories` vacía creada por un esquema manual.
+async function seedDefaultCategories() {
+  if (mysqlPool) {
+    const [markers] = await mysqlPool.execute(
+      "SELECT meta_value FROM platform_meta WHERE meta_key = ?",
+      [CATEGORY_SEED_MARKER],
+    );
+    if (markers.length > 0) return;
+
+    const [rows] = await mysqlPool.execute(
+      "SELECT COUNT(*) AS c FROM categories",
+    );
+    if (Number(rows[0]?.c || 0) === 0) {
+      for (const [id, name, slug, iconName, imageUrl] of DEFAULT_CATEGORIES) {
+        await mysqlPool.execute(
+          "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
+          [id, name, slug, iconName, imageUrl],
+        );
+      }
+    }
+
+    await mysqlPool.execute(
+      `INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)`,
+      [CATEGORY_SEED_MARKER, "1"],
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  const marker = db
+    .prepare("SELECT meta_value FROM platform_meta WHERE meta_key = ?")
+    .get(CATEGORY_SEED_MARKER);
+  if (marker) return;
+
+  const existing = db.prepare("SELECT COUNT(*) AS c FROM categories").get();
+  if (Number(existing?.c || 0) === 0) {
+    const insert = db.prepare(
+      "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
+    );
+    for (const [id, name, slug, iconName, imageUrl] of DEFAULT_CATEGORIES) {
+      insert.run(id, name, slug, iconName, imageUrl);
+    }
+  }
+
+  db.prepare(
+    `INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?)
+     ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value,
+       updated_at = CURRENT_TIMESTAMP`,
+  ).run(CATEGORY_SEED_MARKER, "1");
+}
+
 async function ensureSchema() {
   const pool = await ensureMySqlConnection();
 
   if (pool) {
     await applyMysqlSchema(pool);
     await ensureMySqlSchemaShape(pool);
+    await seedDefaultCategories();
     await seedSuperAdmin();
     await flagUsersWithInsecureDefaultPassword();
     return;
   }
 
   ensureSqliteSchemaShape();
+  await seedDefaultCategories();
   await seedSuperAdmin();
   await flagUsersWithInsecureDefaultPassword();
 }
@@ -1434,6 +1548,52 @@ async function listProducts() {
 
   const db = getSqliteDb();
   return db.prepare("SELECT * FROM products ORDER BY created_at DESC").all();
+}
+
+async function listCategories() {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM categories ORDER BY name ASC",
+    );
+    return rows;
+  }
+
+  const db = getSqliteDb();
+  return db.prepare("SELECT * FROM categories ORDER BY name ASC").all();
+}
+
+async function getCategoryById(id) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM categories WHERE id = ? LIMIT 1",
+      [id],
+    );
+    return rows[0] || null;
+  }
+
+  const db = getSqliteDb();
+  return db.prepare("SELECT * FROM categories WHERE id = ? LIMIT 1").get(id) || null;
+}
+
+// Los productos tienen una FK real a categories en MySQL. Validar antes de
+// insertar evita que el cliente reciba un error de clave ajena indescifrable.
+async function resolveProductCategoryId(categoryIdRaw) {
+  const categoryId = String(categoryIdRaw ?? "").trim();
+  if (!categoryId) {
+    throw validationError("Selecciona una categoría para el producto.", {
+      category_id: "La categoría es obligatoria.",
+    });
+  }
+
+  const category = await getCategoryById(categoryId);
+  if (!category) {
+    throw validationError(
+      "La categoría seleccionada no existe. Actualiza la lista y vuelve a intentarlo.",
+      { category_id: "La categoría seleccionada no existe." },
+    );
+  }
+
+  return categoryId;
 }
 
 // SQLite guarda los JSON como TEXT; MySQL puede devolverlos ya parseados.
@@ -2165,6 +2325,50 @@ const asBooleanFlag = (value, fallback) => {
 function isValidImageUrl(value) {
   if (/^https?:\/\/\S+$/i.test(value)) return true;
   return value.startsWith("data:image/") && !value.includes(" ");
+}
+
+function normalizeCategorySlug(value) {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
+function validateCategory(body) {
+  const errors = {};
+  const name = cleanString(body.name);
+  const slug = normalizeCategorySlug(body.slug || name);
+  const iconName = cleanString(body.iconName ?? body.icon_name);
+  const imageUrl = cleanString(body.imageUrl ?? body.image_url);
+
+  if (name.length < 2) {
+    errors.name = "El nombre debe tener al menos 2 caracteres.";
+  } else if (name.length > 120) {
+    errors.name = "El nombre no puede superar los 120 caracteres.";
+  }
+
+  if (!slug) {
+    errors.slug = "El slug es obligatorio.";
+  } else if (slug.length > 120) {
+    errors.slug = "El slug no puede superar los 120 caracteres.";
+  }
+
+  if (iconName.length > 80) {
+    errors.iconName = "El icono no puede superar los 80 caracteres.";
+  }
+
+  if (imageUrl) {
+    if (imageUrl.length > IMAGE_URL_MAX_LENGTH) {
+      errors.imageUrl = "La imagen es demasiado grande.";
+    } else if (!isValidImageUrl(imageUrl)) {
+      errors.imageUrl = "La imagen debe ser una URL http(s) o un data URL de imagen.";
+    }
+  }
+
+  return { errors, values: { name, slug, iconName, imageUrl } };
 }
 
 function validateSchedule(schedule) {
@@ -4063,6 +4267,138 @@ app.delete("/api/businesses/:id", requireRole("SUPERADMIN"), async (req, res) =>
   res.json({ success: true });
 });
 
+app.get("/api/categories", async (_req, res) => {
+  const rows = await listCategories();
+  res.json(rows);
+});
+
+app.post("/api/categories", requireRole("SUPERADMIN"), async (req, res) => {
+  const body = req.body || {};
+  const validation = validateCategory(body);
+  assertValid(validation.errors);
+
+  const { name, slug, iconName, imageUrl } = validation.values;
+  const duplicate = await countRows(
+    "SELECT COUNT(*) AS c FROM categories WHERE slug = ?",
+    [slug],
+  );
+  if (duplicate > 0) {
+    throw httpError(
+      409,
+      "CATEGORY_EXISTS",
+      "Ya existe una categoría con ese slug. Prueba con otro.",
+    );
+  }
+
+  const id = cryptoRandomId();
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
+      [id, name, slug, iconName || null, imageUrl || null],
+    );
+  } else {
+    getSqliteDb()
+      .prepare(
+        "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run(id, name, slug, iconName || null, imageUrl || null);
+  }
+
+  const created = await getCategoryById(id);
+  res.status(201).json({ success: true, category: created });
+});
+
+app.put("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
+  const { id } = req.params;
+  const current = await getCategoryById(id);
+  if (!current) {
+    throw httpError(404, "NOT_FOUND", "La categoría no existe.");
+  }
+
+  const body = req.body || {};
+  const validation = validateCategory({
+    name: body.name !== undefined ? body.name : current.name,
+    slug: body.slug !== undefined ? body.slug : current.slug,
+    iconName:
+      body.iconName !== undefined || body.icon_name !== undefined
+        ? body.iconName ?? body.icon_name
+        : current.icon_name,
+    imageUrl:
+      body.imageUrl !== undefined || body.image_url !== undefined
+        ? body.imageUrl ?? body.image_url
+        : current.image_url,
+  });
+  assertValid(validation.errors);
+
+  const { name, slug, iconName, imageUrl } = validation.values;
+  const duplicate = await countRows(
+    "SELECT COUNT(*) AS c FROM categories WHERE slug = ? AND id <> ?",
+    [slug, id],
+  );
+  if (duplicate > 0) {
+    throw httpError(
+      409,
+      "CATEGORY_EXISTS",
+      "Ya existe otra categoría con ese slug.",
+    );
+  }
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE categories
+          SET name = ?, slug = ?, icon_name = ?, image_url = ?,
+              updated_at = CURRENT_TIMESTAMP(3)
+        WHERE id = ?`,
+      [name, slug, iconName || null, imageUrl || null, id],
+    );
+  } else {
+    getSqliteDb()
+      .prepare(
+        `UPDATE categories
+            SET name = ?, slug = ?, icon_name = ?, image_url = ?,
+                updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+      )
+      .run(name, slug, iconName || null, imageUrl || null, id);
+  }
+
+  const updated = await getCategoryById(id);
+  res.json({ success: true, category: updated });
+});
+
+app.delete("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
+  const { id } = req.params;
+  const category = await getCategoryById(id);
+  if (!category) {
+    throw httpError(404, "NOT_FOUND", "La categoría no existe.");
+  }
+
+  const referenceParams = [id, category.slug];
+  const businessRefs = await countRows(
+    "SELECT COUNT(*) AS c FROM businesses WHERE category IN (?, ?)",
+    referenceParams,
+  );
+  const productRefs = await countRows(
+    "SELECT COUNT(*) AS c FROM products WHERE category_id IN (?, ?)",
+    referenceParams,
+  );
+  if (businessRefs + productRefs > 0) {
+    throw httpError(
+      409,
+      "CATEGORY_IN_USE",
+      "No se puede eliminar la categoría porque hay negocios o productos que la usan.",
+    );
+  }
+
+  if (mysqlPool) {
+    await mysqlPool.execute("DELETE FROM categories WHERE id = ?", [id]);
+  } else {
+    getSqliteDb().prepare("DELETE FROM categories WHERE id = ?").run(id);
+  }
+
+  res.json({ success: true });
+});
+
 app.get("/api/products", async (_req, res) => {
   const rows = await listProducts();
   res.json(rows);
@@ -4070,10 +4406,13 @@ app.get("/api/products", async (_req, res) => {
 
 app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
+  const categoryId = await resolveProductCategoryId(
+    body.category_id ?? body.categoryId,
+  );
   const product = {
     id: body.id || cryptoRandomId(),
     business_id: body.business_id || body.businessId || "business-default",
-    category_id: body.category_id || body.categoryId || "general",
+    category_id: categoryId,
     name: body.name || "Nuevo producto",
     description: body.description || "",
     tag: body.tag || "",
@@ -4184,8 +4523,12 @@ app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async 
   };
 
   if (body.tag !== undefined) assign("tag", String(body.tag ?? ""));
-  if (body.category_id !== undefined || body.categoryId !== undefined)
-    assign("category_id", body.category_id ?? body.categoryId);
+  if (body.category_id !== undefined || body.categoryId !== undefined) {
+    const categoryId = await resolveProductCategoryId(
+      body.category_id ?? body.categoryId,
+    );
+    assign("category_id", categoryId);
+  }
   if (body.ingredients !== undefined)
     assign("ingredients", asJsonList(body.ingredients));
   if (body.allergens !== undefined)
@@ -4722,6 +5065,16 @@ app.use((err, _req, res, _next) => {
       code: "PAYLOAD_TOO_LARGE",
       message:
         "Los datos enviados son demasiado pesados. Prueba con una imagen más ligera.",
+    });
+  }
+
+  // Errores de dominio creados con httpError(status, code, message): conservan
+  // su código y mensaje (p. ej. CATEGORY_EXISTS o CATEGORY_IN_USE) en lugar de
+  // convertirse en un genérico INTERNAL_ERROR.
+  if (err?.status && err?.code) {
+    return res.status(err.status).json({
+      code: err.code,
+      message: err.message || "No se pudo completar la operación.",
     });
   }
 

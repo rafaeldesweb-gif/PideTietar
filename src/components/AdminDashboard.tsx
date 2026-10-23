@@ -6,7 +6,6 @@ import {
   Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X,
   Eye, EyeOff
 } from 'lucide-react';
-import { CATEGORIES } from '../data/mockData';
 import { Business, Locality, User } from '../types';
 import {
   FieldError,
@@ -18,6 +17,7 @@ import {
 } from './FormErrors';
 import { fileToDataUrl } from '../utils/imageUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
+import { CategoryManagerModal } from './CategoryManagerModal';
 
 const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 
@@ -65,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const { 
     businesses, 
     orders, 
+    categories,
     updateBusinessShift,
     localities,
     addLocality,
@@ -90,6 +91,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
   const [showBusinessForm, setShowBusinessForm] = useState(false);
   const [editingBusinessId, setEditingBusinessId] = useState<string | null>(null);
+  const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
 
   const [newBusinessForm, setNewBusinessForm] = useState({
     name: '',
@@ -120,6 +122,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
   // Errores campo a campo devueltos por el servidor (clave camelCase del form).
   const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
+  // Si el catálogo llega después del primer render o la categoría elegida se
+  // elimina, preselecciona la primera disponible para no enviar un formulario
+  // con una categoría que ya no existe.
+  useEffect(() => {
+    setNewBusinessForm((previous) => {
+      if (categories.some((category) => category.id === previous.category)) {
+        return previous;
+      }
+      const nextCategoryId = categories[0]?.id || '';
+      return previous.category === nextCategoryId
+        ? previous
+        : { ...previous, category: nextCategoryId };
+    });
+  }, [categories]);
 
   const handleScheduleChange = (dayIndex: number, field: string, value: any) => {
     const newSchedule = [...newBusinessForm.schedule];
@@ -464,7 +480,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     const createdBusiness = await createBusiness(
       {
         ...newBusinessForm,
-        category: newBusinessForm.category || CATEGORIES[0].id,
+        category: newBusinessForm.category || categories[0]?.id || '',
         estimatedTimeMin: 20,
         estimatedTimeMax: 40,
         deliveryFeeCents: 250,
@@ -1033,23 +1049,33 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               </p>
             )}
           </div>
-          <button 
-            onClick={() => {
-              if (showBusinessForm) {
-                setShowBusinessForm(false);
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCategoryManagerOpen(true)}
+              className="bg-[#fff2eb] hover:bg-[#ffe3d5] text-[#A32300] px-4 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition-colors"
+            >
+              <Settings className="w-4 h-4" />
+              <span>Gestionar categorías</span>
+            </button>
+            <button
+              onClick={() => {
+                if (showBusinessForm) {
+                  setShowBusinessForm(false);
+                  setEditingBusinessId(null);
+                  resetBusinessForm();
+                  return;
+                }
                 setEditingBusinessId(null);
                 resetBusinessForm();
-                return;
-              }
-              setEditingBusinessId(null);
-              resetBusinessForm();
-              setShowBusinessForm(true);
-            }} 
-            className="bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-900 dark:text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            <span>{showBusinessForm ? 'Cerrar Formulario' : 'Registrar Nuevo Comercio'}</span>
-          </button>
+                setShowBusinessForm(true);
+              }}
+              className="bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-900 dark:text-white px-4 py-2 rounded-xl text-sm font-semibold flex items-center space-x-2 transition-colors"
+            >
+              <Plus className="w-4 h-4" />
+              <span>{showBusinessForm ? 'Cerrar Formulario' : 'Registrar Nuevo Comercio'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Add Business */}
@@ -1080,7 +1106,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black', Boolean(businessFormErrors.category))}
             >
               <option value="" className="text-stone-400">Seleccionar...</option>
-              {CATEGORIES.map(cat => (
+              {categories.map(cat => (
                 <option key={cat.id} value={cat.id}>{cat.name}</option>
               ))}
             </select>
@@ -1470,6 +1496,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
         </div>
       )}
+
+      <CategoryManagerModal
+        open={categoryManagerOpen}
+        onClose={() => setCategoryManagerOpen(false)}
+      />
     </div>
   );
 };

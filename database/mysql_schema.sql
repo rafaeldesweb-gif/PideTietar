@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS businesses;
 DROP TABLE IF EXISTS user_addresses;
 DROP TABLE IF EXISTS user_roles;
 DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS platform_meta;
 DROP TABLE IF EXISTS categories;
 DROP TABLE IF EXISTS localities;
 DROP TABLE IF EXISTS roles;
@@ -51,12 +52,21 @@ CREATE TABLE categories (
   name VARCHAR(120) NOT NULL,
   slug VARCHAR(120) NOT NULL,
   icon_name VARCHAR(80) NULL,
-  image_url TEXT NULL,
+  image_url MEDIUMTEXT NULL,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
   deleted_at DATETIME(3) NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_categories_slug (slug)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Marcadores internos de la plataforma (por ejemplo, si el catálogo inicial
+-- de categorías ya se sembró). No guardar aquí datos de negocio.
+CREATE TABLE platform_meta (
+  meta_key VARCHAR(80) NOT NULL,
+  meta_value TEXT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (meta_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE users (

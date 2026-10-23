@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, Cart, CartItem, Order, Business, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected } from '../types';
+import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected } from '../types';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
 import { isSingleBusinessOrder } from '../utils/orderValidation';
@@ -34,6 +34,11 @@ interface AppContextType {
   // Businesses & Catalog
   businesses: Business[];
   products: Product[];
+  categories: BusinessCategory[];
+  refreshCategories: () => Promise<BusinessCategory[] | null>;
+  createCategory: (data: Partial<BusinessCategory>) => Promise<BusinessCategory | null>;
+  updateCategory: (categoryId: string, data: Partial<BusinessCategory>) => Promise<boolean>;
+  deleteCategory: (categoryId: string) => Promise<boolean>;
   // Sincroniza los negocios con el servidor y reemplaza la lista (también si
   // llega vacía). El panel de superadmin la usa para no editar filas que sólo
   // existen en la caché del navegador. Devuelve null si la consulta falla.
@@ -298,6 +303,14 @@ const normalizeProduct = (item: any): Product => ({
   ratingCount: Number(item.ratingCount ?? 0),
 });
 
+const normalizeCategory = (item: any): BusinessCategory => ({
+  id: item.id || `cat-${Date.now()}`,
+  name: item.name || 'Categoría',
+  slug: item.slug || '',
+  iconName: item.iconName ?? item.icon_name ?? 'Utensils',
+  imageUrl: item.imageUrl ?? item.image_url ?? '',
+});
+
 const toIsoDate = (value: any): string | null => {
   if (value === null || value === undefined || value === '') return null;
   if (value instanceof Date) {
@@ -558,6 +571,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Businesses & Products
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  // Catálogo de categorías: lo gestiona el superadmin desde el panel y se
+  // guarda en la tabla `categories`. No hay lista estática en el frontend.
+  const [categories, setCategories] = useState<BusinessCategory[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -579,10 +595,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const ordersRequest = getSessionToken()
         ? apiFetch('/orders', { cache: 'no-store' }).catch(() => null)
         : Promise.resolve(null);
-      const [localitiesData, businessesData, productsData, ordersData] = await Promise.all([
+      const [localitiesData, businessesData, productsData, categoriesData, ordersData] = await Promise.all([
         fetchRows('/localities'),
         fetchRows('/businesses'),
         fetchRows('/products'),
+        fetchRows('/categories'),
         // null = no se pudo consultar o no hay sesión; [] = el servidor no tiene pedidos.
         ordersRequest,
       ]);
@@ -605,6 +622,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       if (productsData) {
         setProducts(productsData.map(normalizeProduct));
+      }
+      if (categoriesData) {
+        setCategories(categoriesData.map(normalizeCategory));
       }
       if (Array.isArray(ordersData)) {
         // A diferencia de las demás entidades, los pedidos sí se reemplazan
@@ -1095,6 +1115,107 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           if (wasSelected) setSelectedLocality(removed);
         }
       });
+  };
+
+  const refreshCategories = async (): Promise<BusinessCategory[] | null> => {
+    try {
+      const data = await apiFetch('/categories', { cache: 'no-store' });
+      const rows = (Array.isArray(data) ? data : []).map(normalizeCategory);
+      setCategories(rows);
+      return rows;
+    } catch (error) {
+      showNotification(
+        error instanceof Error
+          ? error.message
+          : 'No se pudo actualizar la lista de categorías.',
+        'error',
+      );
+      return null;
+    }
+  };
+
+  const createCategory = async (
+    data: Partial<BusinessCategory>,
+  ): Promise<BusinessCategory | null> => {
+    try {
+      const response = await apiFetch('/categories', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: data.name || '',
+          slug: data.slug || '',
+          icon_name: data.iconName || 'Utensils',
+          image_url: data.imageUrl || '',
+        }),
+      });
+      const payload = (response as any)?.category ?? response;
+      if (!payload?.id) {
+        throw new Error('El servidor no devolvió la categoría creada.');
+      }
+      const created = normalizeCategory(payload);
+      setCategories((previous) => [
+        created,
+        ...previous.filter((category) => category.id !== created.id),
+      ]);
+      return created;
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo guardar la categoría.',
+        'error',
+      );
+      return null;
+    }
+  };
+
+  const updateCategory = async (
+    categoryId: string,
+    data: Partial<BusinessCategory>,
+  ): Promise<boolean> => {
+    try {
+      const response = await apiFetch(`/categories/${encodeURIComponent(categoryId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          name: data.name || '',
+          slug: data.slug || '',
+          icon_name: data.iconName || 'Utensils',
+          image_url: data.imageUrl || '',
+        }),
+      });
+      const payload = (response as any)?.category ?? response;
+      if (!payload?.id) {
+        throw new Error('El servidor no devolvió la categoría actualizada.');
+      }
+      const updated = normalizeCategory(payload);
+      setCategories((previous) =>
+        previous.map((category) =>
+          category.id === categoryId ? { ...category, ...updated, id: categoryId } : category,
+        ),
+      );
+      return true;
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo actualizar la categoría.',
+        'error',
+      );
+      return false;
+    }
+  };
+
+  const deleteCategory = async (categoryId: string): Promise<boolean> => {
+    try {
+      await apiFetch(`/categories/${encodeURIComponent(categoryId)}`, {
+        method: 'DELETE',
+      });
+      setCategories((previous) =>
+        previous.filter((category) => category.id !== categoryId),
+      );
+      return true;
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo eliminar la categoría.',
+        'error',
+      );
+      return false;
+    }
   };
 
   // El panel de administración llama a esta función antes de editar, eliminar
@@ -2090,6 +2211,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       deleteLocality,
       businesses,
       products,
+      categories,
+      refreshCategories,
+      createCategory,
+      updateCategory,
+      deleteCategory,
       refreshBusinesses,
       createBusiness,
       updateBusiness,

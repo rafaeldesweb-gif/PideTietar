@@ -36,6 +36,14 @@ CREATE TABLE categories (
   deleted_at TIMESTAMPTZ NULL
 );
 
+-- Marcadores internos de la plataforma (por ejemplo, si el catálogo inicial
+-- de categorías ya se sembró). No guardar aquí datos de negocio.
+CREATE TABLE platform_meta (
+  meta_key VARCHAR(80) PRIMARY KEY,
+  meta_value TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- =========================================================
 -- USERS, ROLES, ADDRESSES
 -- =========================================================

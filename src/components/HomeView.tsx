@@ -5,7 +5,7 @@ import {
   Sparkles, CheckCircle2, ChevronRight, AlertCircle, 
   Filter, Utensils, Flame, ChevronLeft
 } from 'lucide-react';
-import { CATEGORIES, getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
+import { getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
 import { Business, Product } from '../types';
 
 interface HomeViewProps {
@@ -17,6 +17,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
   const { 
     businesses, 
     products, 
+    categories,
     selectedLocality, 
     userSubscription,
     currentUser
@@ -58,7 +59,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
 
   const bannerSlides = bannerSourceProducts.map((product, index) => {
     const business = businesses.find((biz) => biz.id === product.businessId);
-    const category = CATEGORIES.find((cat) => cat.id === product.categoryId);
+    const category = categories.find((cat) => cat.id === product.categoryId);
 
     return {
       id: `slide-${product.id}`,
@@ -235,7 +236,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               </span>
             </button>
 
-            {CATEGORIES.map((cat) => {
+            {categories.map((cat) => {
               const isSelected = selectedCategory === cat.id;
               return (
                 <button

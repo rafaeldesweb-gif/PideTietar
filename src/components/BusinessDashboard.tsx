@@ -40,9 +40,9 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { Order, OrderStatus, Product, CartItemOptionSelected, BusinessCategory, BusinessHours, User } from '../types';
+import { Order, OrderStatus, Product, CartItemOptionSelected, BusinessHours, User } from '../types';
 import { ProjectLogo } from './ProjectLogo';
-import { CATEGORIES } from '../data/mockData';
+import { CategoryManagerModal } from './CategoryManagerModal';
 import {
   FieldError,
   FieldErrors,
@@ -73,6 +73,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     currentUser,
     businesses,
     products,
+    categories,
     orders,
     selectedLocality,
     localities,
@@ -176,22 +177,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     additionalIngredients: '',
     priceCents: '0',
     imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-    categoryId: 'hamburguesas',
+    categoryId: '',
     isAvailable: true,
     allergens: '',
   });
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [newBusinessModalOpen, setNewBusinessModalOpen] = useState(false);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
-  const [categoryList, setCategoryList] = useState<BusinessCategory[]>(CATEGORIES);
-  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
-  const [categoryForm, setCategoryForm] = useState({
-    id: '',
-    name: '',
-    slug: '',
-    iconName: 'Utensils',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-  });
   const [zoneManagerOpen, setZoneManagerOpen] = useState(false);
   const [newZoneName, setNewZoneName] = useState('');
   const [newZonePostalCode, setNewZonePostalCode] = useState('');
@@ -213,7 +205,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     legalName: '',
     cif: '',
     accountNumber: '',
-    category: 'hamburguesas',
+    category: '',
     localityId: selectedLocality?.id || '',
     address: '',
     phone: '',
@@ -232,6 +224,29 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   });
   // Errores campo a campo que devuelve el servidor al crear el comercio.
   const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
+  // Si la categoría elegida desaparece (por ejemplo, se elimina desde el
+  // gestor) o el catálogo aún no ha llegado, los formularios caen a la primera
+  // categoría disponible o se quedan vacíos para que la validación lo marque.
+  useEffect(() => {
+    setCatalogForm((previous) => {
+      if (categories.some((category) => category.id === previous.categoryId)) {
+        return previous;
+      }
+      const nextCategoryId = categories[0]?.id || '';
+      return previous.categoryId === nextCategoryId
+        ? previous
+        : { ...previous, categoryId: nextCategoryId };
+    });
+    setNewBusinessForm((previous) => {
+      if (categories.some((category) => category.id === previous.category)) {
+        return previous;
+      }
+      const nextCategoryId = categories[0]?.id || '';
+      return previous.category === nextCategoryId
+        ? previous
+        : { ...previous, category: nextCategoryId };
+    });
+  }, [categories]);
   const [userSettingsForm, setUserSettingsForm] = useState({
     name: currentUser?.name || '',
     email: currentUser?.email || '',
@@ -366,7 +381,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (ok) await refreshCouriers();
   };
 
-  const categoryOptions = categoryList.length > 0 ? categoryList : CATEGORIES;
+  const categoryOptions = categories;
   const canManageOrders = !!currentUser && (currentUser.role === 'BUSINESS_ADMIN' || currentUser.role === 'SUPERADMIN');
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
@@ -385,81 +400,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       </div>
     );
   }
-
-  const normaliseCategorySlug = (value: string): string =>
-    value
-      .trim()
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '') || 'categoria';
-
-  const resetCategoryForm = () => {
-    setEditingCategoryId(null);
-    setCategoryForm({
-      id: '',
-      name: '',
-      slug: '',
-      iconName: 'Utensils',
-      imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-    });
-  };
-
-  const handleCategorySubmit = (event: React.FormEvent) => {
-    event.preventDefault();
-
-    const cleanedName = categoryForm.name.trim();
-    const nextSlug = categoryForm.slug.trim() || normaliseCategorySlug(cleanedName);
-
-    if (!cleanedName) {
-      showNotification('Escribe un nombre para la categoría.', 'error');
-      return;
-    }
-
-    if (editingCategoryId) {
-      setCategoryList((previous) =>
-        previous.map((category) =>
-          category.id === editingCategoryId
-            ? { ...category, name: cleanedName, slug: nextSlug, iconName: categoryForm.iconName, imageUrl: categoryForm.imageUrl }
-            : category,
-        ),
-      );
-      showNotification('Categoría actualizada.', 'success');
-    } else {
-      const newCategory: BusinessCategory = {
-        id: `${Date.now()}-${normaliseCategorySlug(cleanedName)}`,
-        name: cleanedName,
-        slug: nextSlug,
-        iconName: categoryForm.iconName,
-        imageUrl: categoryForm.imageUrl,
-      };
-      setCategoryList((previous) => [newCategory, ...previous]);
-      showNotification('Categoría añadida.', 'success');
-    }
-
-    resetCategoryForm();
-  };
-
-  const startEditCategory = (category: BusinessCategory) => {
-    setEditingCategoryId(category.id);
-    setCategoryForm({
-      id: category.id,
-      name: category.name,
-      slug: category.slug,
-      iconName: category.iconName || 'Utensils',
-      imageUrl: category.imageUrl || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-    });
-    setCategoryManagerOpen(true);
-  };
-
-  const removeCategory = (categoryId: string) => {
-    setCategoryList((previous) => previous.filter((category) => category.id !== categoryId));
-    if (editingCategoryId === categoryId) {
-      resetCategoryForm();
-    }
-    showNotification('Categoría eliminada.', 'success');
-  };
 
   if (!business) {
     return <div className="p-6 text-stone-700">No hay negocio disponible.</div>;
@@ -701,6 +641,16 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setNewOrderModal(false);
   };
 
+  const defaultCategoryIdForBusiness = () => {
+    if (
+      business.category &&
+      categories.some((category) => category.id === business.category)
+    ) {
+      return business.category;
+    }
+    return categories[0]?.id || '';
+  };
+
   const resetCatalogForm = () => {
     setCatalogForm({
       name: '',
@@ -711,7 +661,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       additionalIngredients: '',
       priceCents: '0',
       imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-      categoryId: business.category || 'hamburguesas',
+      categoryId: defaultCategoryIdForBusiness(),
       isAvailable: true,
       allergens: '',
     });
@@ -726,6 +676,16 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
     if (!trimmedName || !trimmedDescription || normalizedPrice <= 0) {
       showNotification('Completa nombre, descripción y precio para guardar el producto.', 'error');
+      return;
+    }
+
+    if (!categories.length) {
+      showNotification('No hay categorías disponibles. El superadministrador debe crear al menos una antes de añadir productos.', 'error');
+      return;
+    }
+
+    if (!categories.some((category) => category.id === catalogForm.categoryId)) {
+      showNotification('Selecciona una categoría válida para el producto.', 'error');
       return;
     }
 
@@ -780,7 +740,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         .join(', '),
       priceCents: (prod.priceCents / 100).toFixed(2),
       imageUrl: prod.imageUrl,
-      categoryId: prod.categoryId,
+      categoryId: categories.some((category) => category.id === prod.categoryId)
+        ? prod.categoryId
+        : categories[0]?.id || '',
       isAvailable: prod.isAvailable,
       allergens: (prod.allergens || []).join(', '),
     });
@@ -842,18 +804,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       setCatalogForm((prev) => ({ ...prev, imageUrl: dataUrl }));
     } catch (error) {
       showNotification('No se pudo leer la imagen del producto.', 'error');
-    }
-  };
-
-  const handleCategoryImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      const dataUrl = await readFileAsDataUrl(file);
-      setCategoryForm((prev) => ({ ...prev, imageUrl: dataUrl }));
-    } catch (error) {
-      showNotification('No se pudo leer la imagen de la categoría.', 'error');
     }
   };
 
@@ -950,6 +900,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (!newBusinessForm.name.trim()) localErrors.name = 'El nombre del negocio es obligatorio.';
     if (!newBusinessForm.address.trim()) localErrors.address = 'La dirección del negocio es obligatoria.';
     if (!newBusinessForm.localityId) localErrors.localityId = 'Selecciona la zona donde está el negocio.';
+    if (!newBusinessForm.category) localErrors.category = 'Selecciona la categoría del negocio.';
     if (!newBusinessForm.adminUsername.trim()) localErrors.adminUsername = 'El usuario de acceso es obligatorio.';
     if (!newBusinessForm.adminEmail.trim()) localErrors.adminEmail = 'El email de acceso es obligatorio.';
     if (!newBusinessForm.adminPassword.trim()) localErrors.adminPassword = 'La clave inicial es obligatoria.';
@@ -1016,7 +967,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       legalName: '',
       cif: '',
       accountNumber: '',
-      category: 'hamburguesas',
+      category: categories[0]?.id || '',
       localityId: selectedLocality?.id || '',
       address: '',
       phone: '',
@@ -1628,6 +1579,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                         onChange={(event) => setCatalogForm((prev) => ({ ...prev, categoryId: event.target.value }))}
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                       >
+                        <option value="" disabled>Selecciona una categoría</option>
                         {categoryOptions.map((category) => (
                           <option key={category.id} value={category.id}>
                             {category.name}
@@ -1751,7 +1703,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                             additionalIngredients: '',
                             priceCents: '0',
                             imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
-                            categoryId: biz.category || 'hamburguesas',
+                            categoryId: categories.some((category) => category.id === biz.category)
+                              ? biz.category
+                              : categories[0]?.id || '',
                             isAvailable: true,
                             allergens: '',
                           });
@@ -2589,7 +2543,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       Boolean(businessFormErrors.category),
                     )}
                   >
-                    {CATEGORIES.map((cat) => (
+                    <option value="" disabled>Selecciona una categoría</option>
+                    {categories.map((cat) => (
                       <option key={cat.id} value={cat.id}>{cat.name}</option>
                     ))}
                   </select>
@@ -2884,124 +2839,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         </div>
       )}
 
-      {categoryManagerOpen && currentUser?.role === 'SUPERADMIN' && (
-        <div className="fixed inset-0 bg-black/45 flex items-center justify-center z-[80] p-4">
-          <div className="bg-white rounded-[28px] w-full max-w-5xl p-5 shadow-2xl max-h-[88vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-stone-500">SUPERADMIN</div>
-                <h3 className="text-2xl font-black text-stone-900 mt-1">Gestión de categorías</h3>
-              </div>
-              <button type="button" onClick={() => { setCategoryManagerOpen(false); resetCategoryForm(); }} className="text-stone-500 hover:text-stone-900">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-5">
-              <div className="bg-[#fffaf5] border border-[#eadcc7] rounded-2xl p-4 shadow-sm">
-                <div className="mb-4">
-                  <div className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
-                    {editingCategoryId ? 'Editar categoría' : 'Añadir nueva categoría'}
-                  </div>
-                  <h4 className="mt-1 text-lg font-black text-stone-900">
-                    {editingCategoryId ? 'Actualiza la categoría' : 'Crea una nueva categoría'}
-                  </h4>
-                </div>
-
-                <form onSubmit={handleCategorySubmit} className="space-y-3 text-sm">
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Nombre</label>
-                    <input
-                      value={categoryForm.name}
-                      onChange={(event) => setCategoryForm((prev) => ({ ...prev, name: event.target.value, slug: prev.slug || normaliseCategorySlug(event.target.value) }))}
-                      className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
-                      placeholder="Ej. Pizzas, Burgers, Postres"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Slug</label>
-                    <input
-                      value={categoryForm.slug}
-                      onChange={(event) => setCategoryForm((prev) => ({ ...prev, slug: event.target.value }))}
-                      className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
-                      placeholder="pizzas"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Icono</label>
-                    <select
-                      value={categoryForm.iconName}
-                      onChange={(event) => setCategoryForm((prev) => ({ ...prev, iconName: event.target.value }))}
-                      className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
-                    >
-                      {['Utensils', 'Flame', 'Coffee', 'Pizza', 'Sparkles', 'Soup', 'Sandwich', 'Wine'].map((icon) => (
-                        <option key={icon} value={icon}>{icon}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Imagen</label>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleCategoryImageUpload}
-                      className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
-                    />
-                    {categoryForm.imageUrl && !categoryForm.imageUrl.startsWith('https://images.unsplash.com') && (
-                      <p className="mt-1 text-[10px] text-emerald-600 font-bold">Imagen cargada correctamente</p>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button type="submit" className="flex-1 rounded-xl bg-[#FF4E00] hover:bg-[#E64600] text-white font-black px-4 py-2.5 transition">
-                      {editingCategoryId ? 'Guardar cambios' : 'Añadir categoría'}
-                    </button>
-                    {editingCategoryId && (
-                      <button type="button" onClick={resetCategoryForm} className="rounded-xl bg-stone-100 text-stone-700 px-4 py-2.5 font-semibold">
-                        Cancelar
-                      </button>
-                    )}
-                  </div>
-                </form>
-              </div>
-
-              <div className="bg-white border border-[#eadcc7] rounded-2xl shadow-sm overflow-hidden">
-                <div className="p-4 border-b border-[#f0e2d5] flex items-center justify-between">
-                  <span className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">Categorías actuales</span>
-                  <span className="text-xs font-bold text-stone-700">{categoryList.length}</span>
-                </div>
-
-                <div className="divide-y divide-[#f3e8dd]">
-                  {categoryList.length === 0 ? (
-                    <div className="p-6 text-sm text-stone-600 text-center">No hay categorías creadas todavía.</div>
-                  ) : (
-                    categoryList.map((category) => (
-                      <div key={category.id} className="p-3 flex items-center gap-3 hover:bg-[#fff7f2] transition">
-                        <img src={category.imageUrl || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80'} alt={category.name} className="w-14 h-14 rounded-xl object-cover border border-[#e9dac8]" />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-bold text-stone-900 text-sm truncate">{category.name}</div>
-                          <div className="text-[11px] text-stone-500 uppercase tracking-wider">{category.slug}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={() => startEditCategory(category)} className="p-2 rounded-lg bg-stone-800 text-stone-300 hover:text-white transition">
-                            <Edit3 className="w-4 h-4" />
-                          </button>
-                          <button type="button" onClick={() => removeCategory(category.id)} className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <CategoryManagerModal
+        open={categoryManagerOpen}
+        onClose={() => setCategoryManagerOpen(false)}
+      />
 
       {zoneManagerOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4">
