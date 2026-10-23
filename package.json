@@ -1,10 +1,10 @@
 {
-  "name": "react-example",
+  "name": "pidetietar",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": ">=18 <23"
+    "node": ">=22.5"
   },
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -13,20 +13,13 @@
     "test:responsive": "node scripts/responsive-check.mjs",
     "server": "node server.js",
     "start": "node server.js",
-    "clean": "rm -rf dist data && rm -f server.js",
-    "lint": "tsc --noEmit",
-    "db:status": "node scripts/db-manager.mjs status",
-    "db:migrate": "node scripts/db-manager.mjs migrate",
-    "db:seed": "node scripts/db-manager.mjs seed",
-    "db:verify": "node scripts/db-manager.mjs verify",
-    "db:crud": "node scripts/db-manager.mjs crud"
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^11.7.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "lucide-react": "^0.546.0",

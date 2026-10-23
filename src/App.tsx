@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useApp } from './context/AppContext';
+import React, { useEffect, useState } from 'react';
+import { getSessionToken, useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
 import { BusinessDetailView } from './components/BusinessDetailView';
@@ -23,6 +23,7 @@ export default function App() {
     pageError, 
     setPageError,
     currentUser,
+    sessionChecked,
     businesses
   } = useApp();
 
@@ -35,7 +36,17 @@ export default function App() {
 
   // Modals state
   const [cartOpen, setCartOpen] = useState(false);
-  const [authModalOpen, setAuthModalOpen] = useState(true);
+  // Si hay token guardado no se abre el modal de login de primeras: la app
+  // restaura la sesión con GET /auth/me y sólo pide acceso si no hay usuario.
+  const [authModalOpen, setAuthModalOpen] = useState(() => !getSessionToken());
+
+  // Una vez comprobada la sesión, si finalmente no hay usuario (sin token,
+  // token caducado...), se abre el modal de acceso.
+  useEffect(() => {
+    if (sessionChecked && !currentUser) {
+      setAuthModalOpen(true);
+    }
+  }, [sessionChecked, currentUser]);
   const [customizerProduct, setCustomizerProduct] = useState<Product | null>(null);
   const [customizerBizId, setCustomizerBizId] = useState<string | null>(null);
   const canAccessCourierDashboard = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER') && currentUser.isEmailVerified && (currentUser.courierProfile?.confirmation === 'SUPERADMIN' || currentUser.courierProfile?.confirmation === 'BUSINESS_EMAIL');
@@ -55,19 +66,19 @@ export default function App() {
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
       
-      {/* Global Notifications Toast */}
+      {/* Global Notifications Toast (centrado en pantalla, por encima del modal) */}
       {notification && (
-        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[80] animate-in slide-in-from-top-2 fade-in duration-200">
-          <div className={`flex items-center space-x-2 px-4 py-3 rounded-2xl shadow-xl border text-xs font-semibold max-w-sm ${
+        <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] animate-in fade-in zoom-in-95 duration-200">
+          <div className={`flex items-center space-x-2 px-5 py-4 rounded-2xl shadow-2xl border text-sm font-semibold max-w-md ${
             notification.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100'
               : notification.type === 'error'
               ? 'bg-red-50 dark:bg-red-950 border-red-300 dark:border-red-800 text-red-900 dark:text-red-100'
               : 'bg-amber-50 dark:bg-amber-950 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-100'
           }`}>
-            {notification.type === 'success' && <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />}
-            {notification.type === 'error' && <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />}
-            {notification.type === 'info' && <Info className="w-4 h-4 text-amber-600 shrink-0" />}
+            {notification.type === 'success' && <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />}
+            {notification.type === 'error' && <AlertCircle className="w-5 h-5 text-red-600 shrink-0" />}
+            {notification.type === 'info' && <Info className="w-5 h-5 text-amber-600 shrink-0" />}
             <span className="flex-1">{notification.message}</span>
           </div>
         </div>

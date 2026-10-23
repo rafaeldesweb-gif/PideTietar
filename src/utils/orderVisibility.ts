@@ -18,9 +18,15 @@ export const filterOrdersForCurrentUser = (orders: Order[], currentUser: User | 
   }
 
   const isCourier = currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER';
+  const normalizedEmail = (value?: string) => String(value || '').trim().toLowerCase();
 
   return orders.filter((order) => {
-    const isCustomerOrder = order.customerId === currentUser.id;
+    // Los pedidos antiguos no tienen customer_id. Se comparan también por
+    // email para que el cliente pueda seguir viéndolos tras la migración.
+    const isCustomerOrder =
+      order.customerId === currentUser.id ||
+      (!!currentUser.email &&
+        normalizedEmail(order.customerEmail) === normalizedEmail(currentUser.email));
     const isAssignedCourierOrder = isCourier && order.courierId === currentUser.id;
 
     return isCustomerOrder || isAssignedCourierOrder;

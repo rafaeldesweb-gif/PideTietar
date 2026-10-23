@@ -1,47 +1,68 @@
 # PideTiétar
 
-Aplicación de pedidos y gestión para el Valle del Tiétar con frontend React + Vite y backend Express.
+Aplicación de pedidos y gestión para el Valle del Tiétar. Frontend React + Vite y backend Express en un único `server.js`.
 
-## Funcionalidades principales
+## Requisitos
 
-- Registro y acceso con pantalla principal de registro.
-- Acceso fijo de superadministrador con usuario `RafaAdmin` y contraseña `13021999`.
-- Backend con soporte para MySQL real y fallback a SQLite local.
-- CRUD para negocios, productos, usuarios y pedidos.
-- Scripts de migración y verificación para base de datos.
-- Preparado para funcionar con Hostinger mediante variables de entorno.
+- Node.js **22.5 o superior** (el backend usa `node:sqlite`).
+- npm.
+- Opcional: MySQL/MariaDB. Si no hay conexión, el backend usa SQLite local.
 
-## Inicio rápido
+## Instalación
 
-1. Instala dependencias:
+1. Instala las dependencias:
+
+   ```bash
    npm install
-2. Ajusta el archivo `.env` con tu host, usuario y base de datos MySQL de Hostinger.
-3. Crea la base de datos y ejecuta:
-   npm run db:migrate
-   npm run db:seed
-4. Inicia la aplicación:
-   npm run dev
-5. Ejecuta la API:
-   npm run server
+   ```
+
+2. Copia `.env.example` a `.env` y ajusta los valores. El archivo `.env` no se sube al repositorio.
+
+## Desarrollo
+
+Ejecuta el backend y el frontend en dos terminales:
+
+```bash
+# Terminal 1: API en http://localhost:4000
+npm run server
+
+# Terminal 2: frontend en http://localhost:3000
+npm run dev
+```
+
+Vite redirige `/api` al backend del puerto 4000.
+
+## Producción
+
+```bash
+npm run lint
+npm run build
+npm start
+```
+
+`npm start` sirve la API y el contenido de `dist/` desde el puerto indicado en `PORT` (4000 por defecto). Si usas un proxy inverso, apunta al puerto del backend.
 
 ## Base de datos
 
-- Base de datos real: MySQL usando `MYSQL_HOST`, `MYSQL_DATABASE`, `MYSQL_USER` y `MYSQL_PASSWORD`.
-- Si no hay configuración MySQL, la app usa SQLite local en `data/app.db`.
-- Comandos útiles:
-  - `npm run db:status`
-  - `npm run db:migrate`
-  - `npm run db:seed`
-  - `npm run db:verify`
-  - `npm run db:crud`
+- El backend intenta conectar con MySQL usando las variables `MYSQL_*` o `DB_*`.
+- Si no hay conexión, usa SQLite en `data/app.db`.
+- El esquema lo crea y migra el propio servidor al arrancar. No hay que ejecutar migraciones manuales.
+- `data/` contiene datos locales y el secreto de sesión: está excluido de git y no debe subirse.
 
-## Login fijo de superadmin
+## Acceso de superadministrador
 
-- Usuario: `RafaAdmin`
-- Contraseña: `13021999`
+El usuario y la contraseña se configuran con `SUPERADMIN_USERNAME` y `SUPERADMIN_PASSWORD`. No dejes credenciales reales en el repositorio ni en la documentación.
 
-## Debug y verificación
+## Seguridad
 
-- `npm run lint`
-- `npm run build`
-- `curl http://localhost:3000/api/health`
+- `GET /api/orders` exige sesión y filtra los pedidos por rol: superadmin, administrador del negocio, repartidor que cubre el negocio y cliente propietario del pedido.
+- Los endpoints `/api/debug/*` están reservados al superadmin.
+- Define `SESSION_SECRET` en producción. Si no existe, el servidor genera `data/.session_secret`.
+- Sirve la aplicación detrás de HTTPS.
+
+## Comprobaciones
+
+- `npm run lint` — comprobación de tipos.
+- `npm run build` — build de producción.
+- `npm run test:responsive` — Playwright sobre varios viewports (requiere navegadores instalados).
+- `curl http://localhost:4000/api/health` — estado del backend.

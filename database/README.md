@@ -64,3 +64,28 @@ Esto permite control de borrado lógico y trazabilidad de cambios.
 - Añadir índices según volumen real
 - Usar `ROW LEVEL SECURITY` para multi-tenant
 - Considerar particionado por fecha en tablas de facturación si crece mucho volumen
+
+## Variante MySQL / MariaDB
+
+Los ficheros equivalentes para MySQL/MariaDB son:
+
+- `database/mysql_schema.sql`
+- `database/mysql_seed.sql`
+
+Importación:
+
+```bash
+mysql -u USUARIO -p pidetietar_prod < database/mysql_schema.sql
+mysql -u USUARIO -p pidetietar_prod < database/mysql_seed.sql
+```
+
+Verificado importando ambos ficheros en:
+
+- MariaDB 10.11.19 y 11.8.9 (motor de los planes de hosting compartido, p. ej. Hostinger/Hetzner)
+- MySQL 8.4.13
+
+Notas importantes:
+
+- `schema.sql`/`seed.sql` son **PostgreSQL**; `mysql_schema.sql`/`mysql_seed.sql` son **MySQL/MariaDB**. Ejecutar un fichero en el motor equivocado produce errores de sintaxis (dialectos distintos).
+- Los ids los genera la propia BD con `UUID()`, y la aplicación (`server.js`) siempre envía el `id` generado en JavaScript.
+- La aplicación usa SQLite (`data/app.db`) cuando no hay BD MySQL accesible; el esquema SQLite lo crea `server.js` al arrancar, no estos ficheros.

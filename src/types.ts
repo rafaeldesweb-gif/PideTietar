@@ -66,6 +66,16 @@ export interface BusinessHours {
   isOpen: boolean;
 }
 
+// Credenciales del propietario que se crean junto al negocio (sólo puede
+// hacerlo el superadmin). La clave se envía una sola vez: el backend guarda
+// el hash y el propietario puede cambiarla después desde su perfil.
+export interface BusinessOwnerInput {
+  username: string;
+  fullName: string;
+  email: string;
+  password: string;
+}
+
 export interface Business {
   id: string;
   name: string;

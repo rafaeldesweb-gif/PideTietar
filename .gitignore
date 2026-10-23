@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Base de datos local y secreto de sesión: nunca deben subirse al repo.
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/.session_secret

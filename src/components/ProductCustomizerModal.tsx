@@ -1,10 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { 
-  X, Plus, Minus, Check, AlertCircle, ShoppingBag, 
-  Trash2, RefreshCw 
-} from 'lucide-react';
+import { X, Plus, Minus, Check, AlertCircle } from 'lucide-react';
 import { Product, CartItemOptionSelected } from '../types';
+import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
 
 interface ProductModalProps {
   product: Product | null;
@@ -13,40 +11,32 @@ interface ProductModalProps {
   onClose: () => void;
 }
 
-export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
+interface ProductCustomizerContentProps {
+  product: Product;
+  businessId: string;
+  onClose: () => void;
+}
+
+const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
   product,
   businessId,
-  isOpen,
   onClose
 }) => {
-  const { addToCart, cart, clearCart, showNotification } = useApp();
-
-  if (!isOpen || !product || !businessId) return null;
+  const { addToCart, clearCart } = useApp();
 
   const [quantity, setQuantity] = useState(1);
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
-  const [selectedOptions, setSelectedOptions] = useState<CartItemOptionSelected[]>(() => {
-    // Select default required options if any
-    const defaults: CartItemOptionSelected[] = [];
-    if (product.optionGroups) {
-      product.optionGroups.forEach(grp => {
-        if (grp.required && grp.options.length > 0) {
-          defaults.push({
-            groupName: grp.name,
-            optionName: grp.options[0].name,
-            priceCents: grp.options[0].priceCents
-          });
-        }
-      });
-    }
-    return defaults;
-  });
+  const [selectedOptions, setSelectedOptions] = useState<CartItemOptionSelected[]>(() =>
+    getDefaultSelectedOptions(product)
+  );
   const [customerNote, setCustomerNote] = useState('');
   const [conflictPromptOpen, setConflictPromptOpen] = useState(false);
 
+  const effectiveOptionGroups = buildEffectiveOptionGroups(product);
+
   // Toggle removable ingredient
   const toggleRemovable = (ing: string) => {
-    setRemovedIngredients(prev => 
+    setRemovedIngredients(prev =>
       prev.includes(ing) ? prev.filter(i => i !== ing) : [...prev, ing]
     );
   };
@@ -87,7 +77,7 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
       selectedOptions,
       customerNote: customerNote.trim() || undefined,
       itemPriceCents: finalUnitPriceCents
-    }, businessId);
+    }, businessId, { skipConflictCheck: forceClear });
 
     if (res.conflict) {
       setConflictPromptOpen(true);
@@ -152,9 +142,20 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
             <h2 className="text-xl font-bold font-serif text-stone-900 dark:text-stone-100">
               {product.name}
             </h2>
-            <p className="text-xs text-stone-500 dark:text-stone-400 mt-1">
-              {product.description}
-            </p>
+            <div className="mt-2">
+              <span className="block text-[10px] font-bold uppercase tracking-wider text-stone-400">
+                Descripción
+              </span>
+              <p className="text-sm text-stone-600 dark:text-stone-300 mt-0.5">
+                {product.description?.trim() || 'Sin descripción disponible.'}
+              </p>
+            </div>
+            {Array.isArray(product.ingredients) && product.ingredients.length > 0 && (
+              <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5">
+                <span className="font-semibold text-stone-600 dark:text-stone-300">Ingredientes:</span>{' '}
+                {product.ingredients.join(', ')}
+              </p>
+            )}
             <div className="mt-2 text-base font-mono font-bold text-[#A32300] dark:text-[#FF4E00]">
               {(finalUnitPriceCents / 100).toFixed(2)}€
             </div>
@@ -188,9 +189,12 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
             </div>
           )}
 
-          {/* Option Groups (Variants, sauces, extras) */}
-          {product.optionGroups && product.optionGroups.map(grp => {
+          {/* Option Groups (extras, variants, meat doneness) */}
+          {effectiveOptionGroups.map(grp => {
             const isMulti = grp.maxChoices > 1;
+            const isExtras = grp.id === 'synthetic-additional-ingredients';
+            const isMeatDoneness = grp.id === 'synthetic-meat-doneness';
+
             return (
               <div key={grp.id} className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -201,6 +205,17 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
                     {grp.required ? 'Obligatorio' : 'Opcional'}
                   </span>
                 </div>
+
+                {isExtras && (
+                  <p className="text-[11px] text-stone-400">
+                    Elige los que quieras: su precio se suma al total.
+                  </p>
+                )}
+                {isMeatDoneness && (
+                  <p className="text-[11px] text-stone-400">
+                    Indícanos cómo quieres que cocinemos la carne.
+                  </p>
+                )}
 
                 <div className="grid grid-cols-1 gap-2">
                   {grp.options.map(opt => {
@@ -220,7 +235,9 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
                         }`}
                       >
                         <div className="flex items-center space-x-2">
-                          <div className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          <div className={`w-4 h-4 border flex items-center justify-center ${
+                            isMulti ? 'rounded-md' : 'rounded-full'
+                          } ${
                             isSelected ? 'border-[#FF4E00] bg-[#FF4E00] text-white' : 'border-stone-400'
                           }`}>
                             {isSelected && <Check className="w-2.5 h-2.5" />}
@@ -289,5 +306,23 @@ export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
 
       </div>
     </div>
+  );
+};
+
+export const ProductCustomizerModal: React.FC<ProductModalProps> = ({
+  product,
+  businessId,
+  isOpen,
+  onClose
+}) => {
+  if (!isOpen || !product || !businessId) return null;
+
+  return (
+    <ProductCustomizerContent
+      key={`${businessId}-${product.id}`}
+      product={product}
+      businessId={businessId}
+      onClose={onClose}
+    />
   );
 };

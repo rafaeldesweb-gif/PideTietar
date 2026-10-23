@@ -4,6 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 import { DatabaseSync } from "node:sqlite";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
@@ -115,6 +116,7 @@ const sqliteSchema = `
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'CLIENT',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
+    business_id TEXT,
     account_number TEXT,
     email_verified INTEGER DEFAULT 0,
     email_verified_at TEXT,
@@ -122,6 +124,8 @@ const sqliteSchema = `
     password_changed_at TEXT,
     email_verification_code TEXT,
     email_verification_expires_at TEXT,
+    courier_confirmation TEXT DEFAULT 'PENDING',
+    courier_business_ids TEXT DEFAULT '[]',
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -160,8 +164,25 @@ const sqliteSchema = `
     delivery_modes TEXT DEFAULT '[]',
     delivery_radius_km REAL DEFAULT 0,
     status TEXT DEFAULT 'PENDING',
+    category TEXT,
+    manager_name TEXT,
+    manager_dni TEXT,
+    owner_user_id TEXT REFERENCES app_users(id) ON DELETE SET NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS business_hours (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    day_of_week INTEGER NOT NULL CHECK (day_of_week BETWEEN 0 AND 6),
+    open_time TEXT NOT NULL,
+    close_time TEXT NOT NULL,
+    is_open INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE CASCADE,
+    UNIQUE (business_id, day_of_week)
   );
 
   CREATE TABLE IF NOT EXISTS products (
@@ -188,14 +209,39 @@ const sqliteSchema = `
   CREATE TABLE IF NOT EXISTS orders (
     id TEXT PRIMARY KEY,
     business_id TEXT,
+    business_name TEXT,
     order_number TEXT,
+    customer_id TEXT,
     customer_name TEXT,
     customer_email TEXT,
-    delivery_type TEXT,
+    customer_phone TEXT,
+    delivery_type TEXT DEFAULT 'DELIVERY',
+    delivery_address TEXT,
+    scheduled_time TEXT,
+    subtotal_cents INTEGER DEFAULT 0,
+    delivery_fee_cents INTEGER DEFAULT 0,
+    platform_fee_cents INTEGER DEFAULT 0,
+    business_payout_cents INTEGER DEFAULT 0,
+    courier_payout_cents INTEGER DEFAULT 0,
+    tip_cents INTEGER DEFAULT 0,
     total_cents INTEGER DEFAULT 0,
     status TEXT DEFAULT 'NEW',
+    status_history TEXT DEFAULT '[]',
+    payment_method TEXT DEFAULT 'CASH_ON_DELIVERY',
+    payment_status TEXT DEFAULT 'PAID',
+    payment_transaction_id TEXT,
+    courier_id TEXT,
+    courier_name TEXT,
+    courier_phone TEXT,
+    delivery_pin TEXT,
+    calendar_event_id TEXT,
+    gmail_notified_at TEXT,
+    review_requested INTEGER DEFAULT 0,
+    review_score INTEGER,
+    reviewed_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (business_id) REFERENCES businesses(id) ON DELETE RESTRICT
   );
 
   CREATE TABLE IF NOT EXISTS order_items (
@@ -205,6 +251,10 @@ const sqliteSchema = `
     product_name TEXT,
     quantity INTEGER DEFAULT 1,
     unit_price_cents INTEGER DEFAULT 0,
+    tax_percentage REAL DEFAULT 0,
+    removed_ingredients TEXT DEFAULT '[]',
+    selected_options TEXT DEFAULT '[]',
+    customer_note TEXT,
     total_cents INTEGER DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (order_id) REFERENCES orders(id)
@@ -230,6 +280,7 @@ const mysqlSchema = `
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    business_id CHAR(36) NULL,
     account_number VARCHAR(255) NULL,
     email_verified TINYINT(1) NOT NULL DEFAULT 0,
     email_verified_at DATETIME(3) NULL,
@@ -237,6 +288,8 @@ const mysqlSchema = `
     password_changed_at DATETIME(3) NULL,
     email_verification_code VARCHAR(12) NULL,
     email_verification_expires_at DATETIME(3) NULL,
+    courier_confirmation VARCHAR(20) NOT NULL DEFAULT 'PENDING',
+    courier_business_ids JSON NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_app_users_email (email),
@@ -279,9 +332,36 @@ const mysqlSchema = `
     delivery_modes JSON NOT NULL,
     delivery_radius_km DECIMAL(5,2) NOT NULL DEFAULT 0.00,
     status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    category VARCHAR(120) NULL,
+    manager_name VARCHAR(180) NULL,
+    manager_dni VARCHAR(40) NULL,
+    owner_user_id CHAR(36) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    KEY idx_businesses_owner (owner_user_id),
+    CONSTRAINT fk_businesses_owner
+      FOREIGN KEY (owner_user_id) REFERENCES app_users (id)
+      ON DELETE SET NULL
+      ON UPDATE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS business_hours (
+    id CHAR(36) NOT NULL DEFAULT (UUID()),
+    business_id CHAR(36) NOT NULL,
+    day_of_week TINYINT UNSIGNED NOT NULL,
+    open_time VARCHAR(8) NOT NULL,
+    close_time VARCHAR(8) NOT NULL,
+    is_open TINYINT(1) NOT NULL DEFAULT 1,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_business_hours_day (business_id, day_of_week),
+    CONSTRAINT chk_business_hours_day CHECK (day_of_week BETWEEN 0 AND 6),
+    CONSTRAINT fk_business_hours_business
+      FOREIGN KEY (business_id) REFERENCES businesses (id)
+      ON DELETE CASCADE
+      ON UPDATE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
   CREATE TABLE IF NOT EXISTS products (
@@ -302,30 +382,68 @@ const mysqlSchema = `
     additional_ingredients JSON NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    KEY idx_products_business_id (business_id),
+    CONSTRAINT fk_products_businesses
+      FOREIGN KEY (business_id) REFERENCES businesses (id)
+      ON DELETE RESTRICT
+      ON UPDATE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
   CREATE TABLE IF NOT EXISTS orders (
     id CHAR(36) NOT NULL DEFAULT (UUID()),
     business_id CHAR(36) NULL,
+    business_name VARCHAR(180) NULL,
     order_number VARCHAR(64) NULL,
+    customer_id VARCHAR(64) NULL,
     customer_name VARCHAR(180) NULL,
     customer_email VARCHAR(255) NULL,
+    customer_phone VARCHAR(30) NULL,
     delivery_type VARCHAR(20) NULL,
+    delivery_address JSON NULL,
+    scheduled_time VARCHAR(120) NULL,
+    subtotal_cents INT NOT NULL DEFAULT 0,
+    delivery_fee_cents INT NOT NULL DEFAULT 0,
+    platform_fee_cents INT NOT NULL DEFAULT 0,
+    business_payout_cents INT NOT NULL DEFAULT 0,
+    courier_payout_cents INT NOT NULL DEFAULT 0,
+    tip_cents INT NOT NULL DEFAULT 0,
     total_cents INT NOT NULL DEFAULT 0,
     status VARCHAR(30) NOT NULL DEFAULT 'NEW',
+    status_history JSON NULL,
+    payment_method VARCHAR(30) NULL,
+    payment_status VARCHAR(30) NULL,
+    payment_transaction_id VARCHAR(120) NULL,
+    courier_id VARCHAR(64) NULL,
+    courier_name VARCHAR(180) NULL,
+    courier_phone VARCHAR(30) NULL,
+    delivery_pin VARCHAR(12) NULL,
+    calendar_event_id TEXT NULL,
+    gmail_notified_at DATETIME(3) NULL,
+    review_requested TINYINT(1) NOT NULL DEFAULT 0,
+    review_score INT NULL,
+    reviewed_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
-    PRIMARY KEY (id)
+    PRIMARY KEY (id),
+    KEY idx_orders_business_id (business_id),
+    CONSTRAINT fk_orders_businesses
+      FOREIGN KEY (business_id) REFERENCES businesses (id)
+      ON DELETE RESTRICT
+      ON UPDATE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
   CREATE TABLE IF NOT EXISTS order_items (
     id CHAR(36) NOT NULL DEFAULT (UUID()),
     order_id CHAR(36) NOT NULL,
-    product_id CHAR(36) NULL,
+    product_id VARCHAR(64) NULL,
     product_name VARCHAR(180) NULL,
     quantity INT NOT NULL DEFAULT 1,
     unit_price_cents INT NOT NULL DEFAULT 0,
+    tax_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    removed_ingredients JSON NULL,
+    selected_options JSON NULL,
+    customer_note TEXT NULL,
     total_cents INT NOT NULL DEFAULT 0,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id)
@@ -352,40 +470,158 @@ async function applyMysqlSchema(pool) {
   }
 }
 
-async function ensureMySqlSchemaShape(pool) {
+async function ensureMysqlColumns(pool, tableName, definitions) {
   const [columns] = await pool.query(
     `SELECT COLUMN_NAME
        FROM INFORMATION_SCHEMA.COLUMNS
       WHERE TABLE_SCHEMA = DATABASE()
-        AND TABLE_NAME = 'app_users'`,
+        AND TABLE_NAME = ?`,
+    [tableName],
   );
 
   const existingColumns = new Set(
     columns.map((column) => String(column.COLUMN_NAME)),
   );
-  const pendingClauses = [];
+  const pendingClauses = definitions
+    .filter(([columnName]) => !existingColumns.has(columnName))
+    .map(
+      ([columnName, definition]) =>
+        `ADD COLUMN ${columnName} ${definition}`,
+    );
 
-  const ensureColumn = (columnName, definition) => {
-    if (!existingColumns.has(columnName)) {
-      pendingClauses.push(`ADD COLUMN ${columnName} ${definition}`);
-    }
-  };
+  if (!pendingClauses.length) return;
 
-  ensureColumn("account_number", "VARCHAR(255) NULL");
-  ensureColumn("phone", "VARCHAR(30) NULL");
-  ensureColumn("avatar_url", "TEXT NULL");
-  ensureColumn("email_verified", "TINYINT(1) NOT NULL DEFAULT 0");
-  ensureColumn("email_verified_at", "DATETIME(3) NULL");
-  ensureColumn("password_change_required", "TINYINT(1) NOT NULL DEFAULT 0");
-  ensureColumn("password_changed_at", "DATETIME(3) NULL");
-  ensureColumn("email_verification_code", "VARCHAR(12) NULL");
-  ensureColumn("email_verification_expires_at", "DATETIME(3) NULL");
+  await pool.query(`ALTER TABLE ${tableName} ${pendingClauses.join(", ")}`);
+}
 
-  if (!pendingClauses.length) {
-    return;
+async function ensureMysqlForeignKey(
+  pool,
+  { constraintName, tableName, columnNames, refTable, refColumns, onDelete },
+) {
+  if (!columnNames.length || !refColumns.length) return;
+
+  const [constraints] = await pool.query(
+    `SELECT CONSTRAINT_NAME
+       FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND CONSTRAINT_TYPE = 'FOREIGN KEY'`,
+    [tableName],
+  );
+  const alreadyExists = constraints.some(
+    (row) => String(row.CONSTRAINT_NAME) === constraintName,
+  );
+  if (alreadyExists) return;
+
+  try {
+    await pool.query(
+      `ALTER TABLE ${tableName}
+        ADD CONSTRAINT ${constraintName}
+        FOREIGN KEY (${columnNames.join(", ")})
+        REFERENCES ${refTable} (${refColumns.join(", ")})
+        ON DELETE ${onDelete}
+        ON UPDATE CASCADE`,
+    );
+  } catch (error) {
+    // Si hay datos huérfanos la restricción no puede aplicarse; se avisa en
+    // lugar de tumbar el arranque para que el superadmin pueda corregirlos.
+    console.warn(
+      `No se pudo crear la foreign key ${constraintName} en ${tableName}: ${error.message}`,
+    );
   }
+}
 
-  await pool.query(`ALTER TABLE app_users ${pendingClauses.join(", ")}`);
+async function ensureMySqlSchemaShape(pool) {
+  await ensureMysqlColumns(pool, "app_users", [
+    ["business_id", "CHAR(36) NULL"],
+    ["account_number", "VARCHAR(255) NULL"],
+    ["phone", "VARCHAR(30) NULL"],
+    ["avatar_url", "TEXT NULL"],
+    ["email_verified", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["email_verified_at", "DATETIME(3) NULL"],
+    ["password_change_required", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["password_changed_at", "DATETIME(3) NULL"],
+    ["email_verification_code", "VARCHAR(12) NULL"],
+    ["email_verification_expires_at", "DATETIME(3) NULL"],
+    ["courier_confirmation", "VARCHAR(20) NOT NULL DEFAULT 'PENDING'"],
+    ["courier_business_ids", "JSON NULL"],
+  ]);
+
+  await ensureMysqlColumns(pool, "businesses", [
+    ["category", "VARCHAR(120) NULL"],
+    ["manager_name", "VARCHAR(180) NULL"],
+    ["manager_dni", "VARCHAR(40) NULL"],
+    ["owner_user_id", "CHAR(36) NULL"],
+    ["account_number", "VARCHAR(255) NULL"],
+    ["rating", "DECIMAL(3,2) NOT NULL DEFAULT 0.00"],
+    ["review_count", "INT NOT NULL DEFAULT 0"],
+    ["latitude", "DECIMAL(9,6) NULL"],
+    ["longitude", "DECIMAL(9,6) NULL"],
+    ["delivery_modes", "JSON NULL"],
+    ["delivery_radius_km", "DECIMAL(5,2) NOT NULL DEFAULT 0.00"],
+    ["status", "VARCHAR(30) NOT NULL DEFAULT 'PENDING'"],
+  ]);
+
+  await ensureMysqlColumns(pool, "orders", [
+    ["business_name", "VARCHAR(180) NULL"],
+    ["customer_id", "VARCHAR(64) NULL"],
+    ["customer_phone", "VARCHAR(30) NULL"],
+    ["delivery_address", "JSON NULL"],
+    ["scheduled_time", "VARCHAR(120) NULL"],
+    ["subtotal_cents", "INT NOT NULL DEFAULT 0"],
+    ["delivery_fee_cents", "INT NOT NULL DEFAULT 0"],
+    ["platform_fee_cents", "INT NOT NULL DEFAULT 0"],
+    ["business_payout_cents", "INT NOT NULL DEFAULT 0"],
+    ["courier_payout_cents", "INT NOT NULL DEFAULT 0"],
+    ["tip_cents", "INT NOT NULL DEFAULT 0"],
+    ["status_history", "JSON NULL"],
+    ["payment_method", "VARCHAR(30) NULL"],
+    ["payment_status", "VARCHAR(30) NULL"],
+    ["payment_transaction_id", "VARCHAR(120) NULL"],
+    ["courier_id", "VARCHAR(64) NULL"],
+    ["courier_name", "VARCHAR(180) NULL"],
+    ["courier_phone", "VARCHAR(30) NULL"],
+    ["delivery_pin", "VARCHAR(12) NULL"],
+    ["calendar_event_id", "TEXT NULL"],
+    ["gmail_notified_at", "DATETIME(3) NULL"],
+    ["review_requested", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["review_score", "INT NULL"],
+    ["reviewed_at", "DATETIME(3) NULL"],
+  ]);
+
+  await ensureMysqlColumns(pool, "order_items", [
+    ["tax_percentage", "DECIMAL(5,2) NOT NULL DEFAULT 0.00"],
+    ["removed_ingredients", "JSON NULL"],
+    ["selected_options", "JSON NULL"],
+    ["customer_note", "TEXT NULL"],
+  ]);
+
+  await ensureMysqlForeignKey(pool, {
+    constraintName: "fk_businesses_owner",
+    tableName: "businesses",
+    columnNames: ["owner_user_id"],
+    refTable: "app_users",
+    refColumns: ["id"],
+    onDelete: "SET NULL",
+  });
+
+  await ensureMysqlForeignKey(pool, {
+    constraintName: "fk_orders_businesses",
+    tableName: "orders",
+    columnNames: ["business_id"],
+    refTable: "businesses",
+    refColumns: ["id"],
+    onDelete: "RESTRICT",
+  });
+
+  await ensureMysqlForeignKey(pool, {
+    constraintName: "fk_products_businesses",
+    tableName: "products",
+    columnNames: ["business_id"],
+    refTable: "businesses",
+    refColumns: ["id"],
+    onDelete: "RESTRICT",
+  });
 }
 
 function getSqliteDb() {
@@ -436,7 +672,33 @@ function ensureSqliteSchemaShape() {
   ensureColumn("businesses", "delivery_modes", "TEXT DEFAULT '[]'");
   ensureColumn("businesses", "delivery_radius_km", "REAL DEFAULT 0");
   ensureColumn("businesses", "status", "TEXT DEFAULT 'PENDING'");
+  ensureColumn("businesses", "category", "TEXT");
+  ensureColumn("businesses", "manager_name", "TEXT");
+  ensureColumn("businesses", "manager_dni", "TEXT");
+  ensureColumn(
+    "businesses",
+    "owner_user_id",
+    "TEXT REFERENCES app_users(id) ON DELETE SET NULL",
+  );
   ensureColumn("businesses", "updated_at", "TEXT");
+
+  ensureColumn("app_users", "business_id", "TEXT");
+  // Confirmación del alta de repartidores: PENDING (sin aprobar),
+  // BUSINESS_EMAIL (aprobado por el negocio) o SUPERADMIN (aprobado por la
+  // plataforma). Es lo que desbloquea el panel del repartidor.
+  ensureColumn(
+    "app_users",
+    "courier_confirmation",
+    "TEXT DEFAULT 'PENDING'",
+  );
+  // Negocios que cubre un repartidor. Se guarda como lista JSON para seguir el
+  // mismo patrón que businesses.delivery_modes. `business_id` se mantiene como
+  // negocio de referencia para los repartidores de un único negocio.
+  ensureColumn(
+    "app_users",
+    "courier_business_ids",
+    "TEXT DEFAULT '[]'",
+  );
 
   ensureColumn("products", "tax_percentage", "REAL DEFAULT 0");
   ensureColumn("products", "is_sold_out", "INTEGER DEFAULT 0");
@@ -444,6 +706,30 @@ function ensureSqliteSchemaShape() {
   ensureColumn("products", "updated_at", "TEXT");
 
   ensureColumn("orders", "updated_at", "TEXT");
+  ensureColumn("orders", "business_name", "TEXT");
+  ensureColumn("orders", "customer_id", "TEXT");
+  ensureColumn("orders", "customer_phone", "TEXT");
+  ensureColumn("orders", "delivery_address", "TEXT");
+  ensureColumn("orders", "scheduled_time", "TEXT");
+  ensureColumn("orders", "subtotal_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "delivery_fee_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "platform_fee_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "business_payout_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "courier_payout_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "tip_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "status_history", "TEXT DEFAULT '[]'");
+  ensureColumn("orders", "payment_method", "TEXT DEFAULT 'CASH_ON_DELIVERY'");
+  ensureColumn("orders", "payment_status", "TEXT DEFAULT 'PAID'");
+  ensureColumn("orders", "payment_transaction_id", "TEXT");
+  ensureColumn("orders", "courier_id", "TEXT");
+  ensureColumn("orders", "courier_name", "TEXT");
+  ensureColumn("orders", "courier_phone", "TEXT");
+  ensureColumn("orders", "delivery_pin", "TEXT");
+  ensureColumn("orders", "calendar_event_id", "TEXT");
+  ensureColumn("orders", "gmail_notified_at", "TEXT");
+  ensureColumn("orders", "review_requested", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "review_score", "INTEGER");
+  ensureColumn("orders", "reviewed_at", "TEXT");
 
   const userColumns = getColumnNames("app_users");
   if (!userColumns.has("account_number")) {
@@ -503,11 +789,20 @@ function ensureSqliteSchemaShape() {
       product_name TEXT,
       quantity INTEGER DEFAULT 1,
       unit_price_cents INTEGER DEFAULT 0,
+      tax_percentage REAL DEFAULT 0,
+      removed_ingredients TEXT DEFAULT '[]',
+      selected_options TEXT DEFAULT '[]',
+      customer_note TEXT,
       total_cents INTEGER DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (order_id) REFERENCES orders(id)
     )`,
   );
+
+  ensureColumn("order_items", "tax_percentage", "REAL DEFAULT 0");
+  ensureColumn("order_items", "removed_ingredients", "TEXT DEFAULT '[]'");
+  ensureColumn("order_items", "selected_options", "TEXT DEFAULT '[]'");
+  ensureColumn("order_items", "customer_note", "TEXT");
 
   ensureTable(
     "audit_logs",
@@ -519,6 +814,133 @@ function ensureSqliteSchemaShape() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   );
+
+  ensureOrdersBusinessForeignKey();
+}
+
+// SQLite no permite añadir una foreign key a una columna ya existente con
+// ALTER TABLE, así que si una base creada antes de esta versión carece de la
+// relación orders.business_id -> businesses.id se reconstruye la tabla
+// conservando los datos. PRAGMA foreign_keys se desactiva únicamente durante
+// la reconstrucción (DROP TABLE ordena a SQLite que no valide referencias).
+function ensureOrdersBusinessForeignKey() {
+  const db = getSqliteDb();
+  const foreignKeys = db.prepare("PRAGMA foreign_key_list(orders)").all();
+  const alreadyLinked = foreignKeys.some(
+    (fk) => String(fk.table || "").toLowerCase() === "businesses",
+  );
+  if (alreadyLinked) return;
+
+  const existingColumns = new Set(
+    db.prepare("PRAGMA table_info(orders)").all().map((column) => column.name),
+  );
+  const columnList = [
+    "id",
+    "business_id",
+    "business_name",
+    "order_number",
+    "customer_id",
+    "customer_name",
+    "customer_email",
+    "customer_phone",
+    "delivery_type",
+    "delivery_address",
+    "scheduled_time",
+    "subtotal_cents",
+    "delivery_fee_cents",
+    "platform_fee_cents",
+    "business_payout_cents",
+    "courier_payout_cents",
+    "tip_cents",
+    "total_cents",
+    "status",
+    "status_history",
+    "payment_method",
+    "payment_status",
+    "payment_transaction_id",
+    "courier_id",
+    "courier_name",
+    "courier_phone",
+    "delivery_pin",
+    "calendar_event_id",
+    "gmail_notified_at",
+    "review_requested",
+    "review_score",
+    "reviewed_at",
+    "created_at",
+    "updated_at",
+  ].filter((name) => existingColumns.has(name));
+
+  if (!columnList.length || !existingColumns.has("id")) {
+    console.warn(
+      "No se pudo añadir la foreign key a orders.business_id: estructura inesperada.",
+    );
+    return;
+  }
+
+  const selectList = columnList.join(", ");
+  db.exec("PRAGMA foreign_keys = OFF");
+  try {
+    db.exec("DROP TABLE IF EXISTS orders_migrated");
+    // La tabla intermedia es deliberadamente más permisiva que la de un
+    // instalación nueva: una base antigua puede tener filas con NULL en
+    // created_at/updated_at (columnas añadidas por migración sin rellenar las
+    // filas existentes) y la reconstrucción debe conservarlas todas.
+    db.exec(`CREATE TABLE orders_migrated (
+      id TEXT PRIMARY KEY,
+      business_id TEXT REFERENCES businesses(id) ON DELETE RESTRICT,
+      business_name TEXT,
+      order_number TEXT,
+      customer_id TEXT,
+      customer_name TEXT,
+      customer_email TEXT,
+      customer_phone TEXT,
+      delivery_type TEXT DEFAULT 'DELIVERY',
+      delivery_address TEXT,
+      scheduled_time TEXT,
+      subtotal_cents INTEGER DEFAULT 0,
+      delivery_fee_cents INTEGER DEFAULT 0,
+      platform_fee_cents INTEGER DEFAULT 0,
+      business_payout_cents INTEGER DEFAULT 0,
+      courier_payout_cents INTEGER DEFAULT 0,
+      tip_cents INTEGER DEFAULT 0,
+      total_cents INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'NEW',
+      status_history TEXT DEFAULT '[]',
+      payment_method TEXT DEFAULT 'CASH_ON_DELIVERY',
+      payment_status TEXT DEFAULT 'PAID',
+      payment_transaction_id TEXT,
+      courier_id TEXT,
+      courier_name TEXT,
+      courier_phone TEXT,
+      delivery_pin TEXT,
+      calendar_event_id TEXT,
+      gmail_notified_at TEXT,
+      review_requested INTEGER DEFAULT 0,
+      review_score INTEGER,
+      reviewed_at TEXT,
+      created_at TEXT,
+      updated_at TEXT
+    )`);
+    db.exec(
+      `INSERT INTO orders_migrated (${selectList}) SELECT ${selectList} FROM orders`,
+    );
+    db.exec("DROP TABLE orders");
+    db.exec("ALTER TABLE orders_migrated RENAME TO orders");
+    db.exec(
+      "CREATE INDEX IF NOT EXISTS idx_orders_business_id ON orders(business_id)",
+    );
+    console.log("Migración aplicada: orders.business_id ahora tiene foreign key.");
+  } catch (error) {
+    console.warn("No se pudo migrar orders.business_id:", error.message);
+    try {
+      db.exec("DROP TABLE IF EXISTS orders_migrated");
+    } catch {
+      // Nada que limpiar: la tabla original sigue intacta.
+    }
+  } finally {
+    db.exec("PRAGMA foreign_keys = ON");
+  }
 }
 
 async function ensureMySqlConnection() {
@@ -553,20 +975,63 @@ async function ensureMySqlConnection() {
   }
 }
 
+// Zonas iniciales: mismas que el catálogo del frontend (src/data/mockData.ts).
+const DEFAULT_LOCALITIES = [
+  ["sotillo", "Sotillo de la Adrada", "05420", 40.2889, -4.5828],
+  ["la-adrada", "La Adrada", "05430", 40.2989, -4.6361],
+  ["santa-maria", "Santa María del Tiétar", "05429", 40.3031, -4.5519],
+  ["casillas", "Casillas", "05428", 40.3275, -4.5775],
+  ["piedralaves", "Piedralaves", "05440", 40.3144, -4.6989],
+];
+
 async function ensureSchema() {
   const pool = await ensureMySqlConnection();
 
   if (pool) {
     await applyMysqlSchema(pool);
     await ensureMySqlSchemaShape(pool);
+    await seedLocalitiesIfEmpty();
     await seedSuperAdmin();
     await flagUsersWithInsecureDefaultPassword();
     return;
   }
 
   ensureSqliteSchemaShape();
+  await seedLocalitiesIfEmpty();
   await seedSuperAdmin();
   await flagUsersWithInsecureDefaultPassword();
+}
+
+async function seedLocalitiesIfEmpty() {
+  // Las zonas son un catálogo de la plataforma. En una instalación nueva no hay
+  // ninguna y el alta de negocios exige que la zona elegida exista, así que se
+  // siembran las mismas del catálogo del frontend para que todo cuadre desde el
+  // primer arranque. Si ya hay zonas (creadas desde el panel) no se toca nada.
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT COUNT(*) AS c FROM localities",
+    );
+    if (Number(rows[0]?.c || 0) > 0) return;
+
+    for (const [id, name, postalCode, latitude, longitude] of DEFAULT_LOCALITIES) {
+      await mysqlPool.execute(
+        "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+        [id, name, postalCode, latitude, longitude],
+      );
+    }
+    return;
+  }
+
+  const db = getSqliteDb();
+  const existing = db.prepare("SELECT COUNT(*) AS c FROM localities").get();
+  if (Number(existing?.c || 0) > 0) return;
+
+  const insert = db.prepare(
+    "INSERT INTO localities (id, name, postal_code, latitude, longitude, is_active) VALUES (?, ?, ?, ?, ?, 1)",
+  );
+  for (const [id, name, postalCode, latitude, longitude] of DEFAULT_LOCALITIES) {
+    insert.run(id, name, postalCode, latitude, longitude);
+  }
 }
 
 async function seedSuperAdmin() {
@@ -658,6 +1123,35 @@ async function flagUsersWithInsecureDefaultPassword() {
   }
 }
 
+function parseCourierBusinessIds(row) {
+  if (!row) return [];
+  const raw = row.courier_business_ids ?? row.courierBusinessIds;
+  let values = [];
+
+  if (Array.isArray(raw)) {
+    values = raw;
+  } else if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      values = Array.isArray(parsed) ? parsed : [];
+    } catch {
+      values = raw.split(",");
+    }
+  }
+
+  const cleaned = [
+    ...new Set(
+      values.map((value) => String(value ?? "").trim()).filter(Boolean),
+    ),
+  ];
+
+  if (cleaned.length) return cleaned;
+
+  // Compatibilidad con repartidores creados antes de la lista de negocios.
+  const legacyBusinessId = row.business_id || row.businessId;
+  return legacyBusinessId ? [String(legacyBusinessId)] : [];
+}
+
 function sanitizeUser(row) {
   if (!row) return null;
   const isEmailVerified = Boolean(
@@ -667,6 +1161,20 @@ function sanitizeUser(row) {
     row.is_email_verified === true ||
     row.email_verified_at,
   );
+  const role = row.role || "CLIENT";
+  const businessId = row.business_id || row.businessId || null;
+  const isCourier =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER";
+  const rawConfirmation = String(
+    row.courier_confirmation || row.courierConfirmation || "PENDING",
+  ).toUpperCase();
+  const courierConfirmation = [
+    "PENDING",
+    "BUSINESS_EMAIL",
+    "SUPERADMIN",
+  ].includes(rawConfirmation)
+    ? rawConfirmation
+    : "PENDING";
 
   return {
     id: row.id,
@@ -675,12 +1183,23 @@ function sanitizeUser(row) {
     email: row.email,
     phone: row.phone || "",
     avatarUrl: row.avatar_url || row.avatarUrl || "",
-    role: row.role || "CLIENT",
+    role: role,
     status: row.status || "ACTIVE",
+    businessId: businessId,
     accountNumber: row.account_number || row.accountNumber || "",
     isEmailVerified: isEmailVerified,
     emailVerified: isEmailVerified,
     createdAt: row.created_at || new Date().toISOString(),
+    courierProfile: isCourier
+      ? {
+          // Un repartidor puede cubrir uno o varios negocios. El de
+          // plataforma cubre todo el valle y el panel no filtra por esta lista.
+          businessIds: parseCourierBusinessIds(row),
+          localityIds: [],
+          isOnline: true,
+          confirmation: courierConfirmation,
+        }
+      : undefined,
   };
 }
 
@@ -917,15 +1436,21 @@ async function listLocalities() {
 }
 
 async function listBusinesses() {
+  let rows = [];
+  let hours = [];
+
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
+    const [result] = await mysqlPool.execute(
       "SELECT * FROM businesses ORDER BY created_at DESC",
     );
-    return rows;
+    rows = result;
+  } else {
+    rows = getSqliteDb()
+      .prepare("SELECT * FROM businesses ORDER BY created_at DESC")
+      .all();
   }
 
-  const db = getSqliteDb();
-  return db.prepare("SELECT * FROM businesses ORDER BY created_at DESC").all();
+  return attachBusinessSchedules(rows, await readBusinessHours());
 }
 
 async function listProducts() {
@@ -940,16 +1465,331 @@ async function listProducts() {
   return db.prepare("SELECT * FROM products ORDER BY created_at DESC").all();
 }
 
-async function listOrders() {
+// SQLite guarda los JSON como TEXT; MySQL puede devolverlos ya parseados.
+function parseStoredJson(value, fallback = null) {
+  if (value === null || value === undefined || value === "") return fallback;
+  if (typeof value === "object") return value;
+  if (typeof value === "string") {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
+function parseStoredList(value) {
+  const parsed = parseStoredJson(value, []);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function toIsoTimestamp(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  if (typeof value === "number") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  // SQLite CURRENT_TIMESTAMP devuelve "YYYY-MM-DD HH:MM:SS" en UTC, sin zona.
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
+  const normalized = text.replace(" ", "T") + (hasZone ? "" : "Z");
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? text : date.toISOString();
+}
+
+function toSqlTimestamp(value) {
+  const iso = toIsoTimestamp(value) || new Date().toISOString();
+  return iso.replace("T", " ").replace("Z", "");
+}
+
+function toSqlTimestampOrNull(value) {
+  const iso = toIsoTimestamp(value);
+  return iso ? iso.replace("T", " ").replace("Z", "") : null;
+}
+
+function serializeJsonField(value, fallback = null) {
+  if (value === null || value === undefined || value === "") {
+    return fallback === null ? null : JSON.stringify(fallback);
+  }
+  if (typeof value === "string") {
+    try {
+      JSON.parse(value);
+      return value;
+    } catch {
+      return JSON.stringify(value);
+    }
+  }
+  return JSON.stringify(value);
+}
+
+function serializeStringList(value) {
+  if (Array.isArray(value)) {
+    return JSON.stringify(value.map((entry) => String(entry)));
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return JSON.stringify(
+        Array.isArray(parsed) ? parsed.map((entry) => String(entry)) : [value],
+      );
+    } catch {
+      return JSON.stringify(
+        value
+          .split(",")
+          .map((entry) => entry.trim())
+          .filter(Boolean),
+      );
+    }
+  }
+  return "[]";
+}
+
+function serializeObjectList(value) {
+  if (Array.isArray(value)) return JSON.stringify(value);
+  if (typeof value === "string" && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return JSON.stringify(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return "[]";
+    }
+  }
+  return "[]";
+}
+
+function normalizeOrderItemRow(row) {
+  const quantity = Number(row.quantity ?? 1);
+  return {
+    productId: String(row.product_id ?? row.productId ?? ""),
+    productName: row.product_name ?? row.productName ?? "Producto",
+    unitPriceCents: Number(row.unit_price_cents ?? row.unitPriceCents ?? 0) || 0,
+    taxPercentage: Number(row.tax_percentage ?? row.taxPercentage ?? 0) || 0,
+    quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+    removedIngredients: parseStoredList(
+      row.removed_ingredients ?? row.removedIngredients,
+    ).map((entry) => String(entry)),
+    selectedOptions: parseStoredList(
+      row.selected_options ?? row.selectedOptions,
+    ),
+    customerNote: row.customer_note ?? row.customerNote ?? undefined,
+    totalCents: Number(row.total_cents ?? row.totalCents ?? 0) || 0,
+  };
+}
+
+function normalizeOrderRow(row, items = []) {
+  const createdAt =
+    toIsoTimestamp(row.created_at ?? row.createdAt) ||
+    new Date(0).toISOString();
+  const updatedAt =
+    toIsoTimestamp(row.updated_at ?? row.updatedAt) || createdAt;
+  const status = String(row.status || "NEW");
+  const rawHistory = parseStoredList(
+    row.status_history ?? row.statusHistory,
+  );
+  const statusHistory = rawHistory.length
+    ? rawHistory.map((entry) => ({
+        status: String(entry?.status || status),
+        timestamp:
+          toIsoTimestamp(entry?.timestamp ?? entry?.created_at) || createdAt,
+        note: entry?.note ?? "",
+        changedByRole:
+          entry?.changedByRole ?? entry?.changed_by_role ?? "SISTEMA",
+      }))
+    : [
+        {
+          status,
+          timestamp: createdAt,
+          changedByRole: "SISTEMA",
+          note: "Estado inicial",
+        },
+      ];
+
+  const rawAddress = row.delivery_address ?? row.deliveryAddress;
+  const parsedAddress =
+    typeof rawAddress === "string"
+      ? parseStoredJson(rawAddress, null)
+      : rawAddress;
+  const deliveryAddress =
+    parsedAddress && typeof parsedAddress === "object"
+      ? parsedAddress
+      : undefined;
+
+  const reviewScore = row.review_score ?? row.reviewScore;
+
+  return {
+    id: String(row.id),
+    orderNumber: row.order_number ?? row.orderNumber ?? "",
+    businessId: row.business_id ?? row.businessId ?? "",
+    businessName:
+      row.business_name ??
+      row.businessName ??
+      row.joined_business_name ??
+      "Negocio",
+    customerId: row.customer_id ?? row.customerId ?? "",
+    customerName: row.customer_name ?? row.customerName ?? "Cliente",
+    customerPhone: row.customer_phone ?? row.customerPhone ?? "",
+    customerEmail: row.customer_email ?? row.customerEmail ?? "",
+    deliveryType:
+      (row.delivery_type ?? row.deliveryType) === "PICKUP"
+        ? "PICKUP"
+        : "DELIVERY",
+    deliveryAddress,
+    scheduledTime: row.scheduled_time ?? row.scheduledTime ?? undefined,
+    items: Array.isArray(items)
+      ? items.map((item) => normalizeOrderItemRow(item))
+      : [],
+    subtotalCents: Number(row.subtotal_cents ?? row.subtotalCents ?? 0) || 0,
+    deliveryFeeCents:
+      Number(row.delivery_fee_cents ?? row.deliveryFeeCents ?? 0) || 0,
+    platformFeeCents:
+      Number(row.platform_fee_cents ?? row.platformFeeCents ?? 0) || 0,
+    businessPayoutCents:
+      Number(row.business_payout_cents ?? row.businessPayoutCents ?? 0) || 0,
+    courierPayoutCents:
+      Number(row.courier_payout_cents ?? row.courierPayoutCents ?? 0) || 0,
+    tipCents: Number(row.tip_cents ?? row.tipCents ?? 0) || 0,
+    totalCents: Number(row.total_cents ?? row.totalCents ?? 0) || 0,
+    status,
+    statusHistory,
+    paymentMethod:
+      row.payment_method ?? row.paymentMethod ?? "CASH_ON_DELIVERY",
+    paymentStatus: row.payment_status ?? row.paymentStatus ?? "PAID",
+    paymentTransactionId:
+      row.payment_transaction_id ?? row.paymentTransactionId ?? undefined,
+    courierId: row.courier_id ?? row.courierId ?? undefined,
+    courierName: row.courier_name ?? row.courierName ?? undefined,
+    courierPhone: row.courier_phone ?? row.courierPhone ?? undefined,
+    deliveryPin: String(row.delivery_pin ?? row.deliveryPin ?? ""),
+    calendarEventId:
+      row.calendar_event_id ?? row.calendarEventId ?? undefined,
+    gmailNotifiedAt:
+      toIsoTimestamp(row.gmail_notified_at ?? row.gmailNotifiedAt) || undefined,
+    reviewRequested: Boolean(
+      row.review_requested ?? row.reviewRequested ?? 0,
+    ),
+    reviewScore:
+      reviewScore === null || reviewScore === undefined
+        ? undefined
+        : Number(reviewScore),
+    reviewedAt:
+      toIsoTimestamp(row.reviewed_at ?? row.reviewedAt) || undefined,
+    createdAt,
+    updatedAt,
+  };
+}
+
+function groupOrderItems(itemRows) {
+  const itemsByOrder = new Map();
+  for (const item of itemRows) {
+    const orderId = String(item.order_id ?? item.orderId ?? "");
+    if (!orderId) continue;
+    if (!itemsByOrder.has(orderId)) itemsByOrder.set(orderId, []);
+    itemsByOrder.get(orderId).push(item);
+  }
+  return itemsByOrder;
+}
+
+function buildOrderVisibilityFilter(user) {
+  const role = String(user?.role || "").toUpperCase();
+
+  if (role === "SUPERADMIN") {
+    return { whereSql: "", params: [] };
+  }
+
+  const userId = String(user?.id || "").trim();
+  const userEmail = String(user?.email || "").trim().toLowerCase();
+  const businessId = String(user?.business_id || user?.businessId || "").trim();
+  const courierBusinessIds = parseCourierBusinessIds(user);
+
+  if (role === "BUSINESS_ADMIN") {
+    return businessId
+      ? { whereSql: "WHERE o.business_id = ?", params: [businessId] }
+      : { whereSql: "WHERE 1 = 0", params: [] };
+  }
+
+  if (role === "BUSINESS_COURIER") {
+    const clauses = [];
+    const params = [];
+    if (courierBusinessIds.length) {
+      const placeholders = courierBusinessIds.map(() => "?").join(", ");
+      clauses.push(`o.business_id IN (${placeholders})`);
+      params.push(...courierBusinessIds);
+    }
+    if (userId) {
+      clauses.push("o.courier_id = ?");
+      params.push(userId);
+    }
+    return clauses.length
+      ? { whereSql: `WHERE (${clauses.join(" OR ")})`, params }
+      : { whereSql: "WHERE 1 = 0", params: [] };
+  }
+
+  if (role === "PLATFORM_COURIER") {
+    // El repartidor de plataforma cubre todo el valle y su panel muestra los
+    // pedidos de todos los negocios, igual que antes de filtrar en servidor.
+    return { whereSql: "", params: [] };
+  }
+
+  if (role === "CLIENT") {
+    const clauses = [];
+    const params = [];
+    if (userId) {
+      clauses.push("o.customer_id = ?");
+      params.push(userId);
+    }
+    if (userEmail) {
+      // Los pedidos antiguos no guardaban customer_id: se conserva el mismo
+      // respaldo por email que usa el frontend, pero sólo cuando el pedido no
+      // está ya vinculado a otra cuenta.
+      clauses.push(
+        "((o.customer_id IS NULL OR o.customer_id = '') AND LOWER(o.customer_email) = ?)",
+      );
+      params.push(userEmail);
+    }
+    return clauses.length
+      ? { whereSql: `WHERE (${clauses.join(" OR ")})`, params }
+      : { whereSql: "WHERE 1 = 0", params: [] };
+  }
+
+  return { whereSql: "WHERE 1 = 0", params: [] };
+}
+
+async function listOrders(user) {
+  const { whereSql, params } = buildOrderVisibilityFilter(user);
+  const selectOrdersSql =
+    "SELECT o.*, b.name AS joined_business_name FROM orders o " +
+    "LEFT JOIN businesses b ON b.id = o.business_id " +
+    `${whereSql} ORDER BY o.created_at DESC`;
+  // Se reutiliza el mismo WHERE para no cargar líneas de pedidos que el
+  // usuario no puede ver.
+  const selectItemsSql =
+    "SELECT oi.* FROM order_items oi " +
+    "JOIN orders o ON o.id = oi.order_id " +
+    `${whereSql} ORDER BY oi.created_at ASC`;
+
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT * FROM orders ORDER BY created_at DESC",
+    const [orderRows] = await mysqlPool.execute(selectOrdersSql, params);
+    const [itemRows] = await mysqlPool.execute(selectItemsSql, params);
+    const itemsByOrder = groupOrderItems(itemRows);
+    return orderRows.map((row) =>
+      normalizeOrderRow(row, itemsByOrder.get(String(row.id)) || []),
     );
-    return rows;
   }
 
   const db = getSqliteDb();
-  return db.prepare("SELECT * FROM orders ORDER BY created_at DESC").all();
+  const orderRows = db.prepare(selectOrdersSql).all(...params);
+  const itemRows = db.prepare(selectItemsSql).all(...params);
+  const itemsByOrder = groupOrderItems(itemRows);
+  return orderRows.map((row) =>
+    normalizeOrderRow(row, itemsByOrder.get(String(row.id)) || []),
+  );
 }
 
 async function listUsers() {
@@ -972,6 +1812,10 @@ async function createUser({
   phone,
   avatarUrl,
   role = "CLIENT",
+  businessId = null,
+  courierConfirmation = "PENDING",
+  courierBusinessIds = [],
+  accountNumber = null,
 }) {
   const cleanUsername = String(
     username || email.split("@")[0] || "client",
@@ -981,11 +1825,33 @@ async function createUser({
   ).trim();
   const cleanPassword = validatePasswordOrThrow(password);
   const hash = bcrypt.hashSync(cleanPassword, 10);
+  const requestedConfirmation = String(
+    courierConfirmation || "PENDING",
+  ).toUpperCase();
+  const cleanCourierConfirmation = [
+    "PENDING",
+    "BUSINESS_EMAIL",
+    "SUPERADMIN",
+  ].includes(requestedConfirmation)
+    ? requestedConfirmation
+    : "PENDING";
+  const cleanCourierBusinessIds = Array.isArray(courierBusinessIds)
+    ? [
+        ...new Set(
+          courierBusinessIds
+            .map((id) => String(id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ]
+    : [];
+  const cleanAccountNumber = accountNumber
+    ? String(accountNumber).replace(/\s+/g, "").toUpperCase()
+    : null;
 
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
+      "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
       [
         id,
         cleanUsername,
@@ -995,6 +1861,10 @@ async function createUser({
         avatarUrl || null,
         hash,
         role,
+        businessId || null,
+        cleanAccountNumber,
+        cleanCourierConfirmation,
+        JSON.stringify(cleanCourierBusinessIds),
       ],
     );
     const [rows] = await mysqlPool.execute(
@@ -1007,7 +1877,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, email_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 1)",
+    "INSERT INTO app_users (id, username, full_name, email, phone, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
   ).run(
     id,
     cleanUsername,
@@ -1017,6 +1887,10 @@ async function createUser({
     avatarUrl || null,
     hash,
     role,
+    businessId || null,
+    cleanAccountNumber,
+    cleanCourierConfirmation,
+    JSON.stringify(cleanCourierBusinessIds),
   );
   return db.prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1").get(id);
 }
@@ -1025,6 +1899,879 @@ function cryptoRandomId() {
   return typeof crypto !== "undefined" && crypto.randomUUID
     ? crypto.randomUUID()
     : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+// =========================================================
+// SESIONES (token firmado) Y AUTORIZACIÓN
+// =========================================================
+// No se añadieron dependencias (jsonwebtoken, etc.): el token es un HMAC-SHA256
+// de un payload JSON. Sin la clave no se puede falsificar y su validez temporal
+// se comprueba con comparación constante en tiempo.
+const SESSION_TTL_MS =
+  Number(process.env.SESSION_TTL_HOURS || 168) * 60 * 60 * 1000;
+
+function loadSessionSecret() {
+  if (process.env.SESSION_SECRET) return String(process.env.SESSION_SECRET);
+
+  const secretFile = path.join(DATA_DIR, ".session_secret");
+  try {
+    const existing = fs.readFileSync(secretFile, "utf8").trim();
+    if (existing.length >= 32) return existing;
+  } catch {
+    // Todavía no existe: se genera más abajo.
+  }
+
+  const secret = randomBytes(48).toString("hex");
+  try {
+    fs.writeFileSync(secretFile, secret, { mode: 0o600 });
+  } catch (error) {
+    console.warn("No se pudo persistir el secreto de sesión:", error.message);
+  }
+  return secret;
+}
+
+const SESSION_SECRET = loadSessionSecret();
+
+const b64url = (value) => Buffer.from(value).toString("base64url");
+
+function getSuperAdminSessionUser() {
+  return {
+    id: "superadmin-rafaadmin",
+    username: process.env.SUPERADMIN_USERNAME || "RafaAdmin",
+    full_name: "RafaAdmin",
+    email:
+      process.env.SUPERADMIN_EMAIL || "rafaeldesweb@gmail.com",
+    role: "SUPERADMIN",
+    status: "ACTIVE",
+    business_id: null,
+    created_at: new Date().toISOString(),
+  };
+}
+
+function createSessionToken(user) {
+  const payload = {
+    sub: user.id,
+    role: user.role || "CLIENT",
+    businessId: user.business_id || user.businessId || null,
+    iat: Date.now(),
+    exp: Date.now() + SESSION_TTL_MS,
+  };
+
+  const body = b64url(JSON.stringify(payload));
+  const signature = createHmac("sha256", SESSION_SECRET)
+    .update(body)
+    .digest("base64url");
+
+  return `${body}.${signature}`;
+}
+
+function readSessionToken(token) {
+  if (!token) return null;
+
+  const parts = String(token).split(".");
+  if (parts.length !== 2) return null;
+
+  const [body, signature] = parts;
+  if (!body || !signature) return null;
+
+  const expected = createHmac("sha256", SESSION_SECRET)
+    .update(body)
+    .digest("base64url");
+
+  const providedBuffer = Buffer.from(signature);
+  const expectedBuffer = Buffer.from(expected);
+  if (
+    providedBuffer.length !== expectedBuffer.length ||
+    !timingSafeEqual(providedBuffer, expectedBuffer)
+  ) {
+    return null;
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+
+  if (!payload || !payload.sub) return null;
+  if (!payload.exp || Date.now() > Number(payload.exp)) return null;
+
+  return payload;
+}
+
+async function loadUserForSession(userId) {
+  if (String(userId) === "superadmin-rafaadmin") {
+    return getSuperAdminSessionUser();
+  }
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM app_users WHERE id = ? LIMIT 1",
+      [String(userId)],
+    );
+    return rows[0] || null;
+  }
+
+  const db = getSqliteDb();
+  return (
+    db
+      .prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1")
+      .get(String(userId)) || null
+  );
+}
+
+async function readRequestUser(req) {
+  const header = String(req.headers.authorization || "");
+  const bearer = header.toLowerCase().startsWith("bearer ")
+    ? header.slice(7).trim()
+    : "";
+  const token = bearer || String(req.headers["x-auth-token"] || "").trim();
+
+  const payload = readSessionToken(token);
+  if (!payload) return null;
+
+  return loadUserForSession(payload.sub);
+}
+
+function httpError(status, code, message) {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  return error;
+}
+
+function validationError(message, errors = {}) {
+  const error = new Error(message);
+  error.status = 400;
+  error.code = "VALIDATION_ERROR";
+  error.errors = errors;
+  return error;
+}
+
+function assertValid(errors) {
+  const keys = Object.keys(errors);
+  if (!keys.length) return;
+  throw validationError("Revisa los datos del formulario; hay campos con errores.", errors);
+}
+
+// Devuelve un middleware de roles. Sin argumentos sólo exige sesión iniciada.
+function requireRole(...roles) {
+  return async (req, _res, next) => {
+    try {
+      const user = await readRequestUser(req);
+      if (!user) {
+        throw httpError(
+          401,
+          "UNAUTHORIZED",
+          "Debes iniciar sesión para realizar esta acción.",
+        );
+      }
+
+      const role = String(user.role || "").toUpperCase();
+      if (roles.length && !roles.includes(role)) {
+        throw httpError(
+          403,
+          "FORBIDDEN",
+          "Tu usuario no tiene permisos para realizar esta acción.",
+        );
+      }
+
+      req.user = user;
+      next();
+    } catch (error) {
+      next(error);
+    }
+  };
+}
+
+const requireAuth = requireRole();
+const requireSuperAdmin = requireRole("SUPERADMIN");
+
+// =========================================================
+// TRANSACCIONES (SQLite y MySQL con la misma interfaz)
+// =========================================================
+const SELECT_STATEMENT = /^\s*(select|with|pragma)\b/i;
+
+async function txQuery(tx, sql, params = []) {
+  if (mysqlPool) {
+    const [rows] = await tx.execute(sql, params);
+    return rows;
+  }
+
+  const statement = tx.prepare(sql);
+  if (SELECT_STATEMENT.test(sql)) return statement.all(...params);
+  statement.run(...params);
+  return null;
+}
+
+async function withTransaction(run) {
+  if (mysqlPool) {
+    const conn = await mysqlPool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const result = await run(conn);
+      await conn.commit();
+      return result;
+    } catch (error) {
+      try {
+        await conn.rollback();
+      } catch {
+        // La conexión se libera igualmente en el finally.
+      }
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+
+  const db = getSqliteDb();
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = await run(db);
+    db.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // La transacción puede haberse revertido ya por el motor.
+    }
+    throw error;
+  }
+}
+
+// =========================================================
+// VALIDACIÓN DE NEGOCIOS Y DE LA CUENTA DEL PROPIETARIO
+// =========================================================
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/;
+// NIF (8 dígitos + letra), CIF (letra + 7 dígitos + control alfanumérico) y
+// NIE (X/Y/Z + 7 dígitos + letra).
+const CIF_REGEX =
+  /^([0-9]{8}[A-Z]|[A-HJ-NP-SUVW][0-9]{7}[0-9A-J]|[XYZ][0-9]{7}[A-Z])$/;
+const DNI_REGEX = /^([0-9]{8}[A-Z]|[XYZ][0-9]{7}[A-Z])$/;
+const IBAN_REGEX = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
+const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,64}$/;
+const IMAGE_URL_MAX_LENGTH = 1500000;
+const ALLOWED_DELIVERY_MODES = [
+  "OWN_COURIER",
+  "PLATFORM_COURIER",
+  "PICKUP",
+  "DELIVERY",
+];
+const ALLOWED_BUSINESS_STATUSES = ["APPROVED", "PENDING", "SUSPENDED"];
+const MIN_BUSINESS_NAME_LENGTH = 2;
+const MAX_BUSINESS_NAME_LENGTH = 180;
+const MAX_TIME_MINUTES = 240;
+const MAX_FEE_CENTS = 1000000;
+
+const cleanString = (value) => String(value ?? "").trim();
+const asInteger = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.trunc(parsed);
+};
+const asBooleanFlag = (value, fallback) => {
+  if (value === undefined) return fallback;
+  if (value === null) return fallback;
+  if (value === true || value === 1 || value === "1" || value === "true") return 1;
+  if (value === false || value === 0 || value === "0" || value === "false") return 0;
+  return fallback;
+};
+
+function isValidImageUrl(value) {
+  if (/^https?:\/\/\S+$/i.test(value)) return true;
+  return value.startsWith("data:image/") && !value.includes(" ");
+}
+
+function validateSchedule(schedule) {
+  const errors = [];
+  if (!Array.isArray(schedule)) {
+    errors.push("El horario debe ser una lista de días.");
+    return { errors, value: [] };
+  }
+
+  if (schedule.length > 7) {
+    errors.push("El horario no puede tener más de 7 entradas (una por día).");
+    return { errors, value: [] };
+  }
+
+  const seen = new Set();
+  const value = [];
+
+  schedule.forEach((slot, index) => {
+    const prefix = `schedule[${index}]`;
+    const dayOfWeek = asInteger(slot?.dayOfWeek ?? slot?.day_of_week);
+    const openTime = cleanString(slot?.openTime ?? slot?.open_time);
+    const closeTime = cleanString(slot?.closeTime ?? slot?.close_time);
+
+    if (dayOfWeek === null || dayOfWeek < 0 || dayOfWeek > 6) {
+      errors.push(`${prefix}: el día de la semana debe estar entre 0 (domingo) y 6 (sábado).`);
+      return;
+    }
+    if (seen.has(dayOfWeek)) {
+      errors.push(`${prefix}: el día ${dayOfWeek} está repetido.`);
+      return;
+    }
+    if (!TIME_REGEX.test(openTime)) {
+      errors.push(`${prefix}: la hora de apertura no es válida (formato HH:MM).`);
+      return;
+    }
+    if (!TIME_REGEX.test(closeTime)) {
+      errors.push(`${prefix}: la hora de cierre no es válida (formato HH:MM).`);
+      return;
+    }
+
+    seen.add(dayOfWeek);
+    value.push({
+      day_of_week: dayOfWeek,
+      open_time: openTime,
+      close_time: closeTime,
+      is_open: asBooleanFlag(slot?.isOpen ?? slot?.is_open, 1),
+    });
+  });
+
+  return { errors, value };
+}
+
+// Valida el alta completa o la actualización parcial de un negocio.
+// `partial` = true sólo exige los campos que llegan en el body.
+function validateBusiness(body, { partial = false } = {}) {
+  const errors = {};
+  const value = {};
+  const raw = body || {};
+
+  const exists = (...keys) => keys.some((key) => raw[key] !== undefined);
+  const get = (...keys) => {
+    for (const key of keys) {
+      if (raw[key] !== undefined) return raw[key];
+    }
+    return undefined;
+  };
+  const required = (...keys) => !partial || exists(...keys);
+
+  if (required("name")) {
+    const name = cleanString(get("name"));
+    if (!name) {
+      errors.name = "El nombre del negocio es obligatorio.";
+    } else if (name.length < MIN_BUSINESS_NAME_LENGTH || name.length > MAX_BUSINESS_NAME_LENGTH) {
+      errors.name = `El nombre debe tener entre ${MIN_BUSINESS_NAME_LENGTH} y ${MAX_BUSINESS_NAME_LENGTH} caracteres.`;
+    } else {
+      value.name = name;
+    }
+  }
+
+  if (exists("legal_name", "legalName") || !partial) {
+    const legalName = cleanString(get("legal_name", "legalName"));
+    if (legalName.length > MAX_BUSINESS_NAME_LENGTH) {
+      errors.legal_name = "La razón social no puede superar los 180 caracteres.";
+    } else {
+      // En el alta sin razón social se reutiliza el nombre comercial.
+      value.legal_name = legalName || (partial ? "" : value.name || "");
+    }
+  }
+
+  if (required("cif")) {
+    const cif = cleanString(get("cif")).toUpperCase();
+    if (!cif) {
+      errors.cif = "El CIF/NIF es obligatorio.";
+    } else if (!CIF_REGEX.test(cif)) {
+      errors.cif = "El CIF/NIF no tiene un formato válido (ej. B12345678, 12345678Z o X1234567L).";
+    } else {
+      value.cif = cif;
+    }
+  }
+
+  if (required("email")) {
+    const email = cleanString(get("email")).toLowerCase();
+    if (!email) {
+      errors.email = "El email de contacto es obligatorio.";
+    } else if (!EMAIL_REGEX.test(email) || email.length > 255) {
+      errors.email = "El email de contacto no es válido.";
+    } else {
+      value.email = email;
+    }
+  }
+
+  if (required("phone")) {
+    const phone = cleanString(get("phone"));
+    const digits = phone.replace(/\D/g, "");
+    if (!phone) {
+      errors.phone = "El teléfono es obligatorio.";
+    } else if (!/^\+?[\d\s.()-]+$/.test(phone) || digits.length < 7 || digits.length > 15) {
+      errors.phone = "El teléfono debe contener entre 7 y 15 dígitos (ej. +34 600 000 000).";
+    } else {
+      value.phone = phone;
+    }
+  }
+
+  if (required("address")) {
+    const address = cleanString(get("address"));
+    if (!address) {
+      errors.address = "La dirección es obligatoria.";
+    } else if (address.length < 5 || address.length > 500) {
+      errors.address = "La dirección debe tener entre 5 y 500 caracteres.";
+    } else {
+      value.address = address;
+    }
+  }
+
+  if (required("locality_id", "localityId")) {
+    const localityId = cleanString(get("locality_id", "localityId"));
+    if (!localityId) {
+      errors.locality_id = "Debes seleccionar una zona.";
+    } else if (localityId.length > 64) {
+      errors.locality_id = "El identificador de la zona no es válido.";
+    } else {
+      value.locality_id = localityId;
+    }
+  }
+
+  if (required("category")) {
+    const category = cleanString(get("category"));
+    if (!category) {
+      errors.category = "La categoría del negocio es obligatoria.";
+    } else if (category.length > 120) {
+      errors.category = "La categoría no puede superar los 120 caracteres.";
+    } else {
+      value.category = category;
+    }
+  }
+
+  if (exists("account_number", "accountNumber")) {
+    const accountNumber = cleanString(
+      get("account_number", "accountNumber"),
+    )
+      .replace(/\s+/g, "")
+      .toUpperCase();
+
+    if (!accountNumber) {
+      value.account_number = null;
+    } else if (!IBAN_REGEX.test(accountNumber)) {
+      errors.account_number =
+        "El número de cuenta no es válido. Debe ser un IBAN (ej. ES9121000418450200051332).";
+    } else {
+      value.account_number = accountNumber;
+    }
+  }
+
+  if (exists("latitude") || !partial) {
+    const latitude = get("latitude");
+    const parsed = latitude === undefined ? 40.289 : Number(latitude);
+    if (!Number.isFinite(parsed) || parsed < -90 || parsed > 90) {
+      errors.latitude = "La latitud debe estar entre -90 y 90.";
+    } else {
+      value.latitude = Math.round(parsed * 1e6) / 1e6;
+    }
+  }
+
+  if (exists("longitude") || !partial) {
+    const longitude = get("longitude");
+    const parsed = longitude === undefined ? -4.58 : Number(longitude);
+    if (!Number.isFinite(parsed) || parsed < -180 || parsed > 180) {
+      errors.longitude = "La longitud debe estar entre -180 y 180.";
+    } else {
+      value.longitude = Math.round(parsed * 1e6) / 1e6;
+    }
+  }
+
+  if (exists("rating")) {
+    const rating = Number(get("rating"));
+    if (!Number.isFinite(rating) || rating < 0 || rating > 5) {
+      errors.rating = "La valoración debe estar entre 0 y 5.";
+    } else {
+      value.rating = Math.round(rating * 100) / 100;
+    }
+  } else if (!partial) {
+    // Arranque con nota positiva: el negocio no nace a cero.
+    value.rating = 4.8;
+  }
+
+  if (exists("review_count", "reviewCount")) {
+    const reviewCount = asInteger(get("review_count", "reviewCount"));
+    if (reviewCount === null || reviewCount < 0) {
+      errors.review_count = "El número de reseñas debe ser un entero positivo.";
+    } else {
+      value.review_count = reviewCount;
+    }
+  } else if (!partial) {
+    value.review_count = 0;
+  }
+
+  const timeMin = asInteger(get("estimated_time_min", "estimatedTimeMin"));
+  const timeMax = asInteger(get("estimated_time_max", "estimatedTimeMax"));
+
+  if (exists("estimated_time_min", "estimatedTimeMin")) {
+    if (timeMin === null || timeMin < 1 || timeMin > MAX_TIME_MINUTES) {
+      errors.estimated_time_min = `El tiempo mínimo debe estar entre 1 y ${MAX_TIME_MINUTES} minutos.`;
+    } else {
+      value.estimated_time_min = timeMin;
+    }
+  } else if (!partial) {
+    value.estimated_time_min = 20;
+  }
+
+  if (exists("estimated_time_max", "estimatedTimeMax")) {
+    if (timeMax === null || timeMax < 1 || timeMax > MAX_TIME_MINUTES) {
+      errors.estimated_time_max = `El tiempo máximo debe estar entre 1 y ${MAX_TIME_MINUTES} minutos.`;
+    } else {
+      value.estimated_time_max = timeMax;
+    }
+  } else if (!partial) {
+    value.estimated_time_max = 40;
+  }
+
+  if (!errors.estimated_time_min && !errors.estimated_time_max) {
+    const finalMin = value.estimated_time_min ?? timeMin;
+    const finalMax = value.estimated_time_max ?? timeMax;
+    if (finalMin && finalMax && finalMin > finalMax) {
+      errors.estimated_time_min =
+        "El tiempo mínimo no puede ser mayor que el tiempo máximo.";
+    }
+  }
+
+  if (exists("delivery_fee_cents", "deliveryFeeCents")) {
+    const fee = asInteger(get("delivery_fee_cents", "deliveryFeeCents"));
+    if (fee === null || fee < 0 || fee > MAX_FEE_CENTS) {
+      errors.delivery_fee_cents = "El gasto de envío no es válido.";
+    } else {
+      value.delivery_fee_cents = fee;
+    }
+  } else if (!partial) {
+    value.delivery_fee_cents = 0;
+  }
+
+  if (exists("min_order_cents", "minOrderCents")) {
+    const minOrder = asInteger(get("min_order_cents", "minOrderCents"));
+    if (minOrder === null || minOrder < 0 || minOrder > MAX_FEE_CENTS) {
+      errors.min_order_cents = "El pedido mínimo no es válido.";
+    } else {
+      value.min_order_cents = minOrder;
+    }
+  } else if (!partial) {
+    value.min_order_cents = 0;
+  }
+
+  if (exists("delivery_radius_km", "deliveryRadiusKm")) {
+    const radius = Number(get("delivery_radius_km", "deliveryRadiusKm"));
+    if (!Number.isFinite(radius) || radius < 0 || radius > 100) {
+      errors.delivery_radius_km = "El radio de reparto debe estar entre 0 y 100 km.";
+    } else {
+      value.delivery_radius_km = Math.round(radius * 100) / 100;
+    }
+  } else if (!partial) {
+    value.delivery_radius_km = 5;
+  }
+
+  if (exists("delivery_modes", "deliveryModes")) {
+    const modes = get("delivery_modes", "deliveryModes");
+    const list = (Array.isArray(modes) ? modes : String(modes || "").split(","))
+      .map((mode) => cleanString(mode))
+      .filter(Boolean);
+
+    if (!list.length) {
+      errors.delivery_modes = "Debes elegir al menos un modo de entrega.";
+    } else if (new Set(list).size !== list.length) {
+      errors.delivery_modes = "Hay modos de entrega repetidos.";
+    } else {
+      const invalid = list.filter(
+        (mode) => !ALLOWED_DELIVERY_MODES.includes(mode),
+      );
+      if (invalid.length) {
+        errors.delivery_modes = `Modos de entrega no permitidos: ${invalid.join(", ")}.`;
+      } else {
+        value.delivery_modes = list;
+      }
+    }
+  } else if (!partial) {
+    value.delivery_modes = ["PICKUP"];
+  }
+
+  if (exists("status")) {
+    const status = cleanString(get("status")).toUpperCase();
+    if (!ALLOWED_BUSINESS_STATUSES.includes(status)) {
+      errors.status = `El estado debe ser uno de: ${ALLOWED_BUSINESS_STATUSES.join(", ")}.`;
+    } else {
+      value.status = status;
+    }
+  } else if (!partial) {
+    // Quien registra un negocio es siempre el superadmin: se aprueba al alta.
+    value.status = "APPROVED";
+  }
+
+  if (exists("is_shift_open", "isShiftOpen")) {
+    value.is_shift_open = asBooleanFlag(
+      get("is_shift_open", "isShiftOpen"),
+      0,
+    );
+  } else if (!partial) {
+    value.is_shift_open = 1;
+  }
+
+  for (const [field, altField] of [
+    ["banner_url", "bannerUrl"],
+    ["logo_url", "logoUrl"],
+  ]) {
+    if (!exists(field, altField)) continue;
+    const image = cleanString(get(field, altField));
+    if (!image) {
+      value[field] = "";
+    } else if (!isValidImageUrl(image)) {
+      errors[field] = "La imagen debe ser una URL http(s) o un archivo cargado.";
+    } else if (image.length > IMAGE_URL_MAX_LENGTH) {
+      errors[field] = "La imagen es demasiado pesada (máximo aproximado 1 MB).";
+    } else {
+      value[field] = image;
+    }
+  }
+
+  if (exists("manager_name", "managerName")) {
+    const managerName = cleanString(get("manager_name", "managerName"));
+    if (managerName.length > 180) {
+      errors.manager_name = "El nombre de la persona responsable no puede superar 180 caracteres.";
+    } else {
+      value.manager_name = managerName || null;
+    }
+  }
+
+  if (exists("manager_dni", "managerDni")) {
+    const managerDni = cleanString(get("manager_dni", "managerDni")).toUpperCase();
+    if (managerDni && !DNI_REGEX.test(managerDni)) {
+      errors.manager_dni = "El DNI/NIE de la persona responsable no es válido.";
+    } else {
+      value.manager_dni = managerDni || null;
+    }
+  }
+
+  if (exists("schedule")) {
+    const schedule = validateSchedule(get("schedule"));
+    schedule.errors.forEach((message, index) => {
+      errors[`schedule_${index}`] = message;
+    });
+    value.schedule = schedule.value;
+    if (schedule.errors.length) errors.schedule = schedule.errors[0];
+  }
+
+  return { errors, value };
+}
+
+// Valida las credenciales del usuario propietario que se creará junto al negocio.
+function validateOwnerAccount(owner, { required: isRequired = true } = {}) {
+  const errors = {};
+  const value = {};
+  const raw = owner || {};
+  const isPresent =
+    raw.username !== undefined ||
+    raw.email !== undefined ||
+    raw.password !== undefined;
+
+  if (!isPresent) {
+    if (isRequired) {
+      errors.owner = "Debes asignar usuario, email y contraseña al nuevo negocio.";
+    }
+    return { errors, value };
+  }
+
+  const username = cleanString(raw.username);
+  const fullName = cleanString(raw.fullName || raw.full_name || raw.name);
+  const email = cleanString(raw.email).toLowerCase();
+  const password = String(raw.password ?? "");
+
+  if (!username) {
+    errors.ownerUsername = "El usuario es obligatorio.";
+  } else if (!USERNAME_REGEX.test(username)) {
+    errors.ownerUsername =
+      "El usuario debe tener entre 3 y 64 caracteres y solo admite letras, números, punto, guion bajo o guion.";
+  } else {
+    value.username = username;
+  }
+
+  if (!fullName || fullName.length > 180) {
+    errors.ownerFullName = "El nombre completo debe tener entre 1 y 180 caracteres.";
+  } else {
+    value.fullName = fullName;
+  }
+
+  if (!email) {
+    errors.ownerEmail = "El email de la cuenta es obligatorio.";
+  } else if (!EMAIL_REGEX.test(email) || email.length > 255) {
+    errors.ownerEmail = "El email de la cuenta no es válido.";
+  } else {
+    value.email = email;
+  }
+
+  if (!password) {
+    errors.ownerPassword = "La contraseña es obligatoria.";
+  } else if (password.length < MIN_PASSWORD_LENGTH) {
+    errors.ownerPassword = `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+  } else if (password.length > 200) {
+    errors.ownerPassword = "La contraseña no puede superar los 200 caracteres.";
+  } else {
+    value.password = password;
+  }
+
+  value.role = "BUSINESS_ADMIN";
+
+  return { errors, value };
+}
+
+function defaultScheduleValue() {
+  // Horario por defecto de la plataforma cuando el formulario no envía ninguno.
+  return [1, 2, 3, 4, 5, 6, 0].map((dayOfWeek) => ({
+    day_of_week: dayOfWeek,
+    open_time: "12:00",
+    close_time: "23:00",
+    is_open: 1,
+  }));
+}
+
+async function writeBusinessHours(tx, businessId, schedule) {
+  const rows = schedule?.length ? schedule : defaultScheduleValue();
+
+  await txQuery(
+    tx,
+    "DELETE FROM business_hours WHERE business_id = ?",
+    [businessId],
+  );
+
+  for (const row of rows) {
+    await txQuery(
+      tx,
+      `INSERT INTO business_hours (id, business_id, day_of_week, open_time, close_time, is_open)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        cryptoRandomId(),
+        businessId,
+        row.day_of_week,
+        row.open_time,
+        row.close_time,
+        row.is_open,
+      ],
+    );
+  }
+
+  return rows;
+}
+
+async function countRows(sql, params = []) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(sql, params);
+    return Number(rows[0]?.c ?? 0);
+  }
+
+  const db = getSqliteDb();
+  const row = db.prepare(sql).get(...params);
+  return Number(row?.c ?? 0);
+}
+
+// Lee el horario de todos los negocios. Si se pasa una transacción se consulta
+// a través de ella: en MySQL la lectura tendría que ir por la MISMA conexión o
+// no vería lo que aún no se ha confirmado.
+async function readBusinessHours(tx) {
+  if (tx) {
+    return txQuery(tx, "SELECT * FROM business_hours ORDER BY day_of_week ASC");
+  }
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM business_hours ORDER BY day_of_week ASC",
+    );
+    return rows;
+  }
+
+  return getSqliteDb()
+    .prepare("SELECT * FROM business_hours ORDER BY day_of_week ASC")
+    .all();
+}
+
+function attachBusinessSchedules(rows, hours = []) {
+  if (!rows.length) return rows;
+
+  const byBusiness = new Map();
+  for (const hour of hours) {
+    const list = byBusiness.get(hour.business_id) || [];
+    list.push(hour);
+    byBusiness.set(hour.business_id, list);
+  }
+
+  // Los formularios del panel trabajan con lunes primero y domingo al final.
+  const dayOrder = (day) => (Number(day) === 0 ? 7 : Number(day));
+
+  return rows.map((row) => ({
+    ...row,
+    schedule: (byBusiness.get(row.id) || [])
+      .slice()
+      .sort(
+        (a, b) => dayOrder(a.day_of_week) - dayOrder(b.day_of_week),
+      ),
+  }));
+}
+
+async function findOwnerAccount(owner) {
+  const usernameSql = "SELECT * FROM app_users WHERE username = ? LIMIT 1";
+  const emailSql = "SELECT * FROM app_users WHERE email = ? LIMIT 1";
+
+  if (mysqlPool) {
+    const [byUsername] = await mysqlPool.execute(usernameSql, [
+      owner.username,
+    ]);
+    const [byEmail] = await mysqlPool.execute(emailSql, [owner.email]);
+    return byUsername[0] || byEmail[0] || null;
+  }
+
+  const db = getSqliteDb();
+  return (
+    db.prepare(usernameSql).get(owner.username) ||
+    db.prepare(emailSql).get(owner.email) ||
+    null
+  );
+}
+
+// Crea o actualiza la cuenta del propietario del negocio dentro de la transacción.
+async function upsertOwnerAccount(tx, owner, businessId) {
+  const existing = await findOwnerAccount(owner);
+  const hash = bcrypt.hashSync(owner.password, 10);
+
+  if (existing) {
+    await txQuery(
+      tx,
+      `UPDATE app_users
+          SET full_name = ?,
+              business_id = ?,
+              password_hash = ?,
+              password_change_required = 0,
+              password_changed_at = NULL
+        WHERE id = ?`,
+      [owner.fullName, businessId, hash, existing.id],
+    );
+
+    const rows = await txQuery(tx, "SELECT * FROM app_users WHERE id = ?", [
+      existing.id,
+    ]);
+    const updated = Array.isArray(rows) ? rows[0] : null;
+    return updated || { ...existing, business_id: businessId };
+  }
+
+  const id = cryptoRandomId();
+  await txQuery(
+    tx,
+    `INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, business_id, email_verified, password_change_required)
+     VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, 1, 0)`,
+    [
+      id,
+      owner.username,
+      owner.fullName,
+      owner.email,
+      hash,
+      owner.role || "BUSINESS_ADMIN",
+      businessId,
+    ],
+  );
+
+  const rows = await txQuery(tx, "SELECT * FROM app_users WHERE id = ?", [id]);
+  return Array.isArray(rows) ? rows[0] : null;
 }
 
 app.use(express.json({ limit: "2mb" }));
@@ -1043,7 +2790,7 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.get("/api/debug/database", async (_req, res) => {
+app.get("/api/debug/database", requireSuperAdmin, async (_req, res) => {
   const pool = await ensureMySqlConnection();
   if (pool) {
     const [rows] = await pool.query("SHOW TABLES");
@@ -1109,6 +2856,7 @@ app.post("/api/auth/register", async (req, res) => {
   res.status(201).json({
     success: true,
     user: sanitizeUser(newUser),
+    token: createSessionToken(newUser),
     requiresEmailVerification: false,
     emailVerificationSent: false,
     message: "Usuario creado correctamente. Ya puedes iniciar sesión.",
@@ -1217,7 +2965,11 @@ app.post("/api/auth/login", async (req, res) => {
       status: "ACTIVE",
       created_at: new Date().toISOString(),
     };
-    return res.json({ success: true, user: sanitizeUser(user) });
+    return res.json({
+      success: true,
+      user: sanitizeUser(user),
+      token: createSessionToken(user),
+    });
   }
 
   const user = await getUserByIdentifier(identifier);
@@ -1243,7 +2995,11 @@ app.post("/api/auth/login", async (req, res) => {
     });
   }
 
-  res.json({ success: true, user: sanitizeUser(user) });
+  res.json({
+    success: true,
+    user: sanitizeUser(user),
+    token: createSessionToken(user),
+  });
 });
 
 app.post("/api/auth/change-password", async (req, res) => {
@@ -1311,40 +3067,17 @@ app.post("/api/auth/change-password", async (req, res) => {
 });
 
 app.get("/api/auth/me", async (req, res) => {
-  const userId = req.headers["x-user-id"] || req.query.userId;
-  if (!userId) {
+  // Sólo responde a quien presenta un token de sesión válido: antes se fiaba de
+  // la cabecera x-user-id, con la que cualquiera podía suplantar a otro usuario.
+  const user = await readRequestUser(req);
+
+  if (!user) {
     return res
       .status(401)
       .json({ code: "UNAUTHORIZED", message: "No hay sesión activa" });
   }
 
-  if (String(userId) === "superadmin-rafaadmin") {
-    return res.json({
-      user: sanitizeUser({
-        id: "superadmin-rafaadmin",
-        username: "RafaAdmin",
-        full_name: "RafaAdmin",
-        email: "rafaeldesweb@gmail.com",
-        role: "SUPERADMIN",
-        status: "ACTIVE",
-        created_at: new Date().toISOString(),
-      }),
-    });
-  }
-
-  if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT * FROM app_users WHERE id = ? LIMIT 1",
-      [String(userId)],
-    );
-    return res.json({ user: sanitizeUser(rows[0]) });
-  }
-
-  const db = getSqliteDb();
-  const row = db
-    .prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1")
-    .get(String(userId));
-  res.json({ user: sanitizeUser(row) });
+  res.json({ user: sanitizeUser(user) });
 });
 
 app.get("/api/localities", async (_req, res) => {
@@ -1352,7 +3085,7 @@ app.get("/api/localities", async (_req, res) => {
   res.json(rows);
 });
 
-app.post("/api/localities", async (req, res) => {
+app.post("/api/localities", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
   const id = body.id || cryptoRandomId();
   const payload = {
@@ -1393,7 +3126,7 @@ app.post("/api/localities", async (req, res) => {
   res.status(201).json({ success: true, locality: payload });
 });
 
-app.put("/api/localities/:id", async (req, res) => {
+app.put("/api/localities/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
   const fields = [];
@@ -1445,7 +3178,7 @@ app.put("/api/localities/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-app.delete("/api/localities/:id", async (req, res) => {
+app.delete("/api/localities/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   if (mysqlPool) {
     await mysqlPool.execute("DELETE FROM localities WHERE id = ?", [id]);
@@ -1457,90 +3190,492 @@ app.delete("/api/localities/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/users", async (_req, res) => {
+const ALLOWED_USER_ROLES = [
+  "CLIENT",
+  "BUSINESS_ADMIN",
+  "PLATFORM_COURIER",
+  "BUSINESS_COURIER",
+  "SUPERADMIN",
+];
+
+app.get("/api/users", requireAuth, async (req, res) => {
+  const sessionRole = String(req.user.role || "").toUpperCase();
+  if (sessionRole !== "SUPERADMIN" && sessionRole !== "BUSINESS_ADMIN") {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "Tu usuario no tiene permisos para consultar cuentas.",
+    );
+  }
+
   const rows = await listUsers();
-  res.json(rows.map((row) => sanitizeUser(row)));
+
+  if (sessionRole === "SUPERADMIN") {
+    return res.json(rows.map((row) => sanitizeUser(row)));
+  }
+
+  // El dueño del negocio ve a todo repartidor que tenga su negocio asignado
+  // (la lista multinegocio o, en datos antiguos, el business_id de referencia).
+  const ownBusinessId = String(req.user.business_id || "");
+  const visibleRows = ownBusinessId
+    ? rows.filter(
+        (row) =>
+          String(row.role || "").toUpperCase() === "BUSINESS_COURIER" &&
+          parseCourierBusinessIds(row).includes(ownBusinessId),
+      )
+    : [];
+
+  const visibleUsers = visibleRows.map((row) => sanitizeUser(row));
+  // El IBAN del repartidor es un dato de cobro que sólo gestiona el
+  // superadmin: el dueño del negocio puede confirmarlo, pero no ver su cuenta.
+  for (const user of visibleUsers) {
+    if (user) user.accountNumber = "";
+  }
+  res.json(visibleUsers);
 });
 
-app.post("/api/users", async (req, res) => {
-  const cleanPassword = normalizePassword(req.body?.password);
-  if (!cleanPassword) {
-    return res.status(400).json({
-      code: "VALIDATION_ERROR",
-      message: "La contraseña es obligatoria para crear usuarios",
-    });
+app.post("/api/users", requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const errors = {};
+  const sessionUser = req.user;
+  const sessionRole = String(sessionUser.role || "").toUpperCase();
+  const isSuperAdmin = sessionRole === "SUPERADMIN";
+  const isBusinessAdmin = sessionRole === "BUSINESS_ADMIN";
+
+  if (!isSuperAdmin && !isBusinessAdmin) {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "Tu usuario no tiene permisos para crear cuentas.",
+    );
   }
-  if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
-    return res.status(400).json({
-      code: "VALIDATION_ERROR",
-      message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
-    });
+
+  const email = cleanString(body.email).toLowerCase();
+  const username =
+    cleanString(body.username) || (email ? email.split("@")[0] : "");
+  const fullName = cleanString(
+    body.fullName || body.full_name || body.name,
+  );
+  const password = normalizePassword(body.password);
+  const requestedRole = cleanString(body.role || "").toUpperCase();
+  let role = requestedRole || "CLIENT";
+  let businessId = cleanString(body.businessId || body.business_id) || null;
+  let courierConfirmation = cleanString(
+    body.courierConfirmation || body.courier_confirmation || "PENDING",
+  ).toUpperCase();
+  const accountNumber = cleanString(
+    body.accountNumber || body.account_number,
+  )
+    .replace(/\s+/g, "")
+    .toUpperCase();
+  const requestedBusinessIds =
+    body.courierBusinessIds ?? body.courier_business_ids;
+  let courierBusinessIds = Array.isArray(requestedBusinessIds)
+    ? [
+        ...new Set(
+          requestedBusinessIds
+            .map((id) => String(id ?? "").trim())
+            .filter(Boolean),
+        ),
+      ]
+    : [];
+
+  if (isBusinessAdmin) {
+    // El dueño sólo puede crear repartidores para su propio negocio y no
+    // puede aprobarlos como SUPERADMIN: la confirmación queda pendiente y la
+    // firma él mismo después (BUSINESS_EMAIL).
+    if (requestedRole && requestedRole !== "BUSINESS_COURIER") {
+      errors.role = "Sólo puedes crear repartidores para tu negocio.";
+    }
+    role = "BUSINESS_COURIER";
+    businessId =
+      cleanString(sessionUser.business_id || sessionUser.businessId) || null;
+    courierConfirmation = "PENDING";
+    courierBusinessIds = businessId ? [businessId] : [];
+
+    if (accountNumber) {
+      errors.accountNumber =
+        "Sólo el superadmin puede configurar la cuenta bancaria del repartidor.";
+    }
+
+    if (!businessId) {
+      throw httpError(
+        403,
+        "FORBIDDEN",
+        "Tu cuenta no tiene un negocio asignado para crear repartidores.",
+      );
+    }
+  } else {
+    if (role === "BUSINESS_COURIER") {
+      // Compatibilidad con el formulario anterior, que sólo mandaba businessId.
+      if (!courierBusinessIds.length && businessId) {
+        courierBusinessIds = [businessId];
+      }
+      if (courierBusinessIds.length) {
+        businessId = courierBusinessIds[0];
+      }
+    } else if (role === "PLATFORM_COURIER") {
+      // El repartidor de plataforma cubre todo el valle: business_id se deja
+      // vacío y la lista queda como información de zonas asignadas.
+      businessId = null;
+    } else {
+      courierBusinessIds = [];
+    }
   }
-  const user = await createUser({ ...req.body, password: cleanPassword });
+
+  if (!["PENDING", "BUSINESS_EMAIL", "SUPERADMIN"].includes(courierConfirmation)) {
+    errors.courierConfirmation =
+      "La confirmación del repartidor no es válida.";
+  }
+  if (!fullName || fullName.length > 180) {
+    errors.fullName = "El nombre completo debe tener entre 1 y 180 caracteres.";
+  }
+  if (!email || !EMAIL_REGEX.test(email)) {
+    errors.email = "El email no es válido.";
+  }
+  if (!username || !USERNAME_REGEX.test(username)) {
+    errors.username =
+      "El usuario debe tener entre 3 y 64 caracteres y solo admite letras, números, punto, guion bajo o guion.";
+  }
+  if (!password || password.length < MIN_PASSWORD_LENGTH) {
+    errors.password = `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+  }
+  if (!ALLOWED_USER_ROLES.includes(role)) {
+    errors.role = `El rol debe ser uno de: ${ALLOWED_USER_ROLES.join(", ")}.`;
+  }
+  if (role === "BUSINESS_COURIER" && courierBusinessIds.length === 0) {
+    errors.courierBusinessIds =
+      "Selecciona al menos un negocio para el repartidor.";
+  }
+  if (
+    (role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER") &&
+    courierBusinessIds.length
+  ) {
+    const missingBusinessIds = [];
+    for (const candidateId of courierBusinessIds) {
+      const found = await countRows(
+        "SELECT COUNT(*) AS c FROM businesses WHERE id = ?",
+        [candidateId],
+      );
+      if (found === 0) missingBusinessIds.push(candidateId);
+    }
+    if (missingBusinessIds.length) {
+      errors.courierBusinessIds =
+        "Alguno de los negocios seleccionados no existe.";
+    }
+  }
+  if (accountNumber && !IBAN_REGEX.test(accountNumber)) {
+    errors.accountNumber = "El número de cuenta (IBAN) no es válido.";
+  }
+
+  assertValid(errors);
+
+  const user = await createUser({
+    username,
+    fullName,
+    email,
+    password,
+    phone: cleanString(body.phone) || null,
+    avatarUrl: cleanString(body.avatarUrl || body.avatar_url) || null,
+    role,
+    businessId,
+    courierConfirmation:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierConfirmation
+        : "PENDING",
+    courierBusinessIds:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierBusinessIds
+        : [],
+    accountNumber:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? accountNumber || null
+        : null,
+  });
+
   res.status(201).json({ success: true, user: sanitizeUser(user) });
 });
 
-app.put("/api/users/:id", async (req, res) => {
+app.put("/api/users/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
+  const sessionUser = req.user;
+  const sessionRole = String(sessionUser.role || "").toUpperCase();
+  const isSuperAdmin = sessionRole === "SUPERADMIN";
+  const isBusinessAdmin = sessionRole === "BUSINESS_ADMIN";
+  const isSelf = String(sessionUser.id) === String(id);
+  const targetUser = await loadUserForSession(id);
+
+  if (!targetUser) {
+    throw httpError(404, "USER_NOT_FOUND", "El usuario indicado no existe.");
+  }
+
+  const targetRole = String(targetUser.role || "").toUpperCase();
+  const sessionBusinessId = String(
+    sessionUser.business_id || sessionUser.businessId || "",
+  );
+  const targetBusinessId = String(
+    targetUser.business_id || targetUser.businessId || "",
+  );
+  // El dueño del negocio es "propietario" del repartidor si su negocio está
+  // entre los asignados (o si es el business_id de referencia en datos
+  // antiguos, que parseCourierBusinessIds devuelve como respaldo).
+  const isBusinessCourierOwner =
+    isBusinessAdmin &&
+    !isSelf &&
+    targetRole === "BUSINESS_COURIER" &&
+    Boolean(sessionBusinessId) &&
+    (targetBusinessId === sessionBusinessId ||
+      parseCourierBusinessIds(targetUser).includes(sessionBusinessId));
+
+  // Sólo el propio usuario, el superadmin o el dueño del negocio al que
+  // pertenece el repartidor pueden editar una cuenta.
+  if (!isSelf && !isSuperAdmin && !isBusinessCourierOwner) {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "No tienes permisos para modificar este usuario.",
+    );
+  }
+
+  // El dueño de un negocio sólo puede tocar la confirmación de sus
+  // repartidores, no el resto de campos de la cuenta.
+  if (isBusinessCourierOwner && !isSuperAdmin) {
+    const allowedFields = new Set([
+      "courierConfirmation",
+      "courier_confirmation",
+    ]);
+    const unexpectedFields = Object.keys(body).filter(
+      (key) => !allowedFields.has(key),
+    );
+    if (unexpectedFields.length) {
+      throw httpError(
+        403,
+        "FORBIDDEN",
+        "Sólo puedes confirmar a los repartidores de tu negocio.",
+      );
+    }
+  }
+
   const updates = [];
   const values = [];
+  const errors = {};
 
   if (body.username !== undefined) {
-    updates.push("username = ?");
-    values.push(body.username);
+    const username = cleanString(body.username);
+    if (!USERNAME_REGEX.test(username)) {
+      errors.username =
+        "El usuario debe tener entre 3 y 64 caracteres y solo admite letras, números, punto, guion bajo o guion.";
+    } else {
+      updates.push("username = ?");
+      values.push(username);
+    }
   }
   if (
     body.fullName !== undefined ||
     body.full_name !== undefined ||
     body.name !== undefined
   ) {
-    updates.push("full_name = ?");
-    values.push(body.fullName ?? body.full_name ?? body.name ?? "");
+    const fullName = cleanString(body.fullName ?? body.full_name ?? body.name);
+    if (!fullName || fullName.length > 180) {
+      errors.fullName = "El nombre completo debe tener entre 1 y 180 caracteres.";
+    } else {
+      updates.push("full_name = ?");
+      values.push(fullName);
+    }
   }
   if (body.email !== undefined) {
-    updates.push("email = ?");
-    values.push(body.email);
+    const email = cleanString(body.email).toLowerCase();
+    if (!EMAIL_REGEX.test(email)) {
+      errors.email = "El email no es válido.";
+    } else {
+      updates.push("email = ?");
+      values.push(email);
+    }
   }
   if (body.password !== undefined) {
     const cleanPassword = normalizePassword(body.password);
-    if (!cleanPassword) {
-      return res.status(400).json({
-        success: false,
-        code: "VALIDATION_ERROR",
-        message: "La contraseña no puede estar vacía.",
-      });
+    if (!cleanPassword || cleanPassword.length < MIN_PASSWORD_LENGTH) {
+      errors.password = `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`;
+    } else {
+      // Cambio de contraseña desde el perfil: se limpia la marca de cambio
+      // pendiente para que el usuario pueda entrar con la nueva clave.
+      updates.push("password_hash = ?");
+      values.push(bcrypt.hashSync(cleanPassword, 10));
+      updates.push("password_change_required = ?");
+      values.push(0);
+      updates.push("password_changed_at = ?");
+      values.push(new Date().toISOString());
     }
-    if (cleanPassword.length < MIN_PASSWORD_LENGTH) {
-      return res.status(400).json({
-        success: false,
-        code: "VALIDATION_ERROR",
-        message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
-      });
-    }
-    updates.push("password_hash = ?");
-    values.push(bcrypt.hashSync(cleanPassword, 10));
   }
   if (body.role !== undefined) {
-    updates.push("role = ?");
-    values.push(body.role);
+    const role = cleanString(body.role).toUpperCase();
+    if (!isSuperAdmin) {
+      errors.role = "Sólo el superadmin puede cambiar roles de usuario.";
+    } else if (!ALLOWED_USER_ROLES.includes(role)) {
+      errors.role = `El rol debe ser uno de: ${ALLOWED_USER_ROLES.join(", ")}.`;
+    } else {
+      updates.push("role = ?");
+      values.push(role);
+    }
   }
+  // Rol que tendrá la cuenta al terminar la petición. Se usa para validar la
+  // cuenta bancaria y los negocios asignados cuando el superadmin cambia el
+  // rol en la misma edición.
+  const requestedRole =
+    body.role !== undefined && isSuperAdmin
+      ? cleanString(body.role).toUpperCase()
+      : targetRole;
+  const effectiveRole = ALLOWED_USER_ROLES.includes(requestedRole)
+    ? requestedRole
+    : targetRole;
+  const isCourierRole =
+    effectiveRole === "PLATFORM_COURIER" ||
+    effectiveRole === "BUSINESS_COURIER";
   if (body.status !== undefined) {
-    updates.push("status = ?");
-    values.push(body.status);
+    const status = cleanString(body.status).toUpperCase();
+    if (!isSuperAdmin) {
+      errors.status = "Sólo el superadmin puede cambiar el estado de usuario.";
+    } else if (!["ACTIVE", "SUSPENDED", "INACTIVE"].includes(status)) {
+      errors.status = "El estado no es válido.";
+    } else {
+      updates.push("status = ?");
+      values.push(status);
+    }
   }
   if (body.phone !== undefined) {
-    updates.push("phone = ?");
-    values.push(body.phone);
+    const phone = cleanString(body.phone);
+    const digits = phone.replace(/\D/g, "");
+    if (phone && (digits.length < 7 || digits.length > 15)) {
+      errors.phone = "El teléfono debe contener entre 7 y 15 dígitos.";
+    } else {
+      updates.push("phone = ?");
+      values.push(phone || null);
+    }
   }
   if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
-    updates.push("avatar_url = ?");
-    values.push(body.avatarUrl ?? body.avatar_url ?? null);
+    const avatarUrl = cleanString(body.avatarUrl ?? body.avatar_url) || null;
+    if (avatarUrl && !isValidImageUrl(avatarUrl)) {
+      errors.avatarUrl = "La imagen debe ser una URL http(s) o un archivo cargado.";
+    } else {
+      updates.push("avatar_url = ?");
+      values.push(avatarUrl);
+    }
   }
   if (body.accountNumber !== undefined || body.account_number !== undefined) {
-    updates.push("account_number = ?");
-    values.push(body.accountNumber ?? body.account_number ?? null);
+    const accountNumber = cleanString(
+      body.accountNumber ?? body.account_number,
+    )
+      .replace(/\s+/g, "")
+      .toUpperCase();
+    if (isCourierRole && !isSuperAdmin) {
+      // El IBAN del repartidor es dato de cobro: sólo lo gestiona el superadmin.
+      errors.accountNumber =
+        "Sólo el superadmin puede modificar la cuenta bancaria de un repartidor.";
+    } else if (accountNumber && !IBAN_REGEX.test(accountNumber)) {
+      errors.accountNumber = "El número de cuenta (IBAN) no es válido.";
+    } else {
+      updates.push("account_number = ?");
+      values.push(accountNumber || null);
+    }
   }
+  if (
+    body.courierBusinessIds !== undefined ||
+    body.courier_business_ids !== undefined
+  ) {
+    if (!isSuperAdmin) {
+      errors.courierBusinessIds =
+        "Sólo el superadmin puede cambiar los negocios asignados a un repartidor.";
+    } else if (!isCourierRole) {
+      errors.courierBusinessIds =
+        "Sólo los repartidores pueden tener negocios asignados.";
+    } else {
+      const rawBusinessIds =
+        body.courierBusinessIds ?? body.courier_business_ids;
+      if (!Array.isArray(rawBusinessIds)) {
+        errors.courierBusinessIds = "La lista de negocios no es válida.";
+      } else {
+        const courierBusinessIds = [
+          ...new Set(
+            rawBusinessIds
+              .map((value) => String(value ?? "").trim())
+              .filter(Boolean),
+          ),
+        ];
+        const missingBusinessIds = [];
+        for (const candidateId of courierBusinessIds) {
+          const found = await countRows(
+            "SELECT COUNT(*) AS c FROM businesses WHERE id = ?",
+            [candidateId],
+          );
+          if (found === 0) missingBusinessIds.push(candidateId);
+        }
+
+        if (missingBusinessIds.length) {
+          errors.courierBusinessIds =
+            "Alguno de los negocios seleccionados no existe.";
+        } else if (
+          effectiveRole === "BUSINESS_COURIER" &&
+          courierBusinessIds.length === 0
+        ) {
+          errors.courierBusinessIds =
+            "Un repartidor de negocio necesita al menos un negocio asignado.";
+        } else {
+          updates.push("courier_business_ids = ?");
+          values.push(JSON.stringify(courierBusinessIds));
+          // `business_id` se mantiene como negocio de referencia para los
+          // repartidores de negocio y vacío para los de plataforma.
+          updates.push("business_id = ?");
+          values.push(
+            effectiveRole === "BUSINESS_COURIER"
+              ? courierBusinessIds[0]
+              : null,
+          );
+        }
+      }
+    }
+  }
+  if (
+    isSuperAdmin &&
+    body.role !== undefined &&
+    effectiveRole === "BUSINESS_COURIER" &&
+    body.courierBusinessIds === undefined &&
+    body.courier_business_ids === undefined &&
+    parseCourierBusinessIds(targetUser).length === 0
+  ) {
+    errors.courierBusinessIds =
+      "Selecciona al menos un negocio para el repartidor.";
+  }
+  if (
+    body.courierConfirmation !== undefined ||
+    body.courier_confirmation !== undefined
+  ) {
+    const confirmation = cleanString(
+      body.courierConfirmation ?? body.courier_confirmation,
+    ).toUpperCase();
+
+    if (!["PENDING", "BUSINESS_EMAIL", "SUPERADMIN"].includes(confirmation)) {
+      errors.courierConfirmation =
+        "La confirmación del repartidor no es válida.";
+    } else if (
+      targetRole !== "PLATFORM_COURIER" &&
+      targetRole !== "BUSINESS_COURIER"
+    ) {
+      errors.courierConfirmation =
+        "Sólo se puede confirmar una cuenta de repartidor.";
+    } else if (!isSuperAdmin && !isBusinessCourierOwner) {
+      errors.courierConfirmation =
+        "No tienes permisos para confirmar esta cuenta.";
+    } else if (!isSuperAdmin && confirmation !== "BUSINESS_EMAIL") {
+      errors.courierConfirmation =
+        "El negocio sólo puede confirmar repartidores con BUSINESS_EMAIL.";
+    } else {
+      updates.push("courier_confirmation = ?");
+      values.push(confirmation);
+    }
+  }
+
+  assertValid(errors);
 
   if (!updates.length) {
     return res
@@ -1549,6 +3684,13 @@ app.put("/api/users/:id", async (req, res) => {
   }
 
   values.push(id);
+  // El dueño del negocio no debe recibir el IBAN del repartidor ni siquiera
+  // en la respuesta de la confirmación.
+  const buildResponseUser = (row) => {
+    const user = sanitizeUser(row);
+    if (user && isBusinessAdmin && !isSelf) user.accountNumber = "";
+    return user;
+  };
   if (mysqlPool) {
     await mysqlPool.execute(
       `UPDATE app_users SET ${updates.join(", ")} WHERE id = ?`,
@@ -1558,7 +3700,7 @@ app.put("/api/users/:id", async (req, res) => {
       "SELECT * FROM app_users WHERE id = ? LIMIT 1",
       [id],
     );
-    return res.json({ success: true, user: sanitizeUser(rows[0]) });
+    return res.json({ success: true, user: buildResponseUser(rows[0]) });
   }
 
   const db = getSqliteDb();
@@ -1568,11 +3710,20 @@ app.put("/api/users/:id", async (req, res) => {
   const row = db
     .prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1")
     .get(id);
-  res.json({ success: true, user: sanitizeUser(row) });
+  res.json({ success: true, user: buildResponseUser(row) });
 });
 
-app.delete("/api/users/:id", async (req, res) => {
+app.delete("/api/users/:id", requireRole("SUPERADMIN"), async (req, res) => {
   const { id } = req.params;
+
+  if (String(req.user.id) === String(id)) {
+    return res.status(400).json({
+      success: false,
+      code: "VALIDATION_ERROR",
+      message: "No puedes eliminar la cuenta con la que has iniciado sesión.",
+    });
+  }
+
   if (mysqlPool) {
     await mysqlPool.execute("DELETE FROM app_users WHERE id = ?", [id]);
     return res.json({ success: true });
@@ -1588,167 +3739,289 @@ app.get("/api/businesses", async (_req, res) => {
   res.json(rows);
 });
 
-app.post("/api/businesses", async (req, res) => {
+// El alta de negocios es una operación de plataforma: sólo el superadmin puede
+// registrarlos y, en la misma transacción, se crea la cuenta (usuario y clave)
+// del propietario, que después podrá cambiarla desde su perfil.
+app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
   const body = req.body || {};
-  const payload = {
-    id: body.id || cryptoRandomId(),
-    locality_id: body.locality_id || body.localityId || "locality-default",
-    name: body.name || "Nuevo negocio",
-    legal_name:
-      body.legal_name || body.legalName || body.name || "Nuevo negocio",
-    cif: body.cif || "00000000A",
-    phone: body.phone || "+34 600 000 000",
-    email: body.email || "contacto@negocio.local",
-    account_number: body.accountNumber || body.account_number || null,
-    address: body.address || "Dirección no indicada",
-    latitude: body.latitude || 40.289,
-    longitude: body.longitude || -4.58,
-    rating: body.rating || 4.8,
-    review_count: body.review_count || 0,
-    estimated_time_min: body.estimated_time_min || 20,
-    estimated_time_max: body.estimated_time_max || 40,
-    delivery_fee_cents: body.delivery_fee_cents || 0,
-    min_order_cents: body.min_order_cents || 0,
-    banner_url: body.banner_url || body.bannerUrl || "",
-    logo_url: body.logo_url || body.logoUrl || "",
-    is_shift_open: Number(body.is_shift_open ?? body.isShiftOpen ?? 1),
-    delivery_modes: JSON.stringify(
-      body.delivery_modes || body.deliveryModes || ["PICKUP"],
-    ),
-    delivery_radius_km: body.delivery_radius_km || body.deliveryRadiusKm || 5,
-    status: body.status || "APPROVED",
-  };
 
-  if (mysqlPool) {
-    await mysqlPool.execute(
-      `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, account_number, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        payload.id,
-        payload.locality_id,
-        payload.name,
-        payload.legal_name,
-        payload.cif,
-        payload.phone,
-        payload.email,
-        payload.account_number,
-        payload.address,
-        payload.latitude,
-        payload.longitude,
-        payload.rating,
-        payload.review_count,
-        payload.estimated_time_min,
-        payload.estimated_time_max,
-        payload.delivery_fee_cents,
-        payload.min_order_cents,
-        payload.banner_url,
-        payload.logo_url,
-        payload.is_shift_open,
-        payload.delivery_modes,
-        payload.delivery_radius_km,
-        payload.status,
-      ],
-    );
-    return res.status(201).json({ success: true, id: payload.id });
+  const businessValidation = validateBusiness(body, { partial: false });
+  assertValid(businessValidation.errors);
+
+  const ownerValidation = validateOwnerAccount(body.owner, {
+    required: true,
+  });
+  assertValid(ownerValidation.errors);
+
+  const value = businessValidation.value;
+  const owner = ownerValidation.value;
+
+  const localityExists = await countRows(
+    "SELECT COUNT(*) AS c FROM localities WHERE id = ?",
+    [value.locality_id],
+  );
+  if (!localityExists) {
+    throw validationError("La zona seleccionada no existe.", {
+      locality_id: "Selecciona una zona válida antes de guardar.",
+    });
   }
 
-  const db = getSqliteDb();
-  db.prepare(
-    `INSERT INTO businesses (id, locality_id, name, legal_name, cif, phone, email, account_number, address, latitude, longitude, rating, review_count, estimated_time_min, estimated_time_max, delivery_fee_cents, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes, delivery_radius_km, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    payload.id,
-    payload.locality_id,
-    payload.name,
-    payload.legal_name,
-    payload.cif,
-    payload.phone,
-    payload.email,
-    payload.account_number,
-    payload.address,
-    payload.latitude,
-    payload.longitude,
-    payload.rating,
-    payload.review_count,
-    payload.estimated_time_min,
-    payload.estimated_time_max,
-    payload.delivery_fee_cents,
-    payload.min_order_cents,
-    payload.banner_url,
-    payload.logo_url,
-    payload.is_shift_open,
-    payload.delivery_modes,
-    payload.delivery_radius_km,
-    payload.status,
-  );
+  const duplicatedOwner = await findOwnerAccount(owner);
+  if (duplicatedOwner) {
+    const errors = {};
+    if (String(duplicatedOwner.username) === owner.username) {
+      errors.ownerUsername = "Ya existe un usuario con ese nombre.";
+    }
+    if (String(duplicatedOwner.email) === owner.email) {
+      errors.ownerEmail = "Ya existe una cuenta de acceso con ese correo.";
+    }
+    throw validationError(
+      "Ya existe una cuenta con esos datos de acceso.",
+      errors,
+    );
+  }
 
-  res.status(201).json({ success: true, id: payload.id });
+  const businessId = cryptoRandomId();
+
+  const { business, ownerAccount } = await withTransaction(async (tx) => {
+    await txQuery(
+      tx,
+      `INSERT INTO businesses (
+         id, locality_id, name, legal_name, cif, phone, email, account_number,
+         address, latitude, longitude, rating, review_count,
+         estimated_time_min, estimated_time_max, delivery_fee_cents,
+         min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes,
+         delivery_radius_km, status, category, manager_name, manager_dni,
+         owner_user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+      [
+        businessId,
+        value.locality_id,
+        value.name,
+        value.legal_name || value.name,
+        value.cif,
+        value.phone,
+        value.email,
+        value.account_number ?? null,
+        value.address,
+        value.latitude,
+        value.longitude,
+        value.rating,
+        value.review_count,
+        value.estimated_time_min,
+        value.estimated_time_max,
+        value.delivery_fee_cents,
+        value.min_order_cents,
+        value.banner_url ?? "",
+        value.logo_url ?? "",
+        value.is_shift_open,
+        JSON.stringify(value.delivery_modes),
+        value.delivery_radius_km,
+        value.status,
+        value.category,
+        value.manager_name ?? null,
+        value.manager_dni ?? null,
+      ],
+    );
+
+    // Nada de lo que llega del formulario se pierde: el horario guarda su
+    // propia tabla con una fila por día.
+    await writeBusinessHours(tx, businessId, value.schedule);
+
+    const ownerAccount = await upsertOwnerAccount(tx, owner, businessId);
+
+    await txQuery(tx, "UPDATE businesses SET owner_user_id = ? WHERE id = ?", [
+      ownerAccount?.id ?? null,
+      businessId,
+    ]);
+
+    const rows = await attachBusinessSchedules(
+      await txQuery(tx, "SELECT * FROM businesses WHERE id = ?", [businessId]),
+      await readBusinessHours(tx),
+    );
+
+    return { business: rows[0], ownerAccount };
+  });
+
+  res.status(201).json({
+    success: true,
+    business,
+    owner: {
+      id: ownerAccount?.id ?? null,
+      username: owner.username,
+      fullName: owner.fullName,
+      email: owner.email,
+      role: "BUSINESS_ADMIN",
+      businessId,
+      // La contraseña NUNCA se devuelve: la escribió el superadmin en el
+      // formulario y en la base de datos sólo vive su hash bcrypt.
+    },
+  });
 });
 
-app.put("/api/businesses/:id", async (req, res) => {
+app.put("/api/businesses/:id", requireAuth, async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
+  const sessionUser = req.user;
+  const isSuperAdmin =
+    String(sessionUser.role || "").toUpperCase() === "SUPERADMIN";
+  const isBusinessOwner = String(sessionUser.business_id || "") === String(id);
+
+  // El superadmin puede editar cualquier negocio; el propietario sólo el suyo.
+  if (!isSuperAdmin && !isBusinessOwner) {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "No tienes permisos para modificar este negocio.",
+    );
+  }
+
+  const validation = validateBusiness(body, { partial: true });
+  assertValid(validation.errors);
+
+  const value = { ...validation.value };
+  const schedule = value.schedule;
+  delete value.schedule;
+
   const updates = [];
   const values = [];
 
-  const assign = (field, value) => {
+  const assign = (field, fieldValue) => {
+    if (fieldValue === undefined) return;
     updates.push(`${field} = ?`);
-    values.push(value);
+    values.push(fieldValue);
   };
-  if (body.name !== undefined) assign("name", body.name);
-  if (body.legal_name !== undefined || body.legalName !== undefined)
-    assign("legal_name", body.legal_name ?? body.legalName);
-  if (body.cif !== undefined) assign("cif", body.cif);
-  if (body.phone !== undefined) assign("phone", body.phone);
-  if (body.email !== undefined) assign("email", body.email);
-  if (body.accountNumber !== undefined || body.account_number !== undefined)
-    assign("account_number", body.accountNumber ?? body.account_number);
-  if (body.address !== undefined) assign("address", body.address);
-  if (body.locality_id !== undefined || body.localityId !== undefined)
-    assign("locality_id", body.locality_id ?? body.localityId);
-  if (body.status !== undefined) assign("status", body.status);
-  if (
-    body.deliveryFeeCents !== undefined ||
-    body.delivery_fee_cents !== undefined
-  )
-    assign(
-      "delivery_fee_cents",
-      body.deliveryFeeCents ?? body.delivery_fee_cents,
-    );
-  if (body.isShiftOpen !== undefined || body.is_shift_open !== undefined)
-    assign("is_shift_open", body.isShiftOpen ?? body.is_shift_open);
 
-  if (!updates.length) {
+  assign("name", value.name);
+  assign("legal_name", value.legal_name);
+  assign("cif", value.cif);
+  assign("phone", value.phone);
+  assign("email", value.email);
+  assign("account_number", value.account_number);
+  assign("address", value.address);
+  assign("locality_id", value.locality_id);
+  assign("category", value.category);
+  assign("manager_name", value.manager_name);
+  assign("manager_dni", value.manager_dni);
+  assign("banner_url", value.banner_url);
+  assign("logo_url", value.logo_url);
+  assign("latitude", value.latitude);
+  assign("longitude", value.longitude);
+  assign("rating", value.rating);
+  assign("review_count", value.review_count);
+  assign("estimated_time_min", value.estimated_time_min);
+  assign("estimated_time_max", value.estimated_time_max);
+  assign("delivery_fee_cents", value.delivery_fee_cents);
+  assign("min_order_cents", value.min_order_cents);
+  assign("delivery_radius_km", value.delivery_radius_km);
+  assign("is_shift_open", value.is_shift_open);
+  assign("status", value.status);
+
+  if (value.delivery_modes !== undefined) {
+    updates.push("delivery_modes = ?");
+    values.push(JSON.stringify(value.delivery_modes));
+  }
+
+  if (!updates.length && !schedule && !body.owner) {
     return res
       .status(400)
       .json({ success: false, message: "No hay campos para actualizar" });
   }
 
-  values.push(id);
-  if (mysqlPool) {
-    await mysqlPool.execute(
-      `UPDATE businesses SET ${updates.join(", ")} WHERE id = ?`,
-      values,
+  if (value.locality_id) {
+    const localityExists = await countRows(
+      "SELECT COUNT(*) AS c FROM localities WHERE id = ?",
+      [value.locality_id],
     );
-    return res.json({ success: true });
+    if (!localityExists) {
+      throw validationError("La zona seleccionada no existe.", {
+        locality_id: "Selecciona una zona válida antes de guardar.",
+      });
+    }
   }
 
-  const db = getSqliteDb();
-  db.prepare(`UPDATE businesses SET ${updates.join(", ")} WHERE id = ?`).run(
-    ...values,
-  );
-  res.json({ success: true });
+  const hasOwnerPayload =
+    Boolean(body.owner) &&
+    (body.owner.username !== undefined ||
+      body.owner.email !== undefined ||
+      body.owner.password !== undefined);
+
+  let ownerValidation = null;
+  if (hasOwnerPayload) {
+    ownerValidation = validateOwnerAccount(body.owner, { required: true });
+    assertValid(ownerValidation.errors);
+  }
+
+  const updatedBusiness = await withTransaction(async (tx) => {
+    if (updates.length) {
+      await txQuery(
+        tx,
+        `UPDATE businesses SET ${updates.join(", ")} WHERE id = ?`,
+        [...values, id],
+      );
+    }
+
+    // El horario se reemplaza entero para no dejar días sin actualizar.
+    if (schedule) {
+      await writeBusinessHours(tx, id, schedule);
+    }
+
+    if (ownerValidation) {
+      await upsertOwnerAccount(tx, ownerValidation.value, id);
+    }
+
+    const rows = await attachBusinessSchedules(
+      await txQuery(tx, "SELECT * FROM businesses WHERE id = ?", [id]),
+      await readBusinessHours(tx),
+    );
+
+    return rows[0];
+  });
+
+  if (!updatedBusiness) {
+    throw httpError(404, "NOT_FOUND", "El negocio no existe.");
+  }
+
+  res.json({ success: true, business: updatedBusiness });
 });
 
-app.delete("/api/businesses/:id", async (req, res) => {
+// Se conserva el historial de ventas: si el negocio tiene pedidos no se borra,
+// se responde 409 en vez de dejar que la foreign key provoque un 500.
+app.delete("/api/businesses/:id", requireRole("SUPERADMIN"), async (req, res) => {
   const { id } = req.params;
-  if (mysqlPool) {
-    await mysqlPool.execute("DELETE FROM businesses WHERE id = ?", [id]);
-    return res.json({ success: true });
+
+  const businessExists = await countRows(
+    "SELECT COUNT(*) AS c FROM businesses WHERE id = ?",
+    [id],
+  );
+  if (!businessExists) {
+    throw httpError(404, "NOT_FOUND", "El negocio no existe.");
   }
 
-  const db = getSqliteDb();
-  db.prepare("DELETE FROM businesses WHERE id = ?").run(id);
+  const ordersCount = await countRows(
+    "SELECT COUNT(*) AS c FROM orders WHERE business_id = ?",
+    [id],
+  );
+  if (ordersCount > 0) {
+    return res.status(409).json({
+      success: false,
+      code: "BUSINESS_HAS_ORDERS",
+      message: `Este negocio tiene ${ordersCount} pedido(s) registrados. No se puede eliminar porque se perdería el historial de ventas.`,
+    });
+  }
+
+  await withTransaction(async (tx) => {
+    // El catálogo y el horario pertenecen al negocio: se eliminan con él.
+    await txQuery(tx, "DELETE FROM products WHERE business_id = ?", [id]);
+    await txQuery(tx, "DELETE FROM business_hours WHERE business_id = ?", [id]);
+    await txQuery(
+      tx,
+      "UPDATE app_users SET business_id = NULL WHERE business_id = ?",
+      [id],
+    );
+    await txQuery(tx, "DELETE FROM businesses WHERE id = ?", [id]);
+  });
+
   res.json({ success: true });
 });
 
@@ -1757,7 +4030,7 @@ app.get("/api/products", async (_req, res) => {
   res.json(rows);
 });
 
-app.post("/api/products", async (req, res) => {
+app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
   const product = {
     id: body.id || cryptoRandomId(),
@@ -1830,7 +4103,7 @@ app.post("/api/products", async (req, res) => {
   res.status(201).json({ success: true, id: product.id });
 });
 
-app.put("/api/products/:id", async (req, res) => {
+app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
   const updates = [];
@@ -1846,12 +4119,49 @@ app.put("/api/products/:id", async (req, res) => {
     assign("price_cents", body.price_cents ?? body.priceCents);
   if (body.tax_percentage !== undefined || body.taxPercentage !== undefined)
     assign("tax_percentage", body.tax_percentage ?? body.taxPercentage);
+  // node:sqlite sólo admite números, textos y nulos: un booleano literal
+  // revienta con "cannot be bound to SQLite parameter".
   if (body.is_available !== undefined || body.isAvailable !== undefined)
-    assign("is_available", body.is_available ?? body.isAvailable);
+    assign("is_available", Number(body.is_available ?? body.isAvailable ?? 1));
   if (body.is_sold_out !== undefined || body.isSoldOut !== undefined)
-    assign("is_sold_out", body.is_sold_out ?? body.isSoldOut);
+    assign("is_sold_out", Number(body.is_sold_out ?? body.isSoldOut ?? 0));
   if (body.image_url !== undefined || body.imageUrl !== undefined)
     assign("image_url", body.image_url ?? body.imageUrl);
+
+  // Campos del formulario de catálogo: sin ellos, editar un producto desde la
+  // app borraba silenciosamente el tag, los ingredientes o la categoría.
+  const asJsonList = (value) => {
+    if (Array.isArray(value)) return JSON.stringify(value);
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return JSON.stringify(Array.isArray(parsed) ? parsed : [parsed]);
+      } catch {
+        return JSON.stringify(
+          value.split(",").map((entry) => entry.trim()).filter(Boolean),
+        );
+      }
+    }
+    return "[]";
+  };
+
+  if (body.tag !== undefined) assign("tag", String(body.tag ?? ""));
+  if (body.category_id !== undefined || body.categoryId !== undefined)
+    assign("category_id", body.category_id ?? body.categoryId);
+  if (body.ingredients !== undefined)
+    assign("ingredients", asJsonList(body.ingredients));
+  if (body.allergens !== undefined)
+    assign("allergens", asJsonList(body.allergens));
+  if (body.removable_ingredients !== undefined || body.removableIngredients !== undefined)
+    assign(
+      "removable_ingredients",
+      asJsonList(body.removable_ingredients ?? body.removableIngredients),
+    );
+  if (body.additional_ingredients !== undefined || body.additionalIngredients !== undefined)
+    assign(
+      "additional_ingredients",
+      asJsonList(body.additional_ingredients ?? body.additionalIngredients),
+    );
 
   if (!updates.length) {
     return res
@@ -1875,7 +4185,7 @@ app.put("/api/products/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-app.delete("/api/products/:id", async (req, res) => {
+app.delete("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   if (mysqlPool) {
     await mysqlPool.execute("DELETE FROM products WHERE id = ?", [id]);
@@ -1887,103 +4197,416 @@ app.delete("/api/products/:id", async (req, res) => {
   res.json({ success: true });
 });
 
-app.get("/api/orders", async (_req, res) => {
-  const rows = await listOrders();
+app.get("/api/orders", requireAuth, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const rows = await listOrders(req.user);
   res.json(rows);
 });
 
-app.post("/api/orders", async (req, res) => {
+app.post("/api/orders", requireRole(), async (req, res) => {
   const body = req.body || {};
-  const id = body.id || cryptoRandomId();
-  const total = Number(body.total_cents ?? body.totalCents ?? 0);
-
-  if (mysqlPool) {
-    await mysqlPool.execute(
-      "INSERT INTO orders (id, business_id, order_number, customer_name, customer_email, delivery_type, total_cents, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [
-        id,
-        body.business_id || null,
-        body.order_number || `PT-${Math.floor(Math.random() * 9000 + 1000)}`,
-        body.customer_name || "Cliente",
-        body.customer_email || "cliente@pidetietar.local",
-        body.delivery_type || "DELIVERY",
-        total,
-        body.status || "NEW",
-      ],
-    );
-    return res.status(201).json({ success: true, id });
-  }
-
-  const db = getSqliteDb();
-  db.prepare(
-    "INSERT INTO orders (id, business_id, order_number, customer_name, customer_email, delivery_type, total_cents, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(
-    id,
-    body.business_id || null,
-    body.order_number || `PT-${Math.floor(Math.random() * 9000 + 1000)}`,
-    body.customer_name || "Cliente",
-    body.customer_email || "cliente@pidetietar.local",
-    body.delivery_type || "DELIVERY",
-    total,
-    body.status || "NEW",
-  );
-
-  res.status(201).json({ success: true, id });
-});
-
-app.put("/api/orders/:id", async (req, res) => {
-  const { id } = req.params;
-  const body = req.body || {};
-  const updates = [];
-  const values = [];
-  const assign = (field, value) => {
-    updates.push(`${field} = ?`);
-    values.push(value);
+  const orderId = body.id || cryptoRandomId();
+  // El cuerpo puede llegar en camelCase (frontend) o en snake_case (clientes
+  // antiguos). Se aceptan ambos para no romper pedidos ya guardados.
+  const pick = (camel, snake) =>
+    body[camel] !== undefined ? body[camel] : body[snake];
+  const toCents = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
   };
 
-  if (body.status !== undefined) assign("status", body.status);
-  if (body.total_cents !== undefined || body.totalCents !== undefined)
-    assign("total_cents", Number(body.total_cents ?? body.totalCents));
-  if (body.customer_name !== undefined)
-    assign("customer_name", body.customer_name);
-  if (body.customer_email !== undefined)
-    assign("customer_email", body.customer_email);
+  const now = new Date().toISOString();
+  const createdAt = pick("createdAt", "created_at") || now;
+  const updatedAt = pick("updatedAt", "updated_at") || createdAt;
+  const status = body.status || "NEW";
+  const reviewScoreRaw = pick("reviewScore", "review_score");
+  const reviewScore =
+    reviewScoreRaw === null || reviewScoreRaw === undefined
+      ? null
+      : Number(reviewScoreRaw);
+  const reviewRequested =
+    status === "DELIVERED"
+      ? true
+      : Boolean(pick("reviewRequested", "review_requested"));
 
-  if (!updates.length) {
+  const orderRecord = {
+    id: orderId,
+    business_id: pick("businessId", "business_id") || null,
+    business_name: pick("businessName", "business_name") || null,
+    order_number:
+      pick("orderNumber", "order_number") ||
+      `PT-${Math.floor(Math.random() * 9000 + 1000)}`,
+    customer_id: pick("customerId", "customer_id") || null,
+    customer_name: pick("customerName", "customer_name") || "Cliente",
+    customer_email:
+      pick("customerEmail", "customer_email") ||
+      "cliente@pidetietar.local",
+    customer_phone: pick("customerPhone", "customer_phone") || null,
+    delivery_type:
+      pick("deliveryType", "delivery_type") === "PICKUP"
+        ? "PICKUP"
+        : "DELIVERY",
+    delivery_address: serializeJsonField(
+      pick("deliveryAddress", "delivery_address"),
+      null,
+    ),
+    scheduled_time: pick("scheduledTime", "scheduled_time") || null,
+    subtotal_cents: toCents(pick("subtotalCents", "subtotal_cents")),
+    delivery_fee_cents: toCents(
+      pick("deliveryFeeCents", "delivery_fee_cents"),
+    ),
+    platform_fee_cents: toCents(
+      pick("platformFeeCents", "platform_fee_cents"),
+    ),
+    business_payout_cents: toCents(
+      pick("businessPayoutCents", "business_payout_cents"),
+    ),
+    courier_payout_cents: toCents(
+      pick("courierPayoutCents", "courier_payout_cents"),
+    ),
+    tip_cents: toCents(pick("tipCents", "tip_cents")),
+    total_cents: toCents(pick("totalCents", "total_cents")),
+    status,
+    status_history: serializeObjectList(
+      pick("statusHistory", "status_history"),
+    ),
+    payment_method:
+      pick("paymentMethod", "payment_method") || "CASH_ON_DELIVERY",
+    payment_status: pick("paymentStatus", "payment_status") || "PAID",
+    payment_transaction_id:
+      pick("paymentTransactionId", "payment_transaction_id") || null,
+    courier_id: pick("courierId", "courier_id") || null,
+    courier_name: pick("courierName", "courier_name") || null,
+    courier_phone: pick("courierPhone", "courier_phone") || null,
+    delivery_pin:
+      pick("deliveryPin", "delivery_pin") !== undefined &&
+      pick("deliveryPin", "delivery_pin") !== null
+        ? String(pick("deliveryPin", "delivery_pin"))
+        : null,
+    calendar_event_id:
+      pick("calendarEventId", "calendar_event_id") || null,
+    gmail_notified_at: toSqlTimestampOrNull(
+      pick("gmailNotifiedAt", "gmail_notified_at"),
+    ),
+    review_requested: reviewRequested ? 1 : 0,
+    review_score: Number.isFinite(reviewScore) ? reviewScore : null,
+    reviewed_at: toSqlTimestampOrNull(
+      pick("reviewedAt", "reviewed_at"),
+    ),
+    created_at: toSqlTimestamp(createdAt),
+    updated_at: toSqlTimestamp(updatedAt),
+  };
+
+  const itemsInput = Array.isArray(body.items)
+    ? body.items
+    : Array.isArray(body.orderItems)
+      ? body.orderItems
+      : Array.isArray(body.order_items)
+        ? body.order_items
+        : null;
+
+  const columns = Object.keys(orderRecord);
+  const placeholders = columns.map(() => "?").join(", ");
+  const updateClause = columns
+    .filter((column) => column !== "id")
+    .map((column) =>
+      mysqlPool
+        ? `${column} = VALUES(${column})`
+        : `${column} = excluded.${column}`,
+    )
+    .join(", ");
+  const upsertOrderSql = mysqlPool
+    ? `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateClause}`
+    : `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateClause}`;
+
+  const itemColumns = [
+    "id",
+    "order_id",
+    "product_id",
+    "product_name",
+    "quantity",
+    "unit_price_cents",
+    "tax_percentage",
+    "removed_ingredients",
+    "selected_options",
+    "customer_note",
+    "total_cents",
+  ];
+  const insertItemSql = `INSERT INTO order_items (${itemColumns.join(", ")}) VALUES (${itemColumns.map(() => "?").join(", ")})`;
+
+  await withTransaction(async (tx) => {
+    await txQuery(
+      tx,
+      upsertOrderSql,
+      columns.map((column) => orderRecord[column]),
+    );
+
+    if (itemsInput) {
+      await txQuery(tx, "DELETE FROM order_items WHERE order_id = ?", [
+        orderId,
+      ]);
+      for (const item of itemsInput) {
+        await txQuery(tx, insertItemSql, [
+          item?.id || cryptoRandomId(),
+          orderId,
+          item?.productId ?? item?.product_id ?? null,
+          item?.productName ?? item?.product_name ?? "Producto",
+          toCents(item?.quantity ?? 1) || 1,
+          toCents(item?.unitPriceCents ?? item?.unit_price_cents),
+          toCents(item?.taxPercentage ?? item?.tax_percentage),
+          serializeStringList(
+            item?.removedIngredients ?? item?.removed_ingredients,
+          ),
+          serializeObjectList(
+            item?.selectedOptions ?? item?.selected_options,
+          ),
+          item?.customerNote ?? item?.customer_note ?? null,
+          toCents(item?.totalCents ?? item?.total_cents),
+        ]);
+      }
+    }
+  });
+
+  res.status(201).json({ success: true, id: orderId });
+});
+
+// Cualquier usuario con sesión puede cambiar el estado: el cliente confirma la
+// entrega con su PIN y la cocina mueve la comanda.
+app.put("/api/orders/:id", requireRole(), async (req, res) => {
+  const { id } = req.params;
+  const body = req.body || {};
+  const now = new Date().toISOString();
+  const read = (camel, snake) =>
+    body[camel] !== undefined ? body[camel] : body[snake];
+  const has = (camel, snake) =>
+    body[camel] !== undefined || body[snake] !== undefined;
+  const toCents = (value) => {
+    const number = Number(value);
+    return Number.isFinite(number) ? number : 0;
+  };
+
+  const result = await withTransaction(async (tx) => {
+    const rows = await txQuery(tx, "SELECT * FROM orders WHERE id = ?", [id]);
+    const existing = Array.isArray(rows) ? rows[0] : rows;
+    if (!existing) return { notFound: true };
+
+    const updates = new Map();
+    const set = (field, value) => updates.set(field, value);
+
+    let nextStatus = existing.status || "NEW";
+    if (has("status", "status")) {
+      nextStatus = String(read("status", "status") || "NEW");
+      set("status", nextStatus);
+    }
+
+    if (has("businessId", "business_id"))
+      set("business_id", read("businessId", "business_id") || null);
+    if (has("businessName", "business_name"))
+      set("business_name", read("businessName", "business_name") || null);
+    if (has("orderNumber", "order_number"))
+      set(
+        "order_number",
+        read("orderNumber", "order_number") || existing.order_number || "",
+      );
+    if (has("customerId", "customer_id"))
+      set("customer_id", read("customerId", "customer_id") || null);
+    if (has("customerName", "customer_name"))
+      set(
+        "customer_name",
+        read("customerName", "customer_name") ||
+          existing.customer_name ||
+          "Cliente",
+      );
+    if (has("customerEmail", "customer_email"))
+      set(
+        "customer_email",
+        read("customerEmail", "customer_email") ||
+          existing.customer_email ||
+          "",
+      );
+    if (has("customerPhone", "customer_phone"))
+      set("customer_phone", read("customerPhone", "customer_phone") || null);
+    if (has("deliveryType", "delivery_type")) {
+      set(
+        "delivery_type",
+        read("deliveryType", "delivery_type") === "PICKUP"
+          ? "PICKUP"
+          : "DELIVERY",
+      );
+    }
+    if (has("deliveryAddress", "delivery_address")) {
+      set(
+        "delivery_address",
+        serializeJsonField(
+          read("deliveryAddress", "delivery_address"),
+          null,
+        ),
+      );
+    }
+    if (has("scheduledTime", "scheduled_time"))
+      set("scheduled_time", read("scheduledTime", "scheduled_time") || null);
+    if (has("subtotalCents", "subtotal_cents"))
+      set(
+        "subtotal_cents",
+        toCents(read("subtotalCents", "subtotal_cents")),
+      );
+    if (has("deliveryFeeCents", "delivery_fee_cents"))
+      set(
+        "delivery_fee_cents",
+        toCents(read("deliveryFeeCents", "delivery_fee_cents")),
+      );
+    if (has("platformFeeCents", "platform_fee_cents"))
+      set(
+        "platform_fee_cents",
+        toCents(read("platformFeeCents", "platform_fee_cents")),
+      );
+    if (has("businessPayoutCents", "business_payout_cents"))
+      set(
+        "business_payout_cents",
+        toCents(read("businessPayoutCents", "business_payout_cents")),
+      );
+    if (has("courierPayoutCents", "courier_payout_cents"))
+      set(
+        "courier_payout_cents",
+        toCents(read("courierPayoutCents", "courier_payout_cents")),
+      );
+    if (has("tipCents", "tip_cents"))
+      set("tip_cents", toCents(read("tipCents", "tip_cents")));
+    if (has("totalCents", "total_cents"))
+      set("total_cents", toCents(read("totalCents", "total_cents")));
+    if (has("paymentMethod", "payment_method"))
+      set(
+        "payment_method",
+        read("paymentMethod", "payment_method") || existing.payment_method || null,
+      );
+    if (has("paymentStatus", "payment_status"))
+      set(
+        "payment_status",
+        read("paymentStatus", "payment_status") || existing.payment_status || null,
+      );
+    if (has("paymentTransactionId", "payment_transaction_id"))
+      set(
+        "payment_transaction_id",
+        read("paymentTransactionId", "payment_transaction_id") || null,
+      );
+    if (has("courierId", "courier_id"))
+      set("courier_id", read("courierId", "courier_id") || null);
+    if (has("courierName", "courier_name"))
+      set("courier_name", read("courierName", "courier_name") || null);
+    if (has("courierPhone", "courier_phone"))
+      set("courier_phone", read("courierPhone", "courier_phone") || null);
+    if (has("deliveryPin", "delivery_pin")) {
+      const pin = read("deliveryPin", "delivery_pin");
+      set("delivery_pin", pin === null || pin === undefined ? null : String(pin));
+    }
+    if (has("calendarEventId", "calendar_event_id"))
+      set(
+        "calendar_event_id",
+        read("calendarEventId", "calendar_event_id") || null,
+      );
+    if (has("gmailNotifiedAt", "gmail_notified_at"))
+      set(
+        "gmail_notified_at",
+        toSqlTimestampOrNull(read("gmailNotifiedAt", "gmail_notified_at")),
+      );
+    if (has("reviewRequested", "review_requested"))
+      set(
+        "review_requested",
+        read("reviewRequested", "review_requested") ? 1 : 0,
+      );
+    if (has("reviewScore", "review_score")) {
+      const score = read("reviewScore", "review_score");
+      set(
+        "review_score",
+        score === null || score === undefined
+          ? null
+          : Number.isFinite(Number(score))
+            ? Number(score)
+            : null,
+      );
+    }
+    if (has("reviewedAt", "reviewed_at"))
+      set("reviewed_at", toSqlTimestampOrNull(read("reviewedAt", "reviewed_at")));
+
+    if (has("statusHistory", "status_history")) {
+      set(
+        "status_history",
+        serializeObjectList(read("statusHistory", "status_history")),
+      );
+    } else if (has("status", "status")) {
+      const history = parseStoredList(existing.status_history);
+      history.push({
+        status: nextStatus,
+        timestamp:
+          toIsoTimestamp(
+            read("changedAt", "changed_at") ||
+              read("updatedAt", "updated_at") ||
+              now,
+          ) || now,
+        note: body.note ?? "",
+        changedByRole:
+          read("changedByRole", "changed_by_role") || "SISTEMA",
+      });
+      set("status_history", JSON.stringify(history));
+    }
+
+    // Al marcar el pedido como entregado se solicita una valoración, salvo que
+    // el cliente ya haya enviado su puntuación en esta misma petición.
+    const statusWasUpdated = has("status", "status");
+    const hasReviewScore = updates.has("review_score");
+    if (statusWasUpdated && nextStatus === "DELIVERED" && !hasReviewScore) {
+      set(
+        "review_requested",
+        updates.has("review_requested")
+          ? updates.get("review_requested")
+          : 1,
+      );
+    }
+
+    if (!updates.size) return { empty: true };
+
+    set(
+      "updated_at",
+      toSqlTimestamp(read("updatedAt", "updated_at") || now),
+    );
+
+    const fields = [...updates.keys()];
+    const values = [...updates.values()];
+    await txQuery(
+      tx,
+      `UPDATE orders SET ${fields.map((field) => `${field} = ?`).join(", ")} WHERE id = ?`,
+      [...values, id],
+    );
+
+    return { success: true };
+  });
+
+  if (result.notFound) {
+    return res.status(404).json({ success: false, message: "Pedido no encontrado" });
+  }
+  if (result.empty) {
     return res
       .status(400)
       .json({ success: false, message: "No hay campos para actualizar" });
   }
 
-  values.push(id);
-  if (mysqlPool) {
-    await mysqlPool.execute(
-      `UPDATE orders SET ${updates.join(", ")} WHERE id = ?`,
-      values,
-    );
-    return res.json({ success: true });
-  }
-
-  const db = getSqliteDb();
-  db.prepare(`UPDATE orders SET ${updates.join(", ")} WHERE id = ?`).run(
-    ...values,
-  );
   res.json({ success: true });
 });
 
-app.delete("/api/orders/:id", async (req, res) => {
+app.delete("/api/orders/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
-  if (mysqlPool) {
-    await mysqlPool.execute("DELETE FROM orders WHERE id = ?", [id]);
-    return res.json({ success: true });
-  }
 
-  const db = getSqliteDb();
-  db.prepare("DELETE FROM orders WHERE id = ?").run(id);
+  await withTransaction(async (tx) => {
+    // order_items referencia orders: hay que vaciar las líneas antes de borrar
+    // la cabecera para no violar la foreign key.
+    await txQuery(tx, "DELETE FROM order_items WHERE order_id = ?", [id]);
+    await txQuery(tx, "DELETE FROM orders WHERE id = ?", [id]);
+  });
+
   res.json({ success: true });
 });
 
-app.get("/api/debug/config", (_req, res) => {
+app.get("/api/debug/config", requireSuperAdmin, (_req, res) => {
   res.json({
     mysqlHost: process.env.MYSQL_HOST || null,
     mysqlDatabase: process.env.MYSQL_DATABASE || null,
@@ -2022,8 +4645,63 @@ if (fs.existsSync(distPath)) {
 // reenviado por los handlers async envueltos más arriba y responde con JSON
 // en lugar de dejar que Express devuelva HTML o que el proceso se caiga.
 app.use((err, _req, res, _next) => {
-  console.error("Unhandled route error:", err);
   if (res.headersSent) return;
+
+  // Errores de validación propios: siempre se devuelven tal cual, sin log.
+  if (err?.code === "VALIDATION_ERROR") {
+    return res.status(err.status || 400).json({
+      code: "VALIDATION_ERROR",
+      message: err.message || "Revisa los datos del formulario.",
+      errors: err.errors || {},
+    });
+  }
+
+  if (err?.code === "UNAUTHORIZED" || err?.status === 401) {
+    return res.status(401).json({
+      code: "UNAUTHORIZED",
+      message: err.message || "Debes iniciar sesión para realizar esta acción.",
+    });
+  }
+
+  if (err?.code === "FORBIDDEN" || err?.status === 403) {
+    return res.status(403).json({
+      code: "FORBIDDEN",
+      message:
+        err.message || "Tu usuario no tiene permisos para realizar esta acción.",
+    });
+  }
+
+  if (err?.code === "NOT_FOUND" || err?.status === 404) {
+    return res.status(404).json({
+      code: "NOT_FOUND",
+      message: err.message || "El recurso solicitado no existe.",
+    });
+  }
+
+  // body-parser: payload demasiado grande (p. ej. una foto en base64 pesada).
+  if (err?.type === "entity.too.large" || err?.status === 413) {
+    return res.status(413).json({
+      code: "PAYLOAD_TOO_LARGE",
+      message:
+        "Los datos enviados son demasiado pesados. Prueba con una imagen más ligera.",
+    });
+  }
+
+  // Foreign key incumplida: nunca debe llegar como 500 al cliente.
+  const isForeignKey =
+    err?.code === "SQLITE_CONSTRAINT_FOREIGNKEY" ||
+    err?.code === "ER_ROW_IS_REFERENCED_2" ||
+    err?.code === "ER_NO_REFERENCED_ROW_2" ||
+    /FOREIGN KEY constraint failed/i.test(String(err?.message || ""));
+
+  if (isForeignKey) {
+    console.warn("Foreign key violation:", err.message);
+    return res.status(409).json({
+      code: "FOREIGN_KEY_CONFLICT",
+      message:
+        "No se puede completar la operación porque otros datos dependen de este registro.",
+    });
+  }
 
   const isDuplicate =
     err?.code === "SQLITE_CONSTRAINT_UNIQUE" ||
@@ -2037,7 +4715,9 @@ app.use((err, _req, res, _next) => {
     });
   }
 
-  res.status(500).json({
+  console.error("Unhandled route error:", err);
+
+  res.status(err?.status || 500).json({
     code: "INTERNAL_ERROR",
     message: "Error interno del servidor. Inténtalo de nuevo más tarde.",
   });

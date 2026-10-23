@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, Cart, CartItem, Order, Business, Locality, Product, CartItemOptionSelected } from '../types';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { User, Cart, CartItem, Order, Business, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected } from '../types';
 import { INITIAL_BUSINESSES, LOCALITIES, INITIAL_PRODUCTS } from '../data/mockData';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
@@ -12,7 +12,9 @@ interface AppContextType {
 
   // Auth & User
   currentUser: User | null;
-  loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>) => void;
+  // true cuando ya se restauró (o descartó) el token guardado al cargar la app
+  sessionChecked: boolean;
+  loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => void;
   logout: () => void;
   updateCurrentUserProfile: (data: Partial<User>) => Promise<boolean>;
   setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
@@ -33,8 +35,17 @@ interface AppContextType {
   // Businesses & Catalog
   businesses: Business[];
   products: typeof INITIAL_PRODUCTS;
-  createBusiness: (businessData: Partial<Business>) => Business;
-  updateBusiness: (businessId: string, businessData: Partial<Business>) => Promise<boolean>;
+  createBusiness: (
+    businessData: Partial<Business>,
+    owner?: BusinessOwnerInput | null,
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ) => Promise<Business | null>;
+  updateBusiness: (
+    businessId: string,
+    businessData: Partial<Business>,
+    owner?: BusinessOwnerInput | null,
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ) => Promise<boolean>;
   deleteBusiness: (businessId: string) => Promise<boolean>;
   createUserAccount: (data: {
     username: string;
@@ -42,7 +53,23 @@ interface AppContextType {
     email: string;
     password: string;
     role: User['role'];
+    businessId?: string;
+    courierBusinessIds?: string[];
+    accountNumber?: string;
+    courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
   }) => Promise<boolean>;
+  listCouriers: () => Promise<User[]>;
+  setCourierConfirmation: (
+    userId: string,
+    confirmation: NonNullable<User['courierProfile']>['confirmation'],
+  ) => Promise<boolean>;
+  updateCourierDetails: (
+    userId: string,
+    data: {
+      courierBusinessIds: string[];
+      accountNumber?: string;
+    },
+  ) => Promise<boolean>;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
   deleteProductFromBusiness: (productId: string) => void;
@@ -52,7 +79,11 @@ interface AppContextType {
 
   // Cart
   cart: Cart | null;
-  addToCart: (item: Omit<CartItem, 'cartItemId'>, businessId: string) => { success: boolean; conflict?: boolean };
+  addToCart: (
+    item: Omit<CartItem, 'cartItemId'>,
+    businessId: string,
+    options?: { skipConflictCheck?: boolean },
+  ) => { success: boolean; conflict?: boolean };
   clearCart: () => void;
   removeFromCart: (cartItemId: string) => void;
   updateCartQuantity: (cartItemId: string, delta: number) => void;
@@ -105,6 +136,49 @@ const normalizeLocality = (item: any): Locality => ({
   coverImage: item.coverImage || item.cover_image,
 });
 
+// `delivery_modes` llega como JSON en texto (SQLite) o como array (MySQL):
+// se parsea con cuidado para no romper la app cuando cambia de modo de base
+// de datos o el valor viene mal formado.
+const parseModeList = (value: unknown, fallback: string[]): string[] => {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed.map(String) : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+
+const DEFAULT_SCHEDULE = [
+  { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
+  { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
+  { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
+  { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
+  { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
+  { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
+  { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isOpen: true },
+];
+
+// El horario vive en la tabla `business_hours` (snake_case) y los formularios
+// del panel trabajan con camelCase y lunes primero.
+const normalizeSchedule = (schedule: any): BusinessHours[] => {
+  if (!Array.isArray(schedule) || !schedule.length) return DEFAULT_SCHEDULE;
+
+  const dayOrder = (day: number) => (day === 0 ? 7 : day);
+
+  return schedule
+    .map((slot: any): BusinessHours => ({
+      dayOfWeek: Number(slot?.dayOfWeek ?? slot?.day_of_week ?? 0),
+      openTime: String(slot?.openTime ?? slot?.open_time ?? '12:00'),
+      closeTime: String(slot?.closeTime ?? slot?.close_time ?? '23:00'),
+      isOpen: Boolean(slot?.isOpen ?? slot?.is_open ?? true),
+    }))
+    .sort((a, b) => dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek));
+};
+
 const normalizeBusiness = (item: any): Business => ({
   id: item.id || `biz-${Date.now()}`,
   name: item.name || 'Negocio',
@@ -125,23 +199,31 @@ const normalizeBusiness = (item: any): Business => ({
   minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
   bannerUrl: item.bannerUrl || item.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
   logoUrl: item.logoUrl || item.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
-  isShiftOpen: item.isShiftOpen ?? item.is_shift_open ?? true,
-  deliveryModes: item.deliveryModes || JSON.parse(item.delivery_modes || '[]') || ['PLATFORM_COURIER', 'PICKUP'],
+  isShiftOpen: Boolean(item.isShiftOpen ?? item.is_shift_open ?? true),
+  deliveryModes: parseModeList(item.deliveryModes ?? item.delivery_modes, ['PLATFORM_COURIER', 'PICKUP']) as Business['deliveryModes'],
   deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
   status: item.status || 'APPROVED',
-  schedule: item.schedule || [
-    { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
-    { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
-    { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
-    { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
-    { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
-    { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
-    { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isOpen: true }
-  ],
+  schedule: normalizeSchedule(item.schedule),
   featuredProducts: item.featuredProducts || [],
-  managerName: item.managerName || '',
-  managerDni: item.managerDni || '',
+  managerName: item.managerName || item.manager_name || '',
+  managerDni: item.managerDni || item.manager_dni || '',
 });
+
+// El backend guarda estas listas como texto JSON y las devuelve sin parsear,
+// así que un producto leído de la base de datos llegaba con `ingredients`
+// como string y el formulario reventaba al intentar hacer .join(', ').
+const parseListField = (value: any): any[] => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+};
 
 const normalizeProduct = (item: any): Product => ({
   id: item.id || `prod-${Date.now()}`,
@@ -151,36 +233,250 @@ const normalizeProduct = (item: any): Product => ({
   name: item.name || 'Producto',
   description: item.description || '',
   tag: item.tag || '',
-  ingredients: item.ingredients || [],
+  ingredients: parseListField(item.ingredients),
   priceCents: Number(item.priceCents ?? item.price_cents ?? 0),
   taxPercentage: Number(item.taxPercentage ?? item.tax_percentage ?? 0),
   imageUrl: item.imageUrl || item.image_url || '',
   isAvailable: item.isAvailable ?? item.is_available ?? true,
   isSoldOut: item.isSoldOut ?? item.is_sold_out ?? false,
-  removableIngredients: item.removableIngredients || item.removable_ingredients || [],
-  additionalIngredients: item.additionalIngredients || item.additional_ingredients || [],
+  removableIngredients: parseListField(item.removableIngredients ?? item.removable_ingredients),
+  additionalIngredients: parseListField(item.additionalIngredients ?? item.additional_ingredients),
   optionGroups: item.optionGroups || [],
-  allergens: item.allergens || [],
+  allergens: parseListField(item.allergens),
   salesCount: Number(item.salesCount ?? 0),
   rating: Number(item.rating ?? 0),
   ratingCount: Number(item.ratingCount ?? 0),
 });
 
+const toIsoDate = (value: any): string | null => {
+  if (value === null || value === undefined || value === '') return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  const text = String(value).trim();
+  if (!text) return null;
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text);
+  const parsed = new Date(text.replace(' ', 'T') + (hasZone ? '' : 'Z'));
+  return Number.isNaN(parsed.getTime()) ? text : parsed.toISOString();
+};
+
+const normalizeOrderItem = (item: any): Order['items'][number] => ({
+  productId: String(item?.productId ?? item?.product_id ?? ''),
+  productName: item?.productName ?? item?.product_name ?? 'Producto',
+  unitPriceCents: Number(item?.unitPriceCents ?? item?.unit_price_cents ?? 0) || 0,
+  taxPercentage: Number(item?.taxPercentage ?? item?.tax_percentage ?? 0) || 0,
+  quantity: Number(item?.quantity ?? 1) || 1,
+  removedIngredients: parseListField(
+    item?.removedIngredients ?? item?.removed_ingredients,
+  ).map((entry) => String(entry)),
+  selectedOptions: parseListField(
+    item?.selectedOptions ?? item?.selected_options,
+  ).map((option: any) => ({
+    groupName: String(option?.groupName ?? option?.group_name ?? ''),
+    optionName: String(option?.optionName ?? option?.option_name ?? ''),
+    priceCents: Number(option?.priceCents ?? option?.price_cents ?? 0) || 0,
+  })),
+  customerNote: item?.customerNote ?? item?.customer_note ?? undefined,
+  totalCents: Number(item?.totalCents ?? item?.total_cents ?? 0) || 0,
+});
+
+// El backend devuelve los pedidos con la cabecera y las líneas en camelCase,
+// pero las bases antiguas pueden tener filas en snake_case. Este normalizador
+// deja siempre la misma forma que espera la UI.
+const normalizeOrder = (item: any): Order => {
+  const createdAt = toIsoDate(item?.createdAt ?? item?.created_at) || new Date(0).toISOString();
+  const updatedAt = toIsoDate(item?.updatedAt ?? item?.updated_at) || createdAt;
+  const status = (item?.status || 'NEW') as Order['status'];
+  const rawHistory = parseListField(item?.statusHistory ?? item?.status_history);
+  const statusHistory = rawHistory.length
+    ? rawHistory.map((entry: any) => ({
+        status: (entry?.status || status) as Order['status'],
+        timestamp: toIsoDate(entry?.timestamp ?? entry?.created_at) || createdAt,
+        note: entry?.note ?? '',
+        changedByRole:
+          entry?.changedByRole ?? entry?.changed_by_role ?? 'SISTEMA',
+      }))
+    : [
+        {
+          status,
+          timestamp: createdAt,
+          changedByRole: 'SISTEMA',
+          note: 'Estado inicial',
+        },
+      ];
+
+  const rawAddress = item?.deliveryAddress ?? item?.delivery_address;
+  let deliveryAddress: Order['deliveryAddress'];
+  if (rawAddress && typeof rawAddress === 'object') {
+    deliveryAddress = rawAddress as Order['deliveryAddress'];
+  } else if (typeof rawAddress === 'string' && rawAddress.trim()) {
+    try {
+      const parsed = JSON.parse(rawAddress);
+      if (parsed && typeof parsed === 'object') {
+        deliveryAddress = parsed as Order['deliveryAddress'];
+      }
+    } catch {
+      // La dirección no era JSON: se ignora en lugar de romper el pedido.
+    }
+  }
+
+  const reviewScore = item?.reviewScore ?? item?.review_score;
+
+  return {
+    id: String(item?.id || `ord-${Date.now()}`),
+    orderNumber: item?.orderNumber ?? item?.order_number ?? '',
+    businessId: item?.businessId ?? item?.business_id ?? '',
+    businessName: item?.businessName ?? item?.business_name ?? 'Negocio',
+    customerId: item?.customerId ?? item?.customer_id ?? '',
+    customerName: item?.customerName ?? item?.customer_name ?? 'Cliente',
+    customerPhone: item?.customerPhone ?? item?.customer_phone ?? '',
+    customerEmail: item?.customerEmail ?? item?.customer_email ?? '',
+    deliveryType:
+      (item?.deliveryType ?? item?.delivery_type) === 'PICKUP'
+        ? 'PICKUP'
+        : 'DELIVERY',
+    deliveryAddress,
+    scheduledTime: item?.scheduledTime ?? item?.scheduled_time ?? undefined,
+    items: parseListField(item?.items).map(normalizeOrderItem),
+    subtotalCents: Number(item?.subtotalCents ?? item?.subtotal_cents ?? 0) || 0,
+    deliveryFeeCents:
+      Number(item?.deliveryFeeCents ?? item?.delivery_fee_cents ?? 0) || 0,
+    platformFeeCents:
+      Number(item?.platformFeeCents ?? item?.platform_fee_cents ?? 0) || 0,
+    businessPayoutCents:
+      Number(item?.businessPayoutCents ?? item?.business_payout_cents ?? 0) || 0,
+    courierPayoutCents:
+      Number(item?.courierPayoutCents ?? item?.courier_payout_cents ?? 0) || 0,
+    tipCents: Number(item?.tipCents ?? item?.tip_cents ?? 0) || 0,
+    totalCents: Number(item?.totalCents ?? item?.total_cents ?? 0) || 0,
+    status,
+    statusHistory,
+    paymentMethod: (item?.paymentMethod ??
+      item?.payment_method ??
+      'CASH_ON_DELIVERY') as Order['paymentMethod'],
+    paymentStatus: (item?.paymentStatus ??
+      item?.payment_status ??
+      'PAID') as Order['paymentStatus'],
+    paymentTransactionId:
+      item?.paymentTransactionId ?? item?.payment_transaction_id ?? undefined,
+    courierId: item?.courierId ?? item?.courier_id ?? undefined,
+    courierName: item?.courierName ?? item?.courier_name ?? undefined,
+    courierPhone: item?.courierPhone ?? item?.courier_phone ?? undefined,
+    deliveryPin: String(item?.deliveryPin ?? item?.delivery_pin ?? ''),
+    calendarEventId:
+      item?.calendarEventId ?? item?.calendar_event_id ?? undefined,
+    gmailNotifiedAt:
+      toIsoDate(item?.gmailNotifiedAt ?? item?.gmail_notified_at) ?? undefined,
+    reviewRequested: Boolean(
+      item?.reviewRequested ?? item?.review_requested ?? 0,
+    ),
+    reviewScore:
+      reviewScore === null || reviewScore === undefined
+        ? undefined
+        : Number(reviewScore),
+    reviewedAt:
+      toIsoDate(item?.reviewedAt ?? item?.reviewed_at) ?? undefined,
+    createdAt,
+    updatedAt,
+  };
+};
+
+// Mezcla los pedidos del servidor con los locales. El servidor manda, salvo
+// que el pedido local tenga un cambio optimista más reciente (por ejemplo, un
+// estado recién pulsado que aún se está guardando).
+const mergeOrderLists = (local: Order[], remote: Order[]): Order[] => {
+  const remoteById = new Map(remote.map((order) => [order.id, order]));
+  const merged = remote.map((remoteOrder) => {
+    const localOrder = local.find((order) => order.id === remoteOrder.id);
+    if (!localOrder) return remoteOrder;
+    const localUpdated = Date.parse(localOrder.updatedAt || localOrder.createdAt || '') || 0;
+    const remoteUpdated = Date.parse(remoteOrder.updatedAt || remoteOrder.createdAt || '') || 0;
+    return localUpdated > remoteUpdated + 750 ? localOrder : remoteOrder;
+  });
+
+  const now = Date.now();
+  local.forEach((localOrder) => {
+    if (remoteById.has(localOrder.id)) return;
+    const created = Date.parse(localOrder.createdAt || '') || 0;
+    // Se conserva unos segundos para que el POST que aún está en vuelo no
+    // haga desaparecer el pedido de la pantalla.
+    if (now - created < 30000) merged.unshift(localOrder);
+  });
+
+  return merged;
+};
+
+// La sesión viaja en un token firmado por el backend. Se guarda aquí para que
+// cada petición pueda presentarlo en la cabecera Authorization.
+const SESSION_TOKEN_KEY = 'pidetietar_token';
+
+export const getSessionToken = (): string => {
+  if (typeof window === 'undefined') return '';
+  return localStorage.getItem(SESSION_TOKEN_KEY) || '';
+};
+
+export const setSessionToken = (token?: string | null): void => {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    localStorage.setItem(SESSION_TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(SESSION_TOKEN_KEY);
+  }
+};
+
+// `apiFetch` vive fuera del proveedor y no puede usar hooks: el proveedor
+// registra aquí qué hacer cuando el backend rechaza el token (401), para
+// cerrar la sesión en pantalla con un aviso en rojo en vez de dejar la app
+// "a medias" (token borrado pero usuario todavía visible).
+let sessionExpiredHandler: (() => void) | null = null;
+
+export const setSessionExpiredHandler = (handler: (() => void) | null): void => {
+  sessionExpiredHandler = handler;
+};
+
 const apiFetch = async (path: string, options?: RequestInit) => {
+  const token = getSessionToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...((options?.headers as Record<string, string>) || {}),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json', ...(options?.headers || {}) },
     ...options,
+    headers,
   });
 
   if (!response.ok) {
     let message = 'Error en la petición';
+    let errors: Record<string, string> | undefined;
+    let code: string | undefined;
     try {
       const payload = await response.json();
       message = payload?.message || payload?.error || message;
+      errors = payload?.errors;
+      code = payload?.code;
     } catch {
       // ignore parse errors
     }
-    throw new Error(message);
+
+    // Si la sesión caducó se limpia el token y se avisa a la app para cerrar
+    // el usuario en pantalla con un aviso en rojo, en vez de dejar la sesión
+    // "a medias" (sin token pero con el usuario todavía visible).
+    if (response.status === 401) {
+      setSessionToken(null);
+      sessionExpiredHandler?.();
+    }
+
+    const error = new Error(message) as Error & {
+      errors?: Record<string, string>;
+      status?: number;
+      code?: string;
+    };
+    error.errors = errors;
+    error.status = response.status;
+    error.code = code;
+    throw error;
   }
 
   return response.headers.get('content-type')?.includes('application/json') ? response.json() : null;
@@ -199,6 +495,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // User state
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  // Indica si ya se comprobó el token guardado contra el backend. Hasta que
+  // no sea true no se sabe si hay sesión, así la app no muestra el modal de
+  // login mientras restaura.
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   // Locality
   const [localities, setLocalities] = useState<Locality[]>(() => {
@@ -225,11 +525,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const loadFromDatabase = async () => {
       try {
+        // /api/orders exige sesión: sin token no se consulta para no provocar
+        // un 401 en la portada pública.
+        const ordersRequest = getSessionToken()
+          ? apiFetch('/orders', { cache: 'no-store' }).catch(() => null)
+          : Promise.resolve(null);
         const [localitiesData, businessesData, productsData, ordersData] = await Promise.all([
           apiFetch('/localities').catch(() => []),
           apiFetch('/businesses').catch(() => []),
           apiFetch('/products').catch(() => []),
-          apiFetch('/orders').catch(() => []),
+          // null = no se pudo consultar o no hay sesión; [] = el servidor no tiene pedidos.
+          ordersRequest,
         ]);
 
         if (!active) return;
@@ -237,7 +543,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const nextLocalities = (localitiesData || []).map(normalizeLocality);
         const nextBusinesses = (businessesData || []).map(normalizeBusiness);
         const nextProducts = (productsData || []).map(normalizeProduct);
-        const nextOrders = (ordersData || []).map((item: any) => ({ ...item }));
 
         if (nextLocalities.length) {
           setLocalities(nextLocalities);
@@ -251,7 +556,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           setProducts(nextProducts);
           localStorage.setItem('pidetietar_products', JSON.stringify(nextProducts));
         }
-        if (nextOrders.length) {
+        if (Array.isArray(ordersData)) {
+          // A diferencia de las demás entidades, los pedidos sí se reemplazan
+          // aunque la lista esté vacía: el servidor es la fuente de verdad y
+          // la caché local no debe resucitar pedidos ya borrados.
+          const nextOrders = ordersData.map(normalizeOrder);
           setOrders(nextOrders);
           localStorage.setItem('pidetietar_orders', JSON.stringify(nextOrders));
         }
@@ -327,15 +636,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('pidetietar_orders', JSON.stringify(orders));
   }, [orders]);
 
+  // Al cerrar sesión (o si el token guardado ya no vale) no deben quedar en
+  // memoria pedidos de la sesión anterior.
+  useEffect(() => {
+    if (!sessionChecked || currentUser) return;
+    setOrders([]);
+    localStorage.removeItem('pidetietar_orders');
+  }, [sessionChecked, currentUser]);
+
+  // Sincronización periódica de pedidos: el cliente, el negocio y el
+  // repartidor pueden estar en dispositivos distintos. El evento `storage`
+  // sólo cubre pestañas del mismo navegador, así que se consulta la API cada
+  // pocos segundos y también al recuperar el foco.
+  useEffect(() => {
+    let active = true;
+    let inFlight = false;
+
+    const syncOrders = async () => {
+      if (!active || inFlight) return;
+      // La API de pedidos exige sesión. Sin token no se consulta (portada pública).
+      if (!getSessionToken()) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+
+      inFlight = true;
+      try {
+        const data = await apiFetch('/orders', { cache: 'no-store' }).catch(() => null);
+        if (!active || !Array.isArray(data)) return;
+        const remoteOrders = data.map(normalizeOrder);
+        setOrders((previous) => mergeOrderLists(previous, remoteOrders));
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void syncOrders();
+    }, 4000);
+
+    const handleFocus = () => {
+      void syncOrders();
+    };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void syncOrders();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+    void syncOrders();
+
+    return () => {
+      active = false;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+    // Al cambiar de usuario se reinicia el ciclo y se sincroniza al instante,
+    // sin esperar a los 4 segundos del siguiente intervalo.
+  }, [currentUser?.id]);
+
   // Verification state
   const [verificationSent, setVerificationSent] = useState(false);
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
 
   // Notifications
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [notificationTimeout, setNotificationTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const showNotification = (message: string, type: 'success' | 'info' | 'error' = 'info') => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+    // Se limpia el temporizador anterior para que un aviso no se oculte antes
+    // de tiempo si llegan varios seguidos. Los errores duran más (5 s) para
+    // dar tiempo a leer el mensaje.
+    if (notificationTimeout) clearTimeout(notificationTimeout);
+    setNotificationTimeout(setTimeout(() => setNotification(null), type === 'error' ? 5000 : 3000));
   };
 
   // Loading & Error simulator states
@@ -365,7 +737,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Switch roles for instant testing of all roles
-  const loginAs = (role: User['role'], customEmail?: string, extraData?: Partial<User>) => {
+  const loginAs = (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => {
     const roleNames: Record<User['role'], string> = {
       CLIENT: 'Lucía Morales (Cliente)',
       BUSINESS_ADMIN: 'Carlos Gómez (Admin Asador)',
@@ -419,13 +791,88 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     setCurrentUser(newUser);
     setUserSubscription(newUser.subscriptionPlan);
-    showNotification(`Sesión iniciada como ${newUser.name} (${role})`, 'success');
+    // La restauración de sesión al cargar (silent) no anuncia nada: el usuario
+    // no ha iniciado sesión de nuevo, seguía dentro.
+    if (!options?.silent) {
+      showNotification(`Sesión iniciada como ${newUser.name} (${role})`, 'success');
+    }
   };
 
   const logout = () => {
+    setSessionToken(null);
     setCurrentUser(null);
+    setOrders([]);
+    localStorage.removeItem('pidetietar_orders');
     showNotification('Has cerrado la sesión.', 'info');
   };
+
+  // La sesión vive sólo en memoria: si nadie la restaura del token al cargar
+  // la app, cada recarga (F5) o cada petición 401 "cerraba" la sesión aunque
+  // el token siguiera siendo válido. Al montar se comprueba contra el backend
+  // y se reutiliza loginAs (silent) para mantener la misma forma de Usuario
+  // que un login normal (dirección demo, suscripción, etc.).
+  useEffect(() => {
+    const restoreSession = async () => {
+      if (!getSessionToken()) {
+        setSessionChecked(true);
+        return;
+      }
+
+      try {
+        const data = await apiFetch('/auth/me');
+        const raw = (data as { user?: any } | null)?.user;
+        if (raw) {
+          // No se pasan addresses ni subscriptionPlan: el backend no los
+          // persiste y se conservan los mismos valores demo que un login
+          // normal (paridad de datos entre login y restauración).
+          loginAs(
+            (raw.role as User['role']) || 'CLIENT',
+            raw.email,
+            {
+              id: String(raw.id),
+              username: raw.username,
+              name: raw.name,
+              email: raw.email,
+              phone: raw.phone || '',
+              accountNumber: raw.accountNumber || '',
+              avatarUrl: raw.avatarUrl || '',
+              isEmailVerified: Boolean(raw.isEmailVerified),
+              businessId: raw.businessId || undefined,
+              courierProfile: raw.courierProfile,
+            },
+            { silent: true },
+          );
+        }
+      } catch {
+        // Token inválido o backend caído: apiFetch ya limpia el token en 401.
+      } finally {
+        setSessionChecked(true);
+      }
+    };
+
+    void restoreSession();
+  }, []);
+
+  // Un 401 en mitad de una acción significa que el token ya no vale: se cierra
+  // el usuario en pantalla con un aviso en rojo. El aviso se omite si no había
+  // nadie en sesión (p. ej. el 401 de la propia restauración), así no se
+  // spamea al cargar con un token caducado.
+  const currentUserRef = useRef<User | null>(null);
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
+
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      if (!currentUserRef.current) return;
+      currentUserRef.current = null;
+      setCurrentUser(null);
+      setOrders([]);
+      localStorage.removeItem('pidetietar_orders');
+      showNotification('Tu sesión ha caducado. Vuelve a iniciar sesión para continuar.', 'error');
+    });
+    return () => setSessionExpiredHandler(null);
+  }, []);
 
   const updateCurrentUserProfile = async (data: Partial<User>) => {
     if (!currentUser?.id) {
@@ -537,8 +984,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const addLocality = (data: Partial<Locality>): Locality => {
+    // Id provisional: sólo sirve para poder seleccionar la zona en esta sesión
+    // mientras el backend responde con el id real.
+    const tempId = data.id || `loc-${Date.now()}`;
     const newLocality: Locality = {
-      id: data.id || `loc-${Date.now()}`,
+      id: tempId,
       name: data.name || 'Nueva zona',
       postalCode: data.postalCode || '00000',
       coordinates: data.coordinates || { lat: 40.2891, lng: -4.5824 },
@@ -550,17 +1000,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     void apiFetch('/localities', {
       method: 'POST',
       body: JSON.stringify(toServerLocality(newLocality)),
-    }).catch(() => {
-      console.warn('No se pudo guardar la localidad en la base de datos');
-    });
-    showNotification(`Zona "${newLocality.name}" añadida.`, 'success');
+    })
+      .then((response: any) => {
+        showNotification(`Zona "${newLocality.name}" añadida.`, 'success');
+
+        const created = response?.locality;
+        const serverId = created?.id;
+        if (!serverId || serverId === tempId) return;
+
+        // El backend genera su propio id y antes se descartaba la respuesta:
+        // la zona quedaba sólo en el navegador y "Crear comercio" fallaba
+        // después con "La zona seleccionada no existe".
+        const adopted = normalizeLocality(created);
+        setLocalities(prev =>
+          prev.map(loc => (loc.id === tempId ? { ...loc, ...adopted, id: serverId } : loc)),
+        );
+        setSelectedLocality(prev => (prev.id === tempId ? { ...prev, ...adopted, id: serverId } : prev));
+      })
+      .catch((error) => {
+        // Se retira la zona provisional para no mostrar un alta que no ocurrió.
+        setLocalities(prev => prev.filter(loc => loc.id !== tempId));
+        setSelectedLocality(cur => (cur.id === tempId ? (localities[0] ?? cur) : cur));
+        showNotification(
+          error instanceof Error ? error.message : 'No se pudo guardar la zona en el servidor.',
+          'error',
+        );
+      });
     return newLocality;
   };
 
   const updateLocality = (localityId: string, data: Partial<Locality>) => {
-    setLocalities(prev => prev.map(loc => (loc.id === localityId ? { ...loc, ...data } : loc)));
-    setSelectedLocality(prev => (prev.id === localityId ? { ...prev, ...data } : prev));
-    showNotification('Zona actualizada correctamente.', 'success');
+    const next = { ...data };
+    setLocalities(prev => prev.map(loc => (loc.id === localityId ? { ...loc, ...next } : loc)));
+    setSelectedLocality(prev => (prev.id === localityId ? { ...prev, ...next } : prev));
+
+    // Antes sólo se tocaba el estado local: la zona volvía a su valor
+    // antiguo al recargar. Ahora se guarda también en el servidor.
+    void apiFetch(`/localities/${encodeURIComponent(localityId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(toServerLocality({ ...next })),
+    })
+      .then(() => showNotification('Zona actualizada correctamente.', 'success'))
+      .catch((error) => showNotification(
+        error instanceof Error
+          ? error.message
+          : 'La zona se mostró modificada pero no se guardó en el servidor.',
+        'error',
+      ));
   };
 
   const deleteLocality = (localityId: string) => {
@@ -570,82 +1056,112 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return;
     }
 
+    const removed = localities.find(loc => loc.id === localityId);
+    const remaining = localities.filter(loc => loc.id !== localityId);
+
     setLocalities(prev => {
-      const remaining = prev.filter(loc => loc.id !== localityId);
-      if (selectedLocality.id === localityId && remaining.length > 0) {
-        setSelectedLocality(remaining[0]);
+      const rest = prev.filter(loc => loc.id !== localityId);
+      if (selectedLocality.id === localityId && rest.length > 0) {
+        setSelectedLocality(rest[0]);
       }
-      return remaining;
+      return rest;
     });
-    showNotification('Zona eliminada.', 'info');
+
+    void apiFetch(`/localities/${encodeURIComponent(localityId)}`, { method: 'DELETE' })
+      .then(() => {
+        if (removed) showNotification(`Zona "${removed.name}" eliminada.`, 'success');
+      })
+      .catch((error) => {
+        showNotification(
+          error instanceof Error
+            ? error.message
+            : 'No se pudo eliminar la zona del servidor.',
+          'error',
+        );
+        // Se restaura para no mostrar un borrado que no llegó a producirse.
+        if (removed) {
+          setLocalities(prev => [...prev, removed]);
+          if (remaining.length === 0) setSelectedLocality(removed);
+        }
+      });
   };
 
-  const createBusiness = (businessData: Partial<Business>): Business => {
-    const newBusiness: Business = {
-      id: businessData.id || `biz-${Date.now()}`,
-      name: businessData.name || 'Nuevo negocio',
-      legalName: businessData.legalName || businessData.name || 'Nuevo negocio',
-      cif: businessData.cif || '00000000A',
-      accountNumber: businessData.accountNumber || '',
-      category: businessData.category || 'general',
-      localityId: businessData.localityId || selectedLocality.id,
-      address: businessData.address || 'Dirección por definir',
-      phone: businessData.phone || '+34 600 000 000',
-      email: businessData.email || 'contacto@nuevo-negocio.es',
-      managerName: businessData.managerName || '',
-      managerDni: businessData.managerDni || '',
-      coordinates: businessData.coordinates || { lat: 40.2891, lng: -4.5824 },
-      rating: businessData.rating ?? 4.5,
-      reviewCount: businessData.reviewCount || 0,
-      estimatedTimeMin: businessData.estimatedTimeMin || 20,
-      estimatedTimeMax: businessData.estimatedTimeMax || 40,
-      deliveryFeeCents: businessData.deliveryFeeCents || 250,
-      minOrderCents: businessData.minOrderCents || 1000,
-      bannerUrl: businessData.bannerUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
-      logoUrl: businessData.logoUrl || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
-      isShiftOpen: businessData.isShiftOpen ?? true,
-      deliveryModes: businessData.deliveryModes || ['PLATFORM_COURIER', 'PICKUP'],
-      deliveryRadiusKm: businessData.deliveryRadiusKm || 10,
+  // El registro de negocios es una operación de plataforma: sólo el superadmin
+  // puede hacerla y el backend crea en la misma transacción el negocio, su
+  // horario y la cuenta (usuario y clave) del propietario. Si algo falla no se
+  // toca el estado local, para que no parezca guardado algo que no lo está.
+  const createBusiness = async (
+    businessData: Partial<Business>,
+    owner?: BusinessOwnerInput | null,
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ): Promise<Business | null> => {
+    const payload = {
+      name: businessData.name || '',
+      legal_name: businessData.legalName || businessData.name || '',
+      cif: businessData.cif || '',
+      account_number: businessData.accountNumber || '',
+      category: businessData.category || '',
+      locality_id: businessData.localityId || selectedLocality.id,
+      phone: businessData.phone || '',
+      email: businessData.email || '',
+      address: businessData.address || '',
+      manager_name: businessData.managerName || '',
+      manager_dni: businessData.managerDni || '',
+      banner_url: businessData.bannerUrl || '',
+      logo_url: businessData.logoUrl || '',
+      latitude: businessData.coordinates?.lat,
+      longitude: businessData.coordinates?.lng,
+      rating: businessData.rating ?? 4.8,
+      review_count: businessData.reviewCount ?? 0,
+      estimated_time_min: businessData.estimatedTimeMin ?? 20,
+      estimated_time_max: businessData.estimatedTimeMax ?? 40,
+      delivery_fee_cents: businessData.deliveryFeeCents ?? 0,
+      min_order_cents: businessData.minOrderCents ?? 0,
+      delivery_radius_km: businessData.deliveryRadiusKm ?? 5,
+      delivery_modes: businessData.deliveryModes || ['PICKUP'],
+      is_shift_open: businessData.isShiftOpen ?? true,
       status: businessData.status || 'APPROVED',
-      schedule: businessData.schedule || [
-        { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 3, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 4, openTime: '12:00', closeTime: '23:00', isOpen: true },
-        { dayOfWeek: 5, openTime: '12:00', closeTime: '00:00', isOpen: true },
-        { dayOfWeek: 6, openTime: '12:00', closeTime: '00:00', isOpen: true },
-        { dayOfWeek: 0, openTime: '12:00', closeTime: '22:00', isOpen: true }
-      ],
-      featuredProducts: businessData.featuredProducts || []
+      schedule: (businessData.schedule || []).map((slot) => ({
+        dayOfWeek: slot.dayOfWeek,
+        openTime: slot.openTime,
+        closeTime: slot.closeTime,
+        isOpen: slot.isOpen,
+      })),
+      owner: owner || undefined,
     };
 
-    setBusinesses(prev => [newBusiness, ...prev]);
-    void apiFetch('/businesses', {
-      method: 'POST',
-      body: JSON.stringify({
-        ...newBusiness,
-        locality_id: newBusiness.localityId,
-        legal_name: newBusiness.legalName,
-        account_number: newBusiness.accountNumber,
-        delivery_fee_cents: newBusiness.deliveryFeeCents,
-        min_order_cents: newBusiness.minOrderCents,
-        delivery_modes: newBusiness.deliveryModes,
-        is_shift_open: newBusiness.isShiftOpen,
-        estimated_time_min: newBusiness.estimatedTimeMin,
-        estimated_time_max: newBusiness.estimatedTimeMax,
-        review_count: newBusiness.reviewCount,
-        banner_url: newBusiness.bannerUrl,
-        logo_url: newBusiness.logoUrl,
-        delivery_radius_km: newBusiness.deliveryRadiusKm,
-      }),
-    }).catch(() => {
-      console.warn('No se pudo guardar el negocio en la base de datos');
-    });
-    showNotification(`Nuevo negocio creado: ${newBusiness.name}`, 'success');
-    return newBusiness;
+    try {
+      const response = await apiFetch('/businesses', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const created = response?.business ? normalizeBusiness(response.business) : null;
+      if (!created) {
+        throw new Error('El servidor no devolvió el negocio creado.');
+      }
+
+      setBusinesses((previous) => [created, ...previous.filter((business) => business.id !== created.id)]);
+      showNotification(`Nuevo negocio creado: ${created.name}`, 'success');
+      return created;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo crear el negocio';
+      // El backend responde con los motivos campo a campo: se pasan al
+      // formulario para que no haya que adivinar qué está mal.
+      onFieldErrors?.(
+        (error as { errors?: Record<string, string> })?.errors || {},
+      );
+      showNotification(message, 'error');
+      return null;
+    }
   };
 
-  const updateBusiness = async (businessId: string, businessData: Partial<Business>): Promise<boolean> => {
+  const updateBusiness = async (
+    businessId: string,
+    businessData: Partial<Business>,
+    owner?: BusinessOwnerInput | null,
+    onFieldErrors?: (errors: Record<string, string>) => void,
+  ): Promise<boolean> => {
     const target = businesses.find((business) => business.id === businessId);
     if (!target) {
       showNotification('No se encontró el negocio que intentas editar.', 'error');
@@ -663,12 +1179,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           cif: updatedBusiness.cif,
           phone: updatedBusiness.phone,
           email: updatedBusiness.email,
-          account_number: updatedBusiness.accountNumber || null,
+          account_number: updatedBusiness.accountNumber || '',
           address: updatedBusiness.address,
           locality_id: updatedBusiness.localityId,
-          status: updatedBusiness.status,
+          category: updatedBusiness.category,
+          manager_name: updatedBusiness.managerName || '',
+          manager_dni: updatedBusiness.managerDni || '',
+          banner_url: updatedBusiness.bannerUrl || '',
+          logo_url: updatedBusiness.logoUrl || '',
+          latitude: updatedBusiness.coordinates?.lat,
+          longitude: updatedBusiness.coordinates?.lng,
+          rating: updatedBusiness.rating,
+          review_count: updatedBusiness.reviewCount ?? 0,
+          estimated_time_min: updatedBusiness.estimatedTimeMin,
+          estimated_time_max: updatedBusiness.estimatedTimeMax,
           delivery_fee_cents: updatedBusiness.deliveryFeeCents,
+          min_order_cents: updatedBusiness.minOrderCents,
+          delivery_radius_km: updatedBusiness.deliveryRadiusKm,
+          delivery_modes: updatedBusiness.deliveryModes,
           is_shift_open: updatedBusiness.isShiftOpen,
+          status: updatedBusiness.status,
+          schedule: (updatedBusiness.schedule || []).map((slot) => ({
+            dayOfWeek: slot.dayOfWeek,
+            openTime: slot.openTime,
+            closeTime: slot.closeTime,
+            isOpen: slot.isOpen,
+          })),
+          // Sólo llega si el superadmin rellena las credenciales: el backend
+          // crea o actualiza la cuenta del propietario dentro de la misma
+          // transacción.
+          owner: owner || undefined,
         }),
       });
 
@@ -681,6 +1221,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo actualizar el negocio';
+      onFieldErrors?.(
+        (error as { errors?: Record<string, string> })?.errors || {},
+      );
       showNotification(message, 'error');
       return false;
     }
@@ -711,6 +1254,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     email: string;
     password: string;
     role: User['role'];
+    businessId?: string;
+    courierBusinessIds?: string[];
+    accountNumber?: string;
+    courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
   }): Promise<boolean> => {
     try {
       await apiFetch('/users', {
@@ -721,19 +1268,129 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           email: data.email,
           password: data.password,
           role: data.role,
+          businessId: data.businessId,
+          courierBusinessIds: data.courierBusinessIds,
+          accountNumber: data.accountNumber,
+          courierConfirmation: data.courierConfirmation,
         }),
       });
+      showNotification('Cuenta creada correctamente.', 'success');
       return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'No se pudo crear el usuario del negocio';
+      const message = error instanceof Error ? error.message : 'No se pudo crear el usuario';
+      showNotification(message, 'error');
+      return false;
+    }
+  };
+
+  // Lista las cuentas de repartidor visibles para quien consulta: el
+  // superadmin recibe todas y el dueño del negocio sólo las suyas (el filtro
+  // real lo aplica el backend).
+  const listCouriers = async (): Promise<User[]> => {
+    try {
+      const data = await apiFetch('/users');
+      const rows = Array.isArray(data) ? data : [];
+
+      return rows
+        .filter(
+          (row: any) =>
+            row?.role === 'PLATFORM_COURIER' ||
+            row?.role === 'BUSINESS_COURIER',
+        )
+        .map(
+          (row: any): User => ({
+            id: String(row.id),
+            username: row.username || '',
+            name: row.name || 'Repartidor',
+            email: row.email || '',
+            phone: row.phone || '',
+            role: row.role,
+            businessId: row.businessId || undefined,
+            accountNumber: row.accountNumber || '',
+            isEmailVerified: Boolean(row.isEmailVerified),
+            addresses: [],
+            createdAt: row.createdAt || new Date().toISOString(),
+            avatarUrl: row.avatarUrl || '',
+            courierProfile: row.courierProfile,
+          }),
+        );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudieron cargar los repartidores';
+      showNotification(message, 'error');
+      return [];
+    }
+  };
+
+  const setCourierConfirmation = async (
+    userId: string,
+    confirmation: NonNullable<User['courierProfile']>['confirmation'],
+  ): Promise<boolean> => {
+    try {
+      await apiFetch(`/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ courierConfirmation: confirmation }),
+      });
+      showNotification(
+        confirmation === 'PENDING'
+          ? 'Confirmación del repartidor retirada.'
+          : 'Repartidor confirmado. Ya puede acceder a su panel.',
+        'success',
+      );
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo confirmar al repartidor';
+      showNotification(message, 'error');
+      return false;
+    }
+  };
+
+  // Edita los negocios asignados y la cuenta bancaria de un repartidor. El
+  // backend restringe ambos campos al superadmin.
+  const updateCourierDetails = async (
+    userId: string,
+    data: {
+      courierBusinessIds: string[];
+      accountNumber?: string;
+    },
+  ): Promise<boolean> => {
+    try {
+      await apiFetch(`/users/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          courierBusinessIds: data.courierBusinessIds,
+          accountNumber: data.accountNumber ?? '',
+        }),
+      });
+      showNotification('Repartidor actualizado correctamente.', 'success');
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo actualizar el repartidor';
       showNotification(message, 'error');
       return false;
     }
   };
 
   const updateBusinessShift = (businessId: string, isOpen: boolean) => {
+    const previous = businesses.find(b => b.id === businessId)?.isShiftOpen;
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
-    showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, isOpen ? 'success' : 'info');
+
+    // El turno sólo vivía en el navegador: al recargar volvía al valor
+    // guardado. Ahora se guarda en el servidor (PUT parcial con is_shift_open).
+    void apiFetch(`/businesses/${encodeURIComponent(businessId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_shift_open: Number(isOpen) }),
+    })
+      .then(() => showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, 'success'))
+      .catch((error) => {
+        // Se revierte para no mostrar un turno que no llegó a guardarse.
+        if (previous !== undefined) {
+          setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: previous } : b));
+        }
+        showNotification(
+          error instanceof Error ? error.message : 'No se pudo guardar el turno en el servidor.',
+          'error',
+        );
+      });
   };
 
   const addProductToBusiness = (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Product => {
@@ -761,10 +1418,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         removable_ingredients: newProduct.removableIngredients,
         additional_ingredients: newProduct.additionalIngredients,
       }),
-    }).catch(() => {
-      console.warn('No se pudo guardar el producto en la base de datos');
-    });
-    showNotification(`Producto añadido a la carta: ${newProduct.name}`, 'success');
+    })
+      .then(() => {
+        showNotification(`Producto añadido a la carta: ${newProduct.name}`, 'success');
+      })
+      .catch((error) => {
+        // Se quita de la lista para no mostrar un producto que no se guardó.
+        setProducts((prev: Product[]) => prev.filter((p: Product) => p.id !== newProduct.id));
+        showNotification(
+          error instanceof Error ? error.message : 'No se pudo guardar el producto en el servidor.',
+          'error',
+        );
+      });
     return newProduct;
   };
 
@@ -774,25 +1439,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const updatedProduct: Product = { ...currentProduct, ...product };
     setProducts((prev: Product[]) => prev.map((p: Product) => p.id === productId ? updatedProduct : p));
-    showNotification(`Producto actualizado: ${updatedProduct.name}`, 'info');
+
+    // Antes sólo se cambiaba el estado local: al recargar la app la edición
+    // desaparecía. Ahora se guarda también en el servidor.
+    void apiFetch(`/products/${encodeURIComponent(productId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        name: updatedProduct.name,
+        description: updatedProduct.description,
+        tag: updatedProduct.tag,
+        category_id: updatedProduct.categoryId,
+        price_cents: updatedProduct.priceCents,
+        tax_percentage: updatedProduct.taxPercentage,
+        image_url: updatedProduct.imageUrl,
+        is_available: updatedProduct.isAvailable,
+        is_sold_out: updatedProduct.isSoldOut,
+        ingredients: updatedProduct.ingredients,
+        allergens: updatedProduct.allergens,
+        removable_ingredients: updatedProduct.removableIngredients,
+        additional_ingredients: updatedProduct.additionalIngredients,
+      }),
+    })
+      .then(() => showNotification(`Producto actualizado: ${updatedProduct.name}`, 'success'))
+      .catch((error) => showNotification(
+        error instanceof Error
+          ? error.message
+          : 'La edición se mostró en pantalla pero no se guardó en el servidor.',
+        'error',
+      ));
+
     return updatedProduct;
   };
 
   const deleteProductFromBusiness = (productId: string) => {
     const target = products.find((p: Product) => p.id === productId);
     setProducts((prev: Product[]) => prev.filter((p: Product) => p.id !== productId));
-    if (target) {
-      showNotification(`Se eliminó ${target.name} del catálogo`, 'info');
-    }
+
+    void apiFetch(`/products/${encodeURIComponent(productId)}`, { method: 'DELETE' })
+      .then(() => {
+        if (target) showNotification(`Se eliminó ${target.name} del catálogo`, 'success');
+      })
+      .catch((error) => {
+        showNotification(
+          error instanceof Error
+            ? error.message
+            : 'No se pudo eliminar el producto del servidor.',
+          'error',
+        );
+        // Se devuelve a la lista para no mostrar un borrado que no ocurrió.
+        if (target) setProducts((prev: Product[]) => [...prev, target]);
+      });
   };
 
-  const addToCart = (item: Omit<CartItem, 'cartItemId'>, businessId: string) => {
+  const addToCart = (
+    item: Omit<CartItem, 'cartItemId'>,
+    businessId: string,
+    options?: { skipConflictCheck?: boolean },
+  ) => {
     if (item.product.businessId && item.product.businessId !== businessId) {
       return { success: false, conflict: true };
     }
 
-    // Check single business constraint
-    if (cart && cart.businessId !== businessId && cart.items.length > 0) {
+    // Check single business constraint. Se puede omitir cuando el usuario acaba
+    // de confirmar que quiere vaciar la cesta para añadir este producto.
+    if (!options?.skipConflictCheck && cart && cart.businessId !== businessId && cart.items.length > 0) {
       return { success: false, conflict: true };
     }
 
@@ -1010,21 +1720,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }).catch(console.error);
 
     setOrders(prev => [newOrder, ...prev]);
-    void apiFetch('/orders', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: newOrder.id,
-        business_id: newOrder.businessId,
-        order_number: newOrder.orderNumber,
-        customer_name: newOrder.customerName,
-        customer_email: newOrder.customerEmail,
-        delivery_type: newOrder.deliveryType,
-        total_cents: newOrder.totalCents,
-        status: newOrder.status,
-      }),
-    }).catch(() => {
-      console.warn('No se pudo guardar el pedido en la base de datos');
-    });
+
+    // El POST se espera antes de limpiar el carrito: si el backend rechaza el
+    // pedido, no se borra la cesta (el usuario puede reintentar) y se avisa
+    // en rojo con el mensaje real del servidor.
+    try {
+      await apiFetch('/orders', {
+        method: 'POST',
+        // Se envía el pedido completo (cabecera + líneas + historial) para que
+        // el servidor pueda reconstruirlo tal cual en las tres vistas.
+        body: JSON.stringify(newOrder),
+      });
+    } catch (error) {
+      setOrders(prev => prev.filter(ord => ord.id !== newOrder.id));
+      const message = error instanceof Error
+        ? error.message
+        : 'No se pudo guardar el pedido en el servidor.';
+      showNotification(message, 'error');
+      return { success: false, error: message };
+    }
+
     clearCart();
     showNotification(`¡Pedido ${newOrder.orderNumber} confirmado con éxito!`, 'success');
 
@@ -1032,35 +1747,65 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateOrderStatus = (orderId: string, newStatus: Order['status'], note?: string) => {
-    setOrders(prev => prev.map(ord => {
-      if (ord.id === orderId) {
-        const nextOrder = {
-          ...ord,
-          status: newStatus,
-          reviewRequested: newStatus === 'DELIVERED' ? true : ord.reviewRequested,
-          updatedAt: new Date().toISOString(),
-          statusHistory: [
-            ...ord.statusHistory,
-            {
-              status: newStatus,
-              timestamp: new Date().toISOString(),
-              changedByRole: currentUser?.role || 'SISTEMA',
-              note
-            }
-          ]
-        };
+    const previousOrder = orders.find(ord => ord.id === orderId);
+    const changedAt = new Date().toISOString();
+    const historyEntry: Order['statusHistory'][number] = {
+      status: newStatus,
+      timestamp: changedAt,
+      changedByRole: currentUser?.role || 'SISTEMA',
+      note,
+    };
+    const nextHistory = previousOrder
+      ? [...(previousOrder.statusHistory || []), historyEntry]
+      : undefined;
 
+    setOrders(prev => prev.map(ord => {
+      if (ord.id !== orderId) return ord;
+      return {
+        ...ord,
+        status: newStatus,
+        reviewRequested: newStatus === 'DELIVERED' ? true : ord.reviewRequested,
+        updatedAt: changedAt,
+        statusHistory: [...(ord.statusHistory || []), historyEntry],
+      };
+    }));
+
+    // El cambio de estado se guarda en el servidor para que el negocio, el
+    // cliente y el repartidor lo vean desde cualquier dispositivo. Se envía el
+    // historial completo para conservar la misma línea temporal en todos.
+    const payload: Record<string, unknown> = {
+      status: newStatus,
+      updated_at: changedAt,
+      note,
+      changed_by_role: currentUser?.role || 'SISTEMA',
+    };
+    if (nextHistory) payload.status_history = nextHistory;
+    if (newStatus === 'DELIVERED') payload.review_requested = true;
+
+    void apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+      .then(() => {
         if (newStatus === 'DELIVERED') {
           showNotification('Pedido entregado. Ayúdanos a valorar la experiencia del local.', 'success');
+        } else {
+          showNotification(`Estado de pedido actualizado a: ${newStatus}`, 'success');
         }
-
-        return nextOrder;
-      }
-      return ord;
-    }));
-    if (newStatus !== 'DELIVERED') {
-      showNotification(`Estado de pedido actualizado a: ${newStatus}`, 'info');
-    }
+      })
+      .catch((error) => {
+        // Se restaura el pedido anterior para no mostrar un cambio que no se
+        // llegó a guardar.
+        if (previousOrder) {
+          setOrders(prev => prev.map(ord => (ord.id === orderId ? previousOrder : ord)));
+        }
+        showNotification(
+          error instanceof Error
+            ? error.message
+            : 'No se pudo guardar el estado del pedido en el servidor.',
+          'error',
+        );
+      });
   };
 
   const submitBusinessReview = (businessId: string, orderId: string, score: number) => {
@@ -1086,6 +1831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ),
     );
 
+    const reviewedAt = new Date().toISOString();
     setOrders((previous) =>
       previous.map((order) =>
         order.id === orderId
@@ -1093,24 +1839,58 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               ...order,
               reviewRequested: false,
               reviewScore: safeScore,
-              reviewedAt: new Date().toISOString(),
+              reviewedAt,
             }
           : order,
       ),
     );
 
+    // La valoración también se guarda para que no vuelva a pedirse al recargar.
+    void apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        review_requested: false,
+        review_score: safeScore,
+        reviewed_at: reviewedAt,
+      }),
+    }).catch(() => {
+      // La valoración ya se ve en pantalla; si falla el guardado se reintentará
+      // en la siguiente valoración o al recargar la lista de pedidos.
+    });
+
     showNotification(`Gracias por valorar a ${targetBusiness.name} con ${safeScore} estrellas.`, 'success');
   };
 
   const toggleProductAvailability = (productId: string) => {
-    setProducts((prev: Product[]) => prev.map((p: Product) => {
-      if (p.id === productId) {
-        const nextState = !p.isAvailable;
-        showNotification(`${p.name}: ${nextState ? 'Disponible' : 'Agotado en cocina'}`, 'info');
-        return { ...p, isAvailable: nextState };
-      }
-      return p;
-    }));
+    const target = products.find((p: Product) => p.id === productId);
+    if (!target) return;
+
+    const previousState = target.isAvailable;
+    const nextState = !target.isAvailable;
+    setProducts((prev: Product[]) => prev.map((p: Product) =>
+      p.id === productId ? { ...p, isAvailable: nextState } : p,
+    ));
+
+    void apiFetch(`/products/${encodeURIComponent(productId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ is_available: nextState }),
+    })
+      .then(() => {
+        showNotification(`${target.name}: ${nextState ? 'Disponible' : 'Agotado en cocina'}`, 'success');
+      })
+      .catch((error) => {
+        // Se revierte para no mostrar un cambio de disponibilidad que no se
+        // llegó a guardar.
+        setProducts((prev: Product[]) => prev.map((p: Product) =>
+          p.id === productId ? { ...p, isAvailable: previousState } : p,
+        ));
+        showNotification(
+          error instanceof Error
+            ? error.message
+            : 'No se pudo guardar el cambio de disponibilidad en el servidor.',
+          'error',
+        );
+      });
   };
 
   const createManualOrder = (orderData: Partial<Order>): Order => {
@@ -1159,7 +1939,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setOrders(prev => [newOrder, ...prev]);
-    showNotification(`Nueva comanda #${newOrder.orderNumber} creada en cocina`, 'success');
+
+    // Antes la comanda sólo vivía en el navegador y desaparecía al recargar.
+    // Ahora se guarda completa (cabecera + líneas + historial) en el servidor.
+    void apiFetch('/orders', {
+      method: 'POST',
+      body: JSON.stringify(newOrder),
+    })
+      .then(() => {
+        showNotification(`Nueva comanda #${newOrder.orderNumber} creada en cocina`, 'success');
+      })
+      .catch((error) => {
+        // Se retira la comanda para no mostrar un alta que no se guardó.
+        setOrders(prev => prev.filter(ord => ord.id !== newOrder.id));
+        showNotification(
+          error instanceof Error ? error.message : 'No se pudo guardar la comanda en el servidor.',
+          'error',
+        );
+      });
     return newOrder;
   };
 
@@ -1178,6 +1975,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       isDarkMode,
       toggleDarkMode,
       currentUser,
+      sessionChecked,
       loginAs,
       logout,
       setCourierProfile,
@@ -1198,6 +1996,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updateBusiness,
       deleteBusiness,
       createUserAccount,
+      listCouriers,
+      setCourierConfirmation,
+      updateCourierDetails,
       addProductToBusiness,
       updateProductInBusiness,
       deleteProductFromBusiness,

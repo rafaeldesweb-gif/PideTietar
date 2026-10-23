@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useApp } from '../context/AppContext';
+import { useApp, setSessionToken } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
+import { fileToDataUrl } from '../utils/imageUpload';
 import { 
   X, LogOut, ArrowLeft, Eye, EyeOff
 } from 'lucide-react';
@@ -9,6 +10,16 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+// `npm run dev` sólo levanta la interfaz: si el backend no está arrancado
+// (npm run server) el proxy de vite devuelve un 502/504 sin cuerpo. Como no
+// llega ningún JSON, el mensaje genérico haría creer al usuario que su
+// contraseña es la que falla, así que se distingue explícitamente.
+const isBackendUnreachable = (status: number, data: any): boolean =>
+  status >= 500 || !data || Object.keys(data).length === 0;
+
+const backendDownMessage =
+  'No hay conexión con el servidor. Arranca el backend con «npm run server» en otra terminal.';
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const { 
@@ -29,14 +40,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [profileFullName, setProfileFullName] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
-  const [profileAccountNumber, setProfileAccountNumber] = useState('');
   const [profileNewPassword, setProfileNewPassword] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
   
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phone || '');
-  const [emailInput, setEmailInput] = useState(currentUser?.email || 'rafaeldesweb@gmail.com');
+  const [emailInput, setEmailInput] = useState(currentUser?.email || '');
   const [password, setPassword] = useState('');
 
   useEffect(() => {
@@ -44,7 +54,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setProfileFullName(currentUser.name || '');
     setProfileEmail(currentUser.email || '');
     setProfilePhone(currentUser.phone || '');
-    setProfileAccountNumber(currentUser.accountNumber || '');
     setProfileNewPassword('');
     setProfileAvatarUrl(currentUser.avatarUrl || '');
   }, [isOpen, currentUser]);
@@ -106,8 +115,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
-          throw new Error(data?.message || 'No se pudo registrar el usuario');
+          throw new Error(
+            data?.message ||
+              (isBackendUnreachable(response.status, data)
+                ? backendDownMessage
+                : 'No se pudo registrar el usuario'),
+          );
         }
+
+        // El backend devuelve un token firmado; sin él las siguientes
+        // peticiones no podrían identificar a este usuario.
+        setSessionToken(data?.token);
 
         const registeredUser = {
           id: data?.user?.id,
@@ -152,8 +170,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           );
           return;
         }
-        throw new Error(data?.message || 'Credenciales incorrectas');
+        throw new Error(
+          data?.message ||
+            (isBackendUnreachable(response.status, data)
+              ? backendDownMessage
+              : 'Credenciales incorrectas'),
+        );
       }
+
+      setSessionToken(data?.token);
 
       const user = data.user || {
         name: finalName,
@@ -172,6 +197,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         accountNumber: user.accountNumber || undefined,
         avatarUrl: user.avatarUrl || '',
         isEmailVerified: Boolean(user.isEmailVerified),
+        businessId: user.businessId || undefined,
         courierProfile: user.courierProfile,
       });
       showNotification(`Sesión iniciada como ${user.name || normalizedUser}`, 'success');
@@ -236,7 +262,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  const handleAvatarFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -246,27 +272,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
-    const maxFileBytes = 1024 * 1024 * 1.5;
-    if (file.size > maxFileBytes) {
-      showNotification('La imagen no puede superar 1.5MB.', 'error');
-      event.target.value = '';
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = typeof reader.result === 'string' ? reader.result : '';
-      if (!result) {
-        showNotification('No se pudo leer la imagen seleccionada.', 'error');
-        return;
-      }
-      setProfileAvatarUrl(result);
+    try {
+      // Convierte a data URL y, si hace falta, reescala: el servidor limita la
+      // petición JSON a 2MB, así que un avatar de 1.5MB en base64 acababa en
+      // un 413 aunque el límite de archivo lo permitiera.
+      const dataUrl = await fileToDataUrl(file);
+      setProfileAvatarUrl(dataUrl);
       showNotification('Foto de perfil cargada desde archivo.', 'success');
-    };
-    reader.onerror = () => {
-      showNotification('No se pudo procesar el archivo de imagen.', 'error');
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la imagen.',
+        'error',
+      );
+    } finally {
+      event.target.value = '';
+    }
   };
 
   const handleSaveProfile = async () => {
@@ -292,7 +312,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       name: cleanName,
       email: cleanEmail,
       phone: profilePhone.trim(),
-      accountNumber: profileAccountNumber.trim(),
       password: cleanPassword || undefined,
       avatarUrl: profileAvatarUrl || undefined,
     });
@@ -387,15 +406,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   />
                 </div>
 
-                <div>
-                  <label className="mb-1 block text-xs font-bold text-stone-300">Cuenta bancaria (opcional)</label>
-                  <input
-                    type="text"
-                    value={profileAccountNumber}
-                    onChange={(event) => setProfileAccountNumber(event.target.value)}
-                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-xs text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] sm:text-sm"
-                  />
-                </div>
+                {/* La cuenta bancaria NO se pide aquí: es un dato del negocio
+                    (businesses.account_number), que se recoge en el alta y lo
+                    edita el propio usuario del negocio para conectar la
+                    pasarela de pago. Los clientes no manejan cobros. */}
 
                 <div>
                   <label className="mb-1 block text-xs font-bold text-stone-300">Nueva contraseña (opcional)</label>
@@ -506,14 +520,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
                 <div>
                   <label className="block text-xs font-bold text-stone-300 mb-1">
-                    Correo electrónico
+                    {isRegisterMode ? 'Correo electrónico' : 'Correo electrónico o usuario'}
                   </label>
                   <input
-                    type="email"
+                    // En registro sí pedimos email; en acceso aceptamos también
+                    // el nombre de usuario (el backend resuelve username||email),
+                    // y type="email" bloquearía el envío al escribir un usuario.
+                    type={isRegisterMode ? 'email' : 'text'}
                     required
                     value={emailInput}
                     onChange={(e) => setEmailInput(e.target.value)}
-                    placeholder="tu@email.com"
+                    placeholder={isRegisterMode ? 'tu@email.com' : 'tu@email.com o usuario'}
                     className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                   />
                 </div>

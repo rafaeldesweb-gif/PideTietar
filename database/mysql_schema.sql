@@ -369,8 +369,5 @@ CREATE INDEX idx_businesses_locality ON businesses(locality_id);
 CREATE INDEX idx_businesses_status ON businesses(status);
 CREATE INDEX idx_business_categories_business ON business_categories(business_id);
 CREATE INDEX idx_business_categories_category ON business_categories(category_id);
-CREATE INDEX idx_products_business_idx ON products(business_id);
-CREATE INDEX idx_products_category_idx ON products(category_id);
-CREATE INDEX idx_payment_transactions_ticket ON payment_transactions(ticket_id);
 CREATE INDEX idx_business_daily_summary_business_date ON business_daily_sales_summary(business_id, sales_date);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at);

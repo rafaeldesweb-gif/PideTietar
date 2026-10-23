@@ -269,6 +269,16 @@ export const OrdersView: React.FC = () => {
                                 {it.selectedOptions.map(o => o.optionName).join(', ')}
                               </div>
                             )}
+                            {it.removedIngredients.length > 0 && (
+                              <div className="text-[11px] text-red-500/80">
+                                Sin: {it.removedIngredients.join(', ')}
+                              </div>
+                            )}
+                            {it.customerNote && (
+                              <div className="text-[11px] italic text-stone-400">
+                                "{it.customerNote}"
+                              </div>
+                            )}
                           </div>
                           <span className="font-mono text-stone-600 dark:text-stone-400">
                             {(it.totalCents / 100).toFixed(2)}€

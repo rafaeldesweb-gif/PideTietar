@@ -26,7 +26,20 @@ export default defineConfig(() => {
       // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // La base SQLite y el build se excluyen del watcher: cada pedido o cambio
+      // de estado escribe en data/app.db y Vite recargaba la página entera,
+      // devolviendo al usuario a la portada en mitad del flujo.
+      watch: process.env.DISABLE_HMR === 'true'
+        ? null
+        : {
+            ignored: [
+              '**/data/**',
+              '**/*.db',
+              '**/*.db-wal',
+              '**/*.db-shm',
+              '**/dist/**',
+            ],
+          },
     },
   };
 });

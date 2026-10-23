@@ -1,14 +1,58 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   ShieldCheck, Users, Store, DollarSign, 
   MapPin, AlertCircle, BarChart3, CheckCircle2, 
-  Settings, RefreshCw, Trash2, Plus
+  Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X
 } from 'lucide-react';
 import { CATEGORIES } from '../data/mockData';
-import { Business, Locality } from '../types';
+import { Business, Locality, User } from '../types';
+import {
+  FieldError,
+  FieldErrors,
+  fieldClass,
+  firstErrorMessage,
+  toBusinessFieldErrors,
+} from './FormErrors';
+import { fileToDataUrl } from '../utils/imageUpload';
 
 const DAYS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const IBAN_REGEX = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
+
+const normalizeIban = (value: string) =>
+  value.replace(/\s+/g, '').toUpperCase();
+
+const maskIban = (value?: string) => {
+  const clean = normalizeIban(value || '');
+  if (!clean) return 'Sin IBAN';
+  if (clean.length <= 8) return clean;
+  return `${clean.slice(0, 4)} **** **** ${clean.slice(-4)}`;
+};
+
+const assignedBusinessIds = (courier: User): string[] => {
+  const fromProfile = courier.courierProfile?.businessIds || [];
+  if (fromProfile.length) return fromProfile;
+  return courier.businessId ? [courier.businessId] : [];
+};
+
+// Validación compartida por el alta y la edición del repartidor.
+const validateCourierBanking = (
+  role: User['role'],
+  businessIds: string[],
+  accountNumber: string,
+): FieldErrors => {
+  const errors: FieldErrors = {};
+  if (role === 'BUSINESS_COURIER' && businessIds.length === 0) {
+    errors.businessIds = 'Selecciona al menos un negocio para el repartidor.';
+  }
+  const cleanIban = normalizeIban(accountNumber);
+  if (cleanIban && !IBAN_REGEX.test(cleanIban)) {
+    errors.accountNumber =
+      'El IBAN no es válido. Ejemplo: ES91 2100 0418 4502 0005 1332.';
+  }
+  return errors;
+};
 
 interface AdminDashboardProps {
   onNavigateToBusiness?: (bizId: string) => void;
@@ -26,6 +70,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     updateBusiness,
     deleteBusiness,
     createUserAccount,
+    listCouriers,
+    setCourierConfirmation,
+    updateCourierDetails,
     showNotification
   } = useApp();
 
@@ -67,6 +114,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     ]
   });
 
+  // Errores campo a campo devueltos por el servidor (clave camelCase del form).
+  const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
+
   const handleScheduleChange = (dayIndex: number, field: string, value: any) => {
     const newSchedule = [...newBusinessForm.schedule];
     newSchedule[dayIndex] = { ...newSchedule[dayIndex], [field]: value };
@@ -74,6 +124,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   const resetBusinessForm = () => {
+    setBusinessFormErrors({});
     setNewBusinessForm({
       name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
       adminUsername: '',
@@ -91,25 +142,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     });
   };
 
-  const generateBusinessAdminCredentials = () => {
-    const normalizedBase =
-      (newBusinessForm.name || 'negocio')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]+/g, '')
-        .slice(0, 12) || 'negocio';
-    const username = `${normalizedBase}_admin`;
-    const password = `Adm${Math.random().toString(36).slice(2, 8)}${Math.floor(10 + Math.random() * 89)}!`;
-
-    setNewBusinessForm((prev) => ({
-      ...prev,
-      adminUsername: prev.adminUsername || username,
-      adminEmail: prev.adminEmail || prev.email || '',
-      adminPassword: password,
-    }));
-    showNotification('Credenciales de administrador generadas para este negocio.', 'info');
-  };
+  // Nota: antes había un botón "Generar usuario y clave" que inventaba un
+  // usuario y una contraseña aleatorios. Se ha retirado a petición: el único
+  // usuario que se crea es el que el superadmin escribe en el formulario, y la
+  // clave que él asigna. Aquí no se genera nada por su cuenta.
 
   const handleAddZone = (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,56 +161,255 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setNewZoneZip('');
   };
 
-  const handleCreateBusiness = async (e: React.FormEvent) => {
+  // --- Repartidores -------------------------------------------------------
+  const [couriers, setCouriers] = useState<User[]>([]);
+  const [couriersLoading, setCouriersLoading] = useState(false);
+  const [courierForm, setCourierForm] = useState({
+    fullName: '',
+    username: '',
+    email: '',
+    password: '',
+    role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
+    businessIds: [] as string[],
+    accountNumber: '',
+  });
+  const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
+  const [courierSubmitting, setCourierSubmitting] = useState(false);
+
+  // Edición de negocios e IBAN de un repartidor (sólo superadmin).
+  const [editingCourier, setEditingCourier] = useState<User | null>(null);
+  const [courierEditForm, setCourierEditForm] = useState({
+    businessIds: [] as string[],
+    accountNumber: '',
+  });
+  const [courierEditErrors, setCourierEditErrors] = useState<FieldErrors>({});
+  const [courierEditSaving, setCourierEditSaving] = useState(false);
+
+  const refreshCouriers = async () => {
+    setCouriersLoading(true);
+    const rows = await listCouriers();
+    setCouriers(rows);
+    setCouriersLoading(false);
+  };
+
+  useEffect(() => {
+    void refreshCouriers();
+    // Sólo al montar el panel: los cambios se refrescan tras crear o confirmar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleCourierBusiness = (businessId: string) => {
+    setCourierForm((previous) => ({
+      ...previous,
+      businessIds: previous.businessIds.includes(businessId)
+        ? previous.businessIds.filter((id) => id !== businessId)
+        : [...previous.businessIds, businessId],
+    }));
+    setCourierFormErrors((previous) => ({
+      ...previous,
+      businessIds: '',
+    }));
+  };
+
+  const handleCreateCourier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newBusinessForm.name || !newBusinessForm.localityId) return;
+    const errors: FieldErrors = {};
 
-    if (!newBusinessForm.adminUsername.trim() || !newBusinessForm.adminEmail.trim() || !newBusinessForm.adminPassword.trim()) {
-      showNotification('Debes asignar usuario, email y contraseña al nuevo negocio.', 'error');
-      return;
+    if (!courierForm.fullName.trim()) {
+      errors.fullName = 'El nombre es obligatorio.';
     }
-
-    if (newBusinessForm.adminPassword.trim().length < 8) {
-      showNotification('La contraseña del usuario del negocio debe tener al menos 8 caracteres.', 'error');
-      return;
+    if (!courierForm.username.trim()) {
+      errors.username = 'El usuario es obligatorio.';
     }
+    if (!courierForm.email.trim()) {
+      errors.email = 'El email es obligatorio.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(courierForm.email.trim())) {
+      errors.email = 'El email no es válido.';
+    }
+    if (courierForm.password.length < 8) {
+      errors.password = 'La contraseña debe tener al menos 8 caracteres.';
+    }
+    Object.assign(
+      errors,
+      validateCourierBanking(
+        courierForm.role,
+        courierForm.businessIds,
+        courierForm.accountNumber,
+      ),
+    );
 
-    const createdBusiness = createBusiness({
-      ...newBusinessForm,
-      category: newBusinessForm.category || 'Restaurante',
-      rating: 5.0,
-      reviewCount: 0,
-      estimatedTimeMin: 20,
-      estimatedTimeMax: 40,
-      deliveryFeeCents: 250,
-      minOrderCents: 1000,
-      bannerUrl: newBusinessForm.bannerUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
-      logoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
-      isShiftOpen: false,
-      deliveryModes: ['PLATFORM_COURIER', 'PICKUP'],
-      deliveryRadiusKm: 10,
-      status: 'APPROVED',
-      schedule: newBusinessForm.schedule,
+    setCourierFormErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setCourierSubmitting(true);
+    const ok = await createUserAccount({
+      fullName: courierForm.fullName.trim(),
+      username: courierForm.username.trim(),
+      email: courierForm.email.trim(),
+      password: courierForm.password,
+      role: courierForm.role,
+      // `businessId` se conserva como negocio de referencia (el primero).
+      businessId: courierForm.businessIds[0],
+      courierBusinessIds: courierForm.businessIds,
+      accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
+      courierConfirmation: 'PENDING',
     });
+    setCourierSubmitting(false);
 
-    const accountCreated = await createUserAccount({
-      username: newBusinessForm.adminUsername.trim(),
-      fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
-      email: newBusinessForm.adminEmail.trim(),
-      password: newBusinessForm.adminPassword.trim(),
-      role: 'BUSINESS_ADMIN',
+    if (ok) {
+      setCourierForm({
+        fullName: '',
+        username: '',
+        email: '',
+        password: '',
+        role: 'PLATFORM_COURIER',
+        businessIds: [],
+        accountNumber: '',
+      });
+      setCourierFormErrors({});
+      await refreshCouriers();
+    }
+  };
+
+  const handleCourierConfirmation = async (
+    courier: User,
+    confirmation: 'PENDING' | 'SUPERADMIN',
+  ) => {
+    const ok = await setCourierConfirmation(courier.id, confirmation);
+    if (ok) await refreshCouriers();
+  };
+
+  const openCourierEdit = (courier: User) => {
+    setEditingCourier(courier);
+    setCourierEditForm({
+      businessIds: assignedBusinessIds(courier),
+      accountNumber: courier.accountNumber || '',
     });
+    setCourierEditErrors({});
+  };
 
-    if (!accountCreated) {
+  const closeCourierEdit = () => {
+    if (courierEditSaving) return;
+    setEditingCourier(null);
+    setCourierEditErrors({});
+  };
+
+  const toggleCourierEditBusiness = (businessId: string) => {
+    setCourierEditForm((previous) => ({
+      ...previous,
+      businessIds: previous.businessIds.includes(businessId)
+        ? previous.businessIds.filter((id) => id !== businessId)
+        : [...previous.businessIds, businessId],
+    }));
+    setCourierEditErrors((previous) => ({
+      ...previous,
+      businessIds: '',
+    }));
+  };
+
+  const handleSaveCourierDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCourier) return;
+
+    const errors = validateCourierBanking(
+      editingCourier.role,
+      courierEditForm.businessIds,
+      courierEditForm.accountNumber,
+    );
+    setCourierEditErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setCourierEditSaving(true);
+    const ok = await updateCourierDetails(editingCourier.id, {
+      courierBusinessIds: courierEditForm.businessIds,
+      accountNumber: normalizeIban(courierEditForm.accountNumber),
+    });
+    setCourierEditSaving(false);
+
+    if (ok) {
+      setEditingCourier(null);
+      await refreshCouriers();
+    }
+  };
+
+  // Antes se guardaba URL.createObjectURL(file), un enlace blob que sólo
+  // existe en la pestaña abierta: al recargar la app la imagen desaparecía y
+  // el servidor la rechazaba. Ahora se convierte en un data URL real, y si la
+  // foto pesa demasiado se reescala antes de enviarla.
+  const handleBannerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      setBusinessFormErrors((prev) => ({ ...prev, bannerUrl: '' }));
+      setNewBusinessForm((prev) => ({ ...prev, bannerUrl: dataUrl }));
+    } catch (error) {
       showNotification(
-        `El negocio ${createdBusiness.name} se creó, pero no se pudo crear su usuario asignado.`,
+        error instanceof Error ? error.message : 'No se pudo cargar la imagen del banner.',
         'error',
       );
+    }
+  };
+
+  const handleCreateBusiness = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusinessFormErrors({});
+
+    // Comprobaciones del cliente, con el mismo criterio que el servidor y con
+    // el campo marcado, para no depender sólo del rechazo del backend.
+    const localErrors: FieldErrors = {};
+    if (!newBusinessForm.name.trim()) localErrors.name = 'El nombre del negocio es obligatorio.';
+    if (!newBusinessForm.localityId) localErrors.localityId = 'Selecciona la zona donde está el negocio.';
+    if (!newBusinessForm.category) localErrors.category = 'Selecciona la categoría del negocio.';
+    if (!newBusinessForm.adminUsername.trim()) localErrors.adminUsername = 'El usuario de acceso es obligatorio.';
+    if (!newBusinessForm.adminEmail.trim()) localErrors.adminEmail = 'El email de acceso es obligatorio.';
+    if (!newBusinessForm.adminPassword.trim()) localErrors.adminPassword = 'La clave inicial es obligatoria.';
+    else if (newBusinessForm.adminPassword.trim().length < 8) {
+      localErrors.adminPassword = 'La clave inicial debe tener al menos 8 caracteres.';
+    }
+
+    if (Object.keys(localErrors).length) {
+      setBusinessFormErrors(localErrors);
+      showNotification(firstErrorMessage(localErrors) || 'Revisa los datos del formulario.', 'error');
       return;
     }
 
+    const createdBusiness = await createBusiness(
+      {
+        ...newBusinessForm,
+        category: newBusinessForm.category || CATEGORIES[0].id,
+        estimatedTimeMin: 20,
+        estimatedTimeMax: 40,
+        deliveryFeeCents: 250,
+        minOrderCents: 1000,
+        bannerUrl: newBusinessForm.bannerUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
+        logoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
+        isShiftOpen: false,
+        deliveryModes: ['PLATFORM_COURIER', 'PICKUP'],
+        deliveryRadiusKm: 10,
+        status: 'APPROVED',
+        schedule: newBusinessForm.schedule,
+      },
+      {
+        username: newBusinessForm.adminUsername.trim(),
+        fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
+        email: newBusinessForm.adminEmail.trim(),
+        password: newBusinessForm.adminPassword.trim(),
+      },
+      (errors) => setBusinessFormErrors(toBusinessFieldErrors(errors)),
+    );
+
+    if (!createdBusiness) {
+      // createBusiness ya ha mostrado el motivo y el callback ha pintado los
+      // errores campo a campo sobre el formulario.
+      return;
+    }
+
+    setBusinessFormErrors({});
+
     showNotification(
-      `Negocio ${createdBusiness.name} creado y usuario ${newBusinessForm.adminUsername.trim()} asignado.`,
+      `Negocio ${createdBusiness.name} creado y acceso asignado a ${newBusinessForm.adminUsername.trim()} (rol BUSINESS_ADMIN).`,
       'success',
     );
     resetBusinessForm();
@@ -182,6 +417,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   const startEditingBusiness = (business: Business) => {
+    setBusinessFormErrors({});
     setEditingBusinessId(business.id);
     setShowBusinessForm(true);
     setNewBusinessForm({
@@ -207,40 +443,60 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const handleSaveBusinessEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingBusinessId) return;
+    setBusinessFormErrors({});
 
-    const saved = await updateBusiness(editingBusinessId, {
-      name: newBusinessForm.name,
-      legalName: newBusinessForm.legalName,
-      cif: newBusinessForm.cif,
-      accountNumber: newBusinessForm.accountNumber,
-      category: newBusinessForm.category,
-      localityId: newBusinessForm.localityId,
-      phone: newBusinessForm.phone,
-      email: newBusinessForm.email,
-      address: newBusinessForm.address,
-      managerName: newBusinessForm.managerName,
-      managerDni: newBusinessForm.managerDni,
-      bannerUrl: newBusinessForm.bannerUrl,
-      schedule: newBusinessForm.schedule,
-    });
+    // Si se rellena algo del acceso hay que rellenarlo entero: si no, la
+    // cuenta del propietario se quedaría sin tocar sin explicación.
+    const filledOwnerFields = [
+      newBusinessForm.adminUsername.trim(),
+      newBusinessForm.adminEmail.trim(),
+      newBusinessForm.adminPassword.trim(),
+    ].filter(Boolean).length;
+
+    if (filledOwnerFields > 0 && filledOwnerFields < 3) {
+      const partialErrors: FieldErrors = {};
+      if (!newBusinessForm.adminUsername.trim()) partialErrors.adminUsername = 'Falta el usuario de acceso.';
+      if (!newBusinessForm.adminEmail.trim()) partialErrors.adminEmail = 'Falta el email de acceso.';
+      if (!newBusinessForm.adminPassword.trim()) partialErrors.adminPassword = 'Falta la clave de acceso.';
+      setBusinessFormErrors(partialErrors);
+      showNotification('Para cambiar el acceso del propietario hacen falta usuario, email y clave.', 'error');
+      return;
+    }
+
+    // Las credenciales del propietario sólo se tocan si el superadmin
+    // rellena los tres campos; si no, la cuenta existente queda intacta.
+    const hasOwnerCredentials = filledOwnerFields === 3;
+
+    const saved = await updateBusiness(
+      editingBusinessId,
+      {
+        name: newBusinessForm.name,
+        legalName: newBusinessForm.legalName,
+        cif: newBusinessForm.cif,
+        accountNumber: newBusinessForm.accountNumber,
+        category: newBusinessForm.category,
+        localityId: newBusinessForm.localityId,
+        phone: newBusinessForm.phone,
+        email: newBusinessForm.email,
+        address: newBusinessForm.address,
+        managerName: newBusinessForm.managerName,
+        managerDni: newBusinessForm.managerDni,
+        bannerUrl: newBusinessForm.bannerUrl,
+        schedule: newBusinessForm.schedule,
+      },
+      hasOwnerCredentials
+        ? {
+            username: newBusinessForm.adminUsername.trim(),
+            fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
+            email: newBusinessForm.adminEmail.trim(),
+            password: newBusinessForm.adminPassword.trim(),
+          }
+        : null,
+      (errors) => setBusinessFormErrors(toBusinessFieldErrors(errors)),
+    );
 
     if (saved) {
-      if (newBusinessForm.adminUsername.trim() && newBusinessForm.adminEmail.trim() && newBusinessForm.adminPassword.trim()) {
-        const accountCreated = await createUserAccount({
-          username: newBusinessForm.adminUsername.trim(),
-          fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
-          email: newBusinessForm.adminEmail.trim(),
-          password: newBusinessForm.adminPassword.trim(),
-          role: 'BUSINESS_ADMIN',
-        });
-
-        if (!accountCreated) {
-          showNotification(
-            'Los datos del negocio se guardaron, pero no se pudo crear el acceso administrador.',
-            'error',
-          );
-          return;
-        }
+      if (hasOwnerCredentials) {
         showNotification('Acceso administrador creado/actualizado para el negocio.', 'success');
       }
 
@@ -369,6 +625,233 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         </div>
       </div>
 
+      {/* COURIERS SECTION */}
+      <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 space-y-6 shadow-xs">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-base font-bold font-serif text-stone-900 dark:text-stone-100">
+              <Bike className="w-5 h-5 text-[#FF4E00]" />
+              Repartidores
+            </h2>
+            <p className="mt-1 text-xs text-stone-500">
+              Crea la cuenta del repartidor y confírmala para que pueda entrar en su panel de reparto.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void refreshCouriers()}
+            className="flex items-center space-x-2 rounded-xl border border-stone-200 px-3 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 dark:border-stone-800 dark:text-stone-300 dark:hover:bg-stone-800"
+          >
+            <RefreshCw className={`h-4 w-4 ${couriersLoading ? 'animate-spin' : ''}`} />
+            <span>Actualizar</span>
+          </button>
+        </div>
+
+        <form
+          onSubmit={handleCreateCourier}
+          className="grid gap-3 rounded-2xl border border-stone-100 bg-stone-50 p-4 dark:border-stone-800 dark:bg-stone-800/50 sm:grid-cols-2 lg:grid-cols-3"
+        >
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Nombre completo</label>
+            <input
+              value={courierForm.fullName}
+              onChange={(e) => setCourierForm({ ...courierForm, fullName: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.fullName))}
+              placeholder="Ej. Marcos Ruiz"
+            />
+            <FieldError message={courierFormErrors.fullName} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Usuario de acceso</label>
+            <input
+              value={courierForm.username}
+              onChange={(e) => setCourierForm({ ...courierForm, username: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.username))}
+              placeholder="ej. marcos.ruiz"
+            />
+            <FieldError message={courierFormErrors.username} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Email</label>
+            <input
+              type="email"
+              value={courierForm.email}
+              onChange={(e) => setCourierForm({ ...courierForm, email: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.email))}
+              placeholder="repartidor@pidetietar.es"
+            />
+            <FieldError message={courierFormErrors.email} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Clave inicial</label>
+            <input
+              type="password"
+              value={courierForm.password}
+              onChange={(e) => setCourierForm({ ...courierForm, password: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.password))}
+              placeholder="Mínimo 8 caracteres"
+            />
+            <FieldError message={courierFormErrors.password} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">Tipo de repartidor</label>
+            <select
+              value={courierForm.role}
+              onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [] })}
+              className="w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]"
+            >
+              <option value="PLATFORM_COURIER">Plataforma (todo el valle)</option>
+              <option value="BUSINESS_COURIER">De uno o varios negocios</option>
+            </select>
+          </div>
+          {courierForm.role === 'BUSINESS_COURIER' ? (
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="mb-1 block text-xs font-semibold text-stone-500">
+                Negocios que cubre <span className="font-normal text-stone-400">(uno o varios)</span>
+              </label>
+              <div className="grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
+                {businesses.map((biz) => (
+                  <label
+                    key={biz.id}
+                    className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-700 transition hover:bg-stone-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={courierForm.businessIds.includes(biz.id)}
+                      onChange={() => toggleCourierBusiness(biz.id)}
+                      className="mt-0.5 h-4 w-4 accent-[#FF4E00]"
+                    />
+                    <span>
+                      <span className="block font-semibold text-stone-800">{biz.name}</span>
+                      <span className="block text-[10px] text-stone-400">
+                        {localities.find((loc) => loc.id === biz.localityId)?.name || 'Sin localidad'}
+                      </span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+              {businesses.length === 0 && (
+                <p className="mt-1 text-xs text-amber-600">
+                  No hay negocios creados todavía.
+                </p>
+              )}
+              <FieldError message={courierFormErrors.businessIds} />
+            </div>
+          ) : (
+            <p className="rounded-xl bg-sky-50 px-4 py-2 text-xs text-sky-800 sm:col-span-2 lg:col-span-3 dark:bg-sky-950/40 dark:text-sky-300">
+              El repartidor de plataforma cubre todos los negocios del valle.
+            </p>
+          )}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-stone-500">
+              Cuenta bancaria (IBAN){' '}
+              <span className="font-normal text-stone-400">opcional</span>
+            </label>
+            <input
+              value={courierForm.accountNumber}
+              onChange={(e) => setCourierForm({ ...courierForm, accountNumber: e.target.value })}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.accountNumber))}
+              placeholder="ES91 2100 0418 4502 0005 1332"
+            />
+            <p className="mt-1 text-[10px] text-stone-400">
+              Para las transferencias del informe diario. Después sólo lo puede cambiar el superadmin.
+            </p>
+            <FieldError message={courierFormErrors.accountNumber} />
+          </div>
+          <div className="col-span-full pt-1">
+            <button
+              type="submit"
+              disabled={courierSubmitting}
+              className="flex w-full items-center justify-center space-x-2 rounded-xl bg-[#FF4E00] px-6 py-3 text-sm font-bold text-white transition hover:bg-[#E64600] disabled:opacity-60 sm:w-auto"
+            >
+              <Plus className="h-5 w-5" />
+              <span>{courierSubmitting ? 'Creando cuenta...' : 'Crear cuenta de repartidor'}</span>
+            </button>
+          </div>
+        </form>
+
+        <div className="divide-y divide-stone-100 dark:divide-stone-800">
+          {couriers.length === 0 ? (
+            <p className="py-4 text-xs text-stone-400">
+              {couriersLoading ? 'Cargando repartidores...' : 'Todavía no hay repartidores creados.'}
+            </p>
+          ) : (
+            couriers.map((courier) => {
+              const confirmation = courier.courierProfile?.confirmation || 'PENDING';
+              const assignedIds = assignedBusinessIds(courier);
+              const assignedNames = assignedIds
+                .map((bizId) => businesses.find((biz) => biz.id === bizId)?.name)
+                .filter(Boolean)
+                .join(', ');
+              const confirmationLabel =
+                confirmation === 'SUPERADMIN'
+                  ? 'Confirmado por superadmin'
+                  : confirmation === 'BUSINESS_EMAIL'
+                    ? 'Confirmado por el negocio'
+                    : 'Pendiente';
+              const badgeClass =
+                confirmation === 'SUPERADMIN'
+                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                  : confirmation === 'BUSINESS_EMAIL'
+                    ? 'bg-sky-100 text-sky-800 dark:bg-sky-950/50 dark:text-sky-300'
+                    : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-300';
+
+              return (
+                <div key={courier.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm font-bold text-stone-900 dark:text-white">{courier.name}</h3>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
+                        {confirmationLabel}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs text-stone-500">
+                      {courier.email} ·{' '}
+                      {courier.role === 'PLATFORM_COURIER'
+                        ? 'Repartidor de plataforma'
+                        : `Repartidor de ${assignedNames || 'sin negocio asignado'}`}
+                    </p>
+                    <p className="mt-0.5 text-xs text-stone-400">
+                      {courier.accountNumber
+                        ? `IBAN ${maskIban(courier.accountNumber)}`
+                        : 'Sin IBAN configurado'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openCourierEdit(courier)}
+                      className="flex items-center space-x-1.5 rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span>Editar</span>
+                    </button>
+                    {confirmation === 'PENDING' ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCourierConfirmation(courier, 'SUPERADMIN')}
+                        className="flex items-center space-x-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-emerald-700"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Confirmar</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => void handleCourierConfirmation(courier, 'PENDING')}
+                        className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                      >
+                        Retirar confirmación
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
       {/* BUSINESSES SECTION */}
       <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 space-y-6 shadow-xs">
         <div className="flex items-center justify-between">
@@ -399,58 +882,96 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         <form onSubmit={editingBusinessId ? handleSaveBusinessEdit : handleCreateBusiness} className="bg-stone-50 dark:bg-stone-800/50 p-4 rounded-2xl border border-stone-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Nombre Comercial</label>
-            <input required value={newBusinessForm.name} onChange={e => setNewBusinessForm({...newBusinessForm, name: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. El Buen Sabor" />
+            <input required value={newBusinessForm.name} onChange={e => setNewBusinessForm({...newBusinessForm, name: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.name))} placeholder="Ej. El Buen Sabor" />
+            <FieldError message={businessFormErrors.name} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Razón Social</label>
-            <input required value={newBusinessForm.legalName} onChange={e => setNewBusinessForm({...newBusinessForm, legalName: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. El Buen Sabor S.L." />
+            <input required value={newBusinessForm.legalName} onChange={e => setNewBusinessForm({...newBusinessForm, legalName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.legalName))} placeholder="Ej. El Buen Sabor S.L." />
+            <FieldError message={businessFormErrors.legalName} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">CIF / NIF</label>
-            <input required value={newBusinessForm.cif} onChange={e => setNewBusinessForm({...newBusinessForm, cif: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. B12345678" />
+            <input required value={newBusinessForm.cif} onChange={e => setNewBusinessForm({...newBusinessForm, cif: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.cif))} placeholder="Ej. B12345678" />
+            <p className="mt-1 text-[11px] text-stone-400">Letra + 7 dígitos + control, 8 dígitos + letra o NIE (X/Y/Z…).</p>
+            <FieldError message={businessFormErrors.cif} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-stone-500 mb-1">Categoría</label>
+            <select
+              required
+              value={newBusinessForm.category}
+              onChange={e => setNewBusinessForm({...newBusinessForm, category: e.target.value})}
+              className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black', Boolean(businessFormErrors.category))}
+            >
+              <option value="" className="text-stone-400">Seleccionar...</option>
+              {CATEGORIES.map(cat => (
+                <option key={cat.id} value={cat.id}>{cat.name}</option>
+              ))}
+            </select>
+            <FieldError message={businessFormErrors.category} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Localidad</label>
-            <select required value={newBusinessForm.localityId} onChange={e => setNewBusinessForm({...newBusinessForm, localityId: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black">
+            <select required value={newBusinessForm.localityId} onChange={e => setNewBusinessForm({...newBusinessForm, localityId: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black', Boolean(businessFormErrors.localityId))}>
               <option value="" className="text-stone-400">Seleccionar...</option>
               {localities.map(l => (
                 <option key={l.id} value={l.id}>{l.name}</option>
               ))}
             </select>
+            <FieldError message={businessFormErrors.localityId} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Dirección</label>
-            <input required value={newBusinessForm.address} onChange={e => setNewBusinessForm({...newBusinessForm, address: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Calle Mayor 12" />
+            <input required value={newBusinessForm.address} onChange={e => setNewBusinessForm({...newBusinessForm, address: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.address))} placeholder="Calle Mayor 12" />
+            <FieldError message={businessFormErrors.address} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Teléfono</label>
-            <input required type="tel" value={newBusinessForm.phone} onChange={e => setNewBusinessForm({...newBusinessForm, phone: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. 600 000 000" />
+            <input required type="tel" value={newBusinessForm.phone} onChange={e => setNewBusinessForm({...newBusinessForm, phone: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.phone))} placeholder="Ej. 600 000 000" />
+            <FieldError message={businessFormErrors.phone} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Email</label>
-            <input required type="email" value={newBusinessForm.email} onChange={e => setNewBusinessForm({...newBusinessForm, email: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. contacto@empresa.com" />
+            <input required type="email" value={newBusinessForm.email} onChange={e => setNewBusinessForm({...newBusinessForm, email: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.email))} placeholder="Ej. contacto@empresa.com" />
+            <FieldError message={businessFormErrors.email} />
           </div>
           <div>
             <label className="block text-xs font-semibold text-stone-500 mb-1">Nombre del Responsable</label>
-            <input required value={newBusinessForm.managerName} onChange={e => setNewBusinessForm({...newBusinessForm, managerName: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. Juan Pérez" />
+            <input required value={newBusinessForm.managerName} onChange={e => setNewBusinessForm({...newBusinessForm, managerName: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.managerName))} placeholder="Ej. Juan Pérez" />
+            <FieldError message={businessFormErrors.managerName} />
           </div>
           <div>
-            <label className="block text-xs font-semibold text-stone-500 mb-1">DNI/NIE</label>
-            <input required value={newBusinessForm.managerDni} onChange={e => setNewBusinessForm({...newBusinessForm, managerDni: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Ej. 12345678A" />
+            <label className="block text-xs font-semibold text-stone-500 mb-1">DNI/NIE del Responsable</label>
+            <input required value={newBusinessForm.managerDni} onChange={e => setNewBusinessForm({...newBusinessForm, managerDni: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 uppercase', Boolean(businessFormErrors.managerDni))} placeholder="Ej. 12345678Z" />
+            <p className="mt-1 text-[11px] text-stone-400">8 dígitos y la letra (12345678Z) o NIE (X1234567L).</p>
+            <FieldError message={businessFormErrors.managerDni} />
           </div>
           <div className="col-span-1 sm:col-span-2">
-            <label className="block text-xs font-semibold text-stone-500 mb-1">Número de cuenta para transferencias</label>
-            <input required value={newBusinessForm.accountNumber} onChange={e => setNewBusinessForm({...newBusinessForm, accountNumber: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ES12 3456 7890 1234 5678 9012" />
+            <label className="block text-xs font-semibold text-stone-500 mb-1">Número de cuenta para transferencias (IBAN)</label>
+            <input value={newBusinessForm.accountNumber} onChange={e => setNewBusinessForm({...newBusinessForm, accountNumber: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.accountNumber))} placeholder="ES91 2100 0418 4502 0005 1332" />
+            <p className="mt-1 text-[11px] text-stone-400">Opcional. Formato IBAN: ES + 20 dígitos (sin espacios ni letras).</p>
+            <FieldError message={businessFormErrors.accountNumber} />
           </div>
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Foto para Banner</label>
-            <input required type="file" accept="image/*" onChange={e => {
-              const file = e.target.files?.[0];
-              if (file) {
-                const url = URL.createObjectURL(file);
-                setNewBusinessForm({...newBusinessForm, bannerUrl: url});
-              }
-            }} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200" />
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleBannerUpload}
+              className={fieldClass(
+                'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200',
+                Boolean(businessFormErrors.bannerUrl),
+              )}
+            />
+            <FieldError message={businessFormErrors.bannerUrl} />
+            {newBusinessForm.bannerUrl && (
+              <img
+                src={newBusinessForm.bannerUrl}
+                alt="Vista previa del banner"
+                className="mt-2 h-20 w-full rounded-xl object-cover"
+              />
+            )}
           </div>
 
           <div className="col-span-full pt-2">
@@ -478,29 +999,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <div className="col-span-full border-t border-stone-200 pt-4">
               <h3 className="text-sm font-bold text-stone-800">Acceso administrador del negocio</h3>
               <p className="mt-1 text-xs text-stone-500">
-                Se asignará automáticamente el rol <strong>BUSINESS_ADMIN</strong> para este negocio.
+                El usuario y la clave que escribas aquí son los únicos que se crean para este
+                negocio (rol <strong>BUSINESS_ADMIN</strong>). No se genera nada automáticamente:
+                el propietario podrá cambiar su clave desde su perfil.
               </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
-              <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. elpensionista_admin" />
+              <input required value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminUsername))} placeholder="ej. elpensionista_admin" />
+              <FieldError message={businessFormErrors.adminUsername} />
             </div>
             <div>
               <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
-              <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="ej. admin@negocio.com" />
+              <input required type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminEmail))} placeholder="ej. admin@negocio.com" />
+              <FieldError message={businessFormErrors.adminEmail} />
             </div>
-            <div>
+            <div className="col-span-1 sm:col-span-2">
               <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
-              <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400" placeholder="Mínimo 8 caracteres" />
-            </div>
-            <div className="flex items-end">
-              <button
-                type="button"
-                onClick={generateBusinessAdminCredentials}
-                className="w-full rounded-xl border border-stone-300 bg-stone-100 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-200"
-              >
-                Generar usuario y clave
-              </button>
+              <input required type="password" minLength={8} value={newBusinessForm.adminPassword} onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))} placeholder="Mínimo 8 caracteres" />
+              <FieldError message={businessFormErrors.adminPassword} />
             </div>
           </>
           
@@ -600,6 +1117,112 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </table>
         </div>
       </div>
+
+      {editingCourier && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-stone-900">
+            <div className="flex items-start justify-between gap-3 border-b border-stone-100 p-5 dark:border-stone-800">
+              <div>
+                <h2 className="font-serif text-base font-bold text-stone-900 dark:text-stone-100">
+                  Editar repartidor
+                </h2>
+                <p className="mt-1 text-xs text-stone-500">
+                  {editingCourier.name} · {editingCourier.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCourierEdit}
+                disabled={courierEditSaving}
+                className="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 dark:hover:bg-stone-800"
+                title="Cerrar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveCourierDetails} className="space-y-4 p-5">
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-stone-500">
+                  Negocios asignados{' '}
+                  {editingCourier.role === 'PLATFORM_COURIER' && (
+                    <span className="font-normal text-stone-400">(informativo)</span>
+                  )}
+                </label>
+                <div className="grid max-h-52 gap-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 sm:grid-cols-2 dark:border-stone-700 dark:bg-stone-800/50">
+                  {businesses.map((biz) => (
+                    <label
+                      key={biz.id}
+                      className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-700 transition hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-stone-800"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={courierEditForm.businessIds.includes(biz.id)}
+                        onChange={() => toggleCourierEditBusiness(biz.id)}
+                        className="mt-0.5 h-4 w-4 accent-[#FF4E00]"
+                      />
+                      <span>
+                        <span className="block font-semibold text-stone-800 dark:text-stone-200">
+                          {biz.name}
+                        </span>
+                        <span className="block text-[10px] text-stone-400">
+                          {localities.find((loc) => loc.id === biz.localityId)?.name || 'Sin localidad'}
+                        </span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {editingCourier.role === 'PLATFORM_COURIER' && (
+                  <p className="mt-1 text-[10px] text-stone-400">
+                    El repartidor de plataforma cubre todo el valle; esta lista es sólo informativa.
+                  </p>
+                )}
+                <FieldError message={courierEditErrors.businessIds} />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-semibold text-stone-500">
+                  Cuenta bancaria (IBAN){' '}
+                  <span className="font-normal text-stone-400">opcional</span>
+                </label>
+                <input
+                  value={courierEditForm.accountNumber}
+                  onChange={(e) =>
+                    setCourierEditForm((previous) => ({
+                      ...previous,
+                      accountNumber: e.target.value,
+                    }))
+                  }
+                  className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierEditErrors.accountNumber))}
+                  placeholder="ES91 2100 0418 4502 0005 1332"
+                />
+                <p className="mt-1 text-[10px] text-stone-400">
+                  Déjalo vacío para quitar la cuenta. Sólo el superadmin puede modificar este dato.
+                </p>
+                <FieldError message={courierEditErrors.accountNumber} />
+              </div>
+
+              <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeCourierEdit}
+                  disabled={courierEditSaving}
+                  className="rounded-xl border border-stone-200 px-4 py-2 text-xs font-semibold text-stone-600 transition hover:bg-stone-50 disabled:opacity-60 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={courierEditSaving}
+                  className="rounded-xl bg-[#FF4E00] px-4 py-2 text-xs font-bold text-white transition hover:bg-[#E64600] disabled:opacity-60"
+                >
+                  {courierEditSaving ? 'Guardando...' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

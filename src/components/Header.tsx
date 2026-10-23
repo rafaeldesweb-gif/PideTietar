@@ -116,6 +116,16 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
+            {canAccessCourierPanel && (
+              <button
+                id="courier-dashboard-btn"
+                onClick={() => setCurrentView('courier-dashboard')}
+                className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70 sm:inline-flex"
+              >
+                Panel repartidor
+              </button>
+            )}
+
             {currentUser?.role === 'SUPERADMIN' && (
               <button
                 id="admin-dashboard-btn"
