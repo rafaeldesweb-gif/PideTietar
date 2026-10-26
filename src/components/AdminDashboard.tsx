@@ -457,6 +457,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         'error',
       );
     }
+    // Reset del input para poder volver a seleccionar el mismo archivo más tarde.
+    event.target.value = '';
   };
 
   const handleBannerUrlPaste = async (urlText: string, setUrlText: (v: string) => void) => {
@@ -1191,14 +1193,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   Boolean(businessFormErrors.bannerUrl),
                 )}
               />
-              <input
-                type="text"
-                placeholder="Pega aquí una URL de banner…"
-                value={newBusinessBannerUrlText}
-                onChange={(e) => setNewBusinessBannerUrlText(e.target.value)}
-                onBlur={() => handleBannerUrlPaste(newBusinessBannerUrlText, setNewBusinessBannerUrlText)}
-                className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400"
-              />
             </div>
             <FieldError message={businessFormErrors.bannerUrl} />
             <MediaView
@@ -1239,30 +1233,34 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   : 'El usuario y la clave que escribas aquí son los únicos que se crean para este negocio (rol BUSINESS_ADMIN). No se genera nada automáticamente: el propietario podrá cambiar su clave desde su perfil.'}
               </p>
             </div>
-            <div>
-              <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
-              <input required={!editingBusinessId} value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminUsername))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. elpensionista_admin'} />
-              <FieldError message={businessFormErrors.adminUsername} />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
-              <input required={!editingBusinessId} type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminEmail))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. admin@negocio.com'} />
-              <FieldError message={businessFormErrors.adminEmail} />
-            </div>
-            <div className="col-span-1 sm:col-span-2">
-              <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
-              <SensitiveInput
-                required={!editingBusinessId}
-                type="password"
-                minLength={editingBusinessId ? undefined : 8}
-                value={newBusinessForm.adminPassword}
-                onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})}
-                className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))}
-                placeholder={editingBusinessId ? 'Sin cambios' : 'Mínimo 8 caracteres'}
-                toggleLabel="clave"
-              />
-              <FieldError message={businessFormErrors.adminPassword} />
-            </div>
+            {(!editingBusinessId && (
+              <>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-500 mb-1">Usuario de acceso</label>
+                  <input required={!editingBusinessId} value={newBusinessForm.adminUsername} onChange={e => setNewBusinessForm({...newBusinessForm, adminUsername: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminUsername))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. elpensionista_admin'} />
+                  <FieldError message={businessFormErrors.adminUsername} />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-stone-500 mb-1">Email de acceso</label>
+                  <input required={!editingBusinessId} type="email" value={newBusinessForm.adminEmail} onChange={e => setNewBusinessForm({...newBusinessForm, adminEmail: e.target.value})} className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminEmail))} placeholder={editingBusinessId ? 'Sin cambios' : 'ej. admin@negocio.com'} />
+                  <FieldError message={businessFormErrors.adminEmail} />
+                </div>
+                <div className="col-span-1 sm:col-span-2">
+                  <label className="block text-xs font-semibold text-stone-500 mb-1">Clave inicial</label>
+                  <SensitiveInput
+                    required={!editingBusinessId}
+                    type="password"
+                    minLength={editingBusinessId ? undefined : 8}
+                    value={newBusinessForm.adminPassword}
+                    onChange={e => setNewBusinessForm({...newBusinessForm, adminPassword: e.target.value})}
+                    className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(businessFormErrors.adminPassword))}
+                    placeholder={editingBusinessId ? 'Sin cambios' : 'Mínimo 8 caracteres'}
+                    toggleLabel="clave"
+                  />
+                  <FieldError message={businessFormErrors.adminPassword} />
+                </div>
+              </>
+            ))}
           </>
           
           <div className="col-span-full pt-4">

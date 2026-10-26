@@ -812,6 +812,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     } catch (error) {
       showNotification('No se pudo cargar el archivo seleccionado.', 'error');
     }
+    event.target.value = '';
   };
 
   const handleBusinessUrlPaste = async (
@@ -2938,14 +2939,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     onChange={(event) => handleBusinessImageUpload('bannerUrl', event)}
                     className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                   />
-                  <input
-                    type="text"
-                    placeholder="Pega aquí una URL de banner…"
-                    value={newBusinessBannerUrlText}
-                    onChange={(e) => setNewBusinessBannerUrlText(e.target.value)}
-                    onBlur={() => handleBusinessUrlPaste('bannerUrl', newBusinessBannerUrlText, setNewBusinessBannerUrlText)}
-                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
-                  />
                 </div>
                 <MediaView
                   src={newBusinessForm.bannerUrl || undefined}
@@ -2963,14 +2956,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     accept={MEDIA_ACCEPT}
                     onChange={(event) => handleBusinessImageUpload('logoUrl', event)}
                     className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
-                  />
-                  <input
-                    type="text"
-                    placeholder="Pega aquí una URL de logo…"
-                    value={newBusinessLogoUrlText}
-                    onChange={(e) => setNewBusinessLogoUrlText(e.target.value)}
-                    onBlur={() => handleBusinessUrlPaste('logoUrl', newBusinessLogoUrlText, setNewBusinessLogoUrlText)}
-                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
                   />
                 </div>
                 <MediaView
