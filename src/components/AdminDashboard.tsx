@@ -176,6 +176,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
   const resetBusinessForm = () => {
     setBusinessFormErrors({});
+    setNewBusinessBannerUrlText('');
     setNewBusinessForm({
       name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
       adminUsername: '',
@@ -1224,6 +1225,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 onChange={handleBannerUpload}
                 className={fieldClass(
                   'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200',
+                  Boolean(businessFormErrors.bannerUrl),
+                )}
+              />
+              <input
+                type="text"
+                placeholder="Pega aquí la URL de la imagen o vídeo…"
+                value={newBusinessBannerUrlText}
+                onChange={(e) => setNewBusinessBannerUrlText(e.target.value)}
+                onBlur={() => handleBannerUrlPaste(newBusinessBannerUrlText, setNewBusinessBannerUrlText)}
+                className={fieldClass(
+                  'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400',
                   Boolean(businessFormErrors.bannerUrl),
                 )}
               />

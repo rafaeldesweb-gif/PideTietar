@@ -63,6 +63,11 @@ export default function App() {
     setCurrentView('business-detail');
   };
 
+  // Cada vez que se abra una "página" (cambio de vista), el scroll vuelve al inicio.
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [currentView]);
+
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
       
