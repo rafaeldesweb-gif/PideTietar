@@ -148,8 +148,30 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
   const handleScheduleChange = (dayIndex: number, field: string, value: any) => {
     const newSchedule = [...newBusinessForm.schedule];
-    newSchedule[dayIndex] = { ...newSchedule[dayIndex], [field]: value };
+    const day = { ...newSchedule[dayIndex] };
+    if (field === 'isOpen') {
+      day.isOpen = Boolean(value);
+      // Al abrir un día que no tiene horas, asigna un horario por defecto
+      // para que no quede un día abierto sin apertura ni cierre.
+      if (day.isOpen && (!day.openTime || !day.closeTime)) {
+        day.openTime = day.openTime || '12:00';
+        day.closeTime = day.closeTime || '23:00';
+      }
+    } else {
+      (day as Record<string, any>)[field] = value;
+    }
+    newSchedule[dayIndex] = day;
     setNewBusinessForm({...newBusinessForm, schedule: newSchedule});
+  };
+
+  // Valida que cada día marcado como abierto tenga hora de apertura y cierre.
+  const validateSchedule = (errors: FieldErrors) => {
+    newBusinessForm.schedule.forEach((day, i) => {
+      if (day.isOpen) {
+        if (!day.openTime) errors[`schedule_${i}_open`] = `${DAYS[day.dayOfWeek]} necesita hora de apertura.`;
+        if (!day.closeTime) errors[`schedule_${i}_close`] = `${DAYS[day.dayOfWeek]} necesita hora de cierre.`;
+      }
+    });
   };
 
   const resetBusinessForm = () => {
@@ -498,6 +520,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       localErrors.adminPassword = 'La clave inicial debe tener al menos 8 caracteres.';
     }
 
+    // El horario: los días abiertos necesitan hora de apertura y cierre.
+    validateSchedule(localErrors);
+
     if (Object.keys(localErrors).length) {
       setBusinessFormErrors(localErrors);
       showNotification(firstErrorMessage(localErrors) || 'Revisa los datos del formulario.', 'error');
@@ -606,6 +631,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     // Las credenciales del propietario sólo se tocan si el superadmin
     // rellena los tres campos; si no, la cuenta existente queda intacta.
     const hasOwnerCredentials = filledOwnerFields === 3;
+
+    // El horario: los días abiertos necesitan hora de apertura y cierre.
+    const scheduleErrors: FieldErrors = {};
+    validateSchedule(scheduleErrors);
+    if (Object.keys(scheduleErrors).length) {
+      setBusinessFormErrors(scheduleErrors);
+      showNotification(firstErrorMessage(scheduleErrors) || 'Revisa los datos del formulario.', 'error');
+      return;
+    }
 
     const saved = await updateBusiness(
       editingBusinessId,
@@ -1210,14 +1244,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 <div key={day.dayOfWeek} className="flex flex-col space-y-2 bg-white dark:bg-stone-950 p-3 rounded-xl border border-stone-200 dark:border-stone-800">
                   <div className="w-full">
                     <label className="flex items-center space-x-2 cursor-pointer">
-                      <input type="checkbox" checked={day.isOpen} onChange={e => handleScheduleChange(idx, 'isOpen', e.target.checked)} className="accent-[#FF4E00]" />
+                      <input type="checkbox" checked={Boolean(day.isOpen)} onChange={e => handleScheduleChange(idx, 'isOpen', e.target.checked)} className="accent-[#FF4E00]" />
                       <span className="text-sm font-medium text-stone-700 dark:text-stone-300">{DAYS[day.dayOfWeek]}</span>
                     </label>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <input type="time" value={day.openTime} disabled={!day.isOpen} onChange={e => handleScheduleChange(idx, 'openTime', e.target.value)} className="bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded px-2 py-1 text-sm outline-none disabled:opacity-50 dark:text-stone-300 text-black w-full" />
+                    <input type="time" value={day.openTime || ''} disabled={!Boolean(day.isOpen)} onChange={e => handleScheduleChange(idx, 'openTime', e.target.value)} className="bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded px-2 py-1 text-sm outline-none disabled:opacity-50 dark:text-stone-300 text-black w-full" />
                     <span className="text-stone-400">-</span>
-                    <input type="time" value={day.closeTime} disabled={!day.isOpen} onChange={e => handleScheduleChange(idx, 'closeTime', e.target.value)} className="bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded px-2 py-1 text-sm outline-none disabled:opacity-50 dark:text-stone-300 text-black w-full" />
+                    <input type="time" value={day.closeTime || ''} disabled={!Boolean(day.isOpen)} onChange={e => handleScheduleChange(idx, 'closeTime', e.target.value)} className="bg-stone-50 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded px-2 py-1 text-sm outline-none disabled:opacity-50 dark:text-stone-300 text-black w-full" />
                   </div>
                 </div>
               ))}

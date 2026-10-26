@@ -319,7 +319,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 categories.map((category) => (
                   <div
                     key={category.id}
-                    className="p-3 flex items-center gap-3 hover:bg-[#fff7f2] transition"
+                    className="p-3 flex items-start gap-3 hover:bg-[#fff7f2] transition"
                   >
                     <MediaView
                       src={category.imageUrl || DEFAULT_CATEGORY_IMAGE}
