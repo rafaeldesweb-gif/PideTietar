@@ -49,6 +49,12 @@ npm start
 - El esquema lo crea y migra el propio servidor al arrancar. No hay que ejecutar migraciones manuales.
 - `data/` contiene datos locales y el secreto de sesión: está excluido de git y no debe subirse.
 
+## Archivos multimedia en Supabase
+
+La base funcional permanece en Hostinger/MySQL (con SQLite como fallback local). Las fotos, vídeos y GIF se guardan en Supabase Storage, en el bucket `app-images`, y sus relaciones se guardan en `public.media_assets` usando los IDs externos de Hostinger. Ejecuta [database/supabase_media.sql](database/supabase_media.sql) una vez en el SQL Editor de Supabase antes de subir medios. La clave `SUPABASE_SECRET_KEY` solo debe existir en el backend; el navegador, si necesita consultar Supabase directamente, usa únicamente `VITE_SUPABASE_PUBLISHABLE_KEY` con RLS.
+
+Los endpoints de medios son `POST /api/media`, `GET /api/media?entityType=...&entityId=...` y `DELETE /api/media/:id`. Las altas y ediciones de negocios, productos y categorías convierten automáticamente los data URLs en archivos de Supabase y guardan la URL pública en la base funcional.
+
 ## Acceso de superadministrador
 
 El usuario y la contraseña se configuran con `SUPERADMIN_USERNAME` y `SUPERADMIN_PASSWORD`. No dejes credenciales reales en el repositorio ni en la documentación.

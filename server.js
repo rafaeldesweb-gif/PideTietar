@@ -8,6 +8,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
+import {
+  getSupabaseMediaBucket,
+  getSupabaseMediaClient,
+  mediaFileExtension,
+  parseDataUrl,
+} from "./server/supabaseMedia.js";
 
 dotenv.config();
 process.env.NODE_ENV ||= "development";
@@ -1150,6 +1156,9 @@ async function ensureSchema() {
 
 async function seedSuperAdmin() {
   const userName = process.env.SUPERADMIN_USERNAME || "RafaAdmin";
+  // Respaldo operativo existente: se conserva para poder entrar aunque no
+  // haya configuración de entorno. En producción debe sustituirse mediante
+  // SUPERADMIN_PASSWORD y forzarse el cambio posterior.
   const loginPassword = process.env.SUPERADMIN_PASSWORD || "13021999";
   const hash = bcrypt.hashSync(loginPassword, 10);
 
@@ -1579,6 +1588,33 @@ async function listProducts() {
 
   const db = getSqliteDb();
   return db.prepare("SELECT * FROM products ORDER BY created_at DESC").all();
+}
+
+async function getProductById(id) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM products WHERE id = ? LIMIT 1",
+      [id],
+    );
+    return rows[0] || null;
+  }
+
+  return getSqliteDb()
+    .prepare("SELECT * FROM products WHERE id = ? LIMIT 1")
+    .get(id) || null;
+}
+
+function getSessionBusinessId(user) {
+  return String(user?.business_id || user?.businessId || "").trim();
+}
+
+function assertBusinessResourceAccess(user, businessId, message) {
+  const role = String(user?.role || "").toUpperCase();
+  if (role === "SUPERADMIN") return;
+  if (role === "BUSINESS_ADMIN" && getSessionBusinessId(user) === String(businessId || "")) {
+    return;
+  }
+  throw httpError(403, "FORBIDDEN", message);
 }
 
 async function listCategories() {
@@ -2362,6 +2398,173 @@ function isValidImageUrl(value) {
   return isDataMedia && !value.includes(" ");
 }
 
+const MEDIA_ENTITY_TYPES = new Set(["USER", "BUSINESS", "PRODUCT", "CATEGORY"]);
+const ALLOWED_MEDIA_CONTENT_TYPES = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/gif",
+  "video/mp4",
+  "video/webm",
+]);
+const MAX_MEDIA_BYTES = 6 * 1024 * 1024;
+
+function normalizeMediaEntityType(value) {
+  const entityType = cleanString(value).toUpperCase();
+  if (!MEDIA_ENTITY_TYPES.has(entityType)) {
+    throw validationError("El tipo de entidad multimedia no es válido.", {
+      entityType: "Usa USER, BUSINESS, PRODUCT o CATEGORY.",
+    });
+  }
+  return entityType;
+}
+
+async function saveSupabaseMediaAsset({
+  entityType,
+  entityId,
+  fieldName,
+  value,
+  originalName,
+  createdBy,
+}) {
+  const cleanValue = cleanString(value);
+  if (!cleanValue || !cleanValue.startsWith("data:")) return cleanValue;
+
+  const parsed = parseDataUrl(cleanValue);
+  if (!parsed) {
+    throw validationError("El archivo multimedia no tiene un formato válido.", {
+      value: "Usa un data URL base64 válido.",
+    });
+  }
+  if (!ALLOWED_MEDIA_CONTENT_TYPES.has(parsed.contentType)) {
+    throw validationError("El tipo de archivo multimedia no está permitido.", {
+      value: "Solo se aceptan JPG, PNG, GIF, MP4 o WebM.",
+    });
+  }
+  if (!parsed.buffer.length || parsed.buffer.length > MAX_MEDIA_BYTES) {
+    throw httpError(413, "PAYLOAD_TOO_LARGE", "El archivo multimedia supera el límite de 6 MB.");
+  }
+
+  const supabase = getSupabaseMediaClient();
+  if (!supabase) {
+    throw httpError(503, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento multimedia de Supabase no está configurado.");
+  }
+
+  const normalizedType = normalizeMediaEntityType(entityType);
+  const normalizedId = cleanString(entityId);
+  const normalizedField = cleanString(fieldName) || "media";
+  if (!normalizedId) {
+    throw validationError("Falta el ID de la entidad multimedia.", {
+      entityId: "El ID es obligatorio.",
+    });
+  }
+
+  const bucket = getSupabaseMediaBucket();
+  const extension = mediaFileExtension(parsed.contentType);
+  const storagePath = `${normalizedType.toLowerCase()}/${normalizedId}/${cryptoRandomId()}.${extension}`;
+  const upload = await supabase.storage.from(bucket).upload(storagePath, parsed.buffer, {
+    contentType: parsed.contentType,
+    cacheControl: "31536000",
+    upsert: false,
+  });
+  if (upload.error) {
+    throw httpError(502, "MEDIA_UPLOAD_FAILED", upload.error.message || "No se pudo subir el archivo multimedia.");
+  }
+
+  const publicUrl = supabase.storage.from(bucket).getPublicUrl(storagePath).data.publicUrl;
+  const relation = await supabase.from("media_assets").insert({
+    entity_type: normalizedType,
+    entity_id: normalizedId,
+    field_name: normalizedField,
+    storage_bucket: bucket,
+    storage_path: storagePath,
+    public_url: publicUrl,
+    mime_type: parsed.contentType,
+    byte_size: parsed.buffer.length,
+    original_name: cleanString(originalName) || null,
+    created_by: cleanString(createdBy) || null,
+  }).select("*").single();
+
+  if (relation.error) {
+    await supabase.storage.from(bucket).remove([storagePath]);
+    throw httpError(502, "MEDIA_RELATION_FAILED", relation.error.message || "No se pudo guardar la relación multimedia.");
+  }
+
+  return relation.data;
+}
+
+async function normalizeStoredMediaValue(options) {
+  const value = cleanString(options.value);
+  if (!value.startsWith("data:")) return value;
+  const asset = await saveSupabaseMediaAsset(options);
+  return asset.public_url;
+}
+
+async function persistUserAvatar(userId, value, createdBy) {
+  const storedValue = await normalizeStoredMediaValue({
+    entityType: "USER",
+    entityId: userId,
+    fieldName: "avatar_url",
+    value,
+    createdBy,
+  });
+  if (mysqlPool) {
+    await mysqlPool.execute("UPDATE app_users SET avatar_url = ? WHERE id = ?", [storedValue || null, userId]);
+  } else {
+    getSqliteDb().prepare("UPDATE app_users SET avatar_url = ? WHERE id = ?").run(storedValue || null, userId);
+  }
+  return storedValue;
+}
+
+async function listSupabaseMediaAssets(entityType, entityId) {
+  const supabase = getSupabaseMediaClient();
+  if (!supabase) return [];
+  const query = supabase.from("media_assets").select("*").eq("entity_id", cleanString(entityId));
+  const result = await query.eq("entity_type", normalizeMediaEntityType(entityType)).order("created_at", { ascending: false });
+  if (result.error) {
+    throw httpError(502, "MEDIA_RELATION_FAILED", result.error.message || "No se pudieron consultar los medios.");
+  }
+  return result.data || [];
+}
+
+async function deleteSupabaseMediaAsset(id) {
+  const supabase = getSupabaseMediaClient();
+  if (!supabase) throw httpError(503, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento multimedia de Supabase no está configurado.");
+  const found = await supabase.from("media_assets").select("id, storage_bucket, storage_path").eq("id", id).maybeSingle();
+  if (found.error) throw httpError(502, "MEDIA_RELATION_FAILED", found.error.message || "No se pudo consultar el medio.");
+  if (!found.data) throw httpError(404, "NOT_FOUND", "El medio no existe.");
+  const bucket = found.data.storage_bucket || getSupabaseMediaBucket();
+  const removed = await supabase.storage.from(bucket).remove([found.data.storage_path]);
+  if (removed.error) throw httpError(502, "MEDIA_DELETE_FAILED", removed.error.message || "No se pudo eliminar el archivo multimedia.");
+  const deleted = await supabase.from("media_assets").delete().eq("id", id);
+  if (deleted.error) throw httpError(502, "MEDIA_RELATION_FAILED", deleted.error.message || "No se pudo eliminar la relación multimedia.");
+}
+
+async function assertMediaMutationAccess(user, entityType, entityId) {
+  const role = String(user?.role || "").toUpperCase();
+  if (role === "SUPERADMIN") return;
+  const normalizedType = normalizeMediaEntityType(entityType);
+  const normalizedId = cleanString(entityId);
+
+  if (normalizedType === "USER") {
+    if (String(user.id || "") !== normalizedId) {
+      throw httpError(403, "FORBIDDEN", "Solo puedes modificar tus propios medios.");
+    }
+    return;
+  }
+  if (normalizedType === "BUSINESS") {
+    assertBusinessResourceAccess(user, normalizedId, "Solo puedes modificar medios de tu propio negocio.");
+    return;
+  }
+  if (normalizedType === "PRODUCT") {
+    const product = await getProductById(normalizedId);
+    if (!product) throw httpError(404, "NOT_FOUND", "El producto no existe.");
+    assertBusinessResourceAccess(user, product.business_id, "Solo puedes modificar medios de tu propio negocio.");
+    return;
+  }
+  throw httpError(403, "FORBIDDEN", "Solo el superadmin puede modificar medios de categorías.");
+}
+
 function normalizeCategorySlug(value) {
   return String(value ?? "")
     .trim()
@@ -3081,6 +3284,9 @@ app.post("/api/auth/register", async (req, res) => {
     avatarUrl,
     role: "CLIENT",
   });
+  if (avatarUrl && String(avatarUrl).startsWith("data:")) {
+    newUser.avatar_url = await persistUserAvatar(newUser.id, avatarUrl, newUser.id);
+  }
 
   res.status(201).json({
     success: true,
@@ -3307,6 +3513,53 @@ app.get("/api/auth/me", async (req, res) => {
   }
 
   res.json({ user: sanitizeUser(user) });
+});
+
+app.post("/api/media", requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const entityType = body.entityType ?? body.entity_type;
+  const entityId = body.entityId ?? body.entity_id;
+  const fieldName = body.fieldName ?? body.field_name ?? "media";
+  const value = body.dataUrl ?? body.value ?? body.url;
+  await assertMediaMutationAccess(req.user, entityType, entityId);
+  const asset = await saveSupabaseMediaAsset({
+    entityType,
+    entityId,
+    fieldName,
+    value,
+    originalName: body.originalName ?? body.original_name,
+    createdBy: req.user.id,
+  });
+  if (!asset || typeof asset === "string") {
+    throw validationError("El medio debe ser un data URL base64 para subirlo a Supabase.", {
+      dataUrl: "El archivo multimedia es obligatorio.",
+    });
+  }
+  res.status(201).json({ success: true, asset });
+});
+
+app.get("/api/media", async (req, res) => {
+  const entityType = req.query.entityType ?? req.query.entity_type;
+  const entityId = req.query.entityId ?? req.query.entity_id;
+  if (!entityType || !entityId) {
+    throw validationError("Indica la entidad multimedia que quieres consultar.", {
+      entityType: "El tipo de entidad es obligatorio.",
+      entityId: "El ID de entidad es obligatorio.",
+    });
+  }
+  const assets = await listSupabaseMediaAssets(entityType, entityId);
+  res.json(assets);
+});
+
+app.delete("/api/media/:id", requireAuth, async (req, res) => {
+  const supabase = getSupabaseMediaClient();
+  if (!supabase) throw httpError(503, "MEDIA_STORAGE_UNAVAILABLE", "El almacenamiento multimedia de Supabase no está configurado.");
+  const found = await supabase.from("media_assets").select("id, entity_type, entity_id").eq("id", req.params.id).maybeSingle();
+  if (found.error) throw httpError(502, "MEDIA_RELATION_FAILED", found.error.message || "No se pudo consultar el medio.");
+  if (!found.data) throw httpError(404, "NOT_FOUND", "El medio no existe.");
+  await assertMediaMutationAccess(req.user, found.data.entity_type, found.data.entity_id);
+  await deleteSupabaseMediaAsset(req.params.id);
+  res.json({ success: true });
 });
 
 app.get("/api/localities", async (_req, res) => {
@@ -3647,6 +3900,10 @@ app.post("/api/users", requireAuth, async (req, res) => {
         ? accountNumber || null
         : null,
   });
+  const avatarUrl = cleanString(body.avatarUrl || body.avatar_url);
+  if (avatarUrl.startsWith("data:")) {
+    user.avatar_url = await persistUserAvatar(user.id, avatarUrl, sessionUser.id);
+  }
 
   res.status(201).json({ success: true, user: sanitizeUser(user) });
 });
@@ -3843,6 +4100,16 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
     const avatarUrl = cleanString(body.avatarUrl ?? body.avatar_url) || null;
     if (avatarUrl && !isValidImageUrl(avatarUrl)) {
       errors.avatarUrl = "La imagen debe ser una URL http(s) o un archivo cargado.";
+    } else if (avatarUrl && avatarUrl.startsWith("data:")) {
+      const storedAvatarUrl = await normalizeStoredMediaValue({
+        entityType: "USER",
+        entityId: id,
+        fieldName: "avatar_url",
+        value: avatarUrl,
+        createdBy: sessionUser.id,
+      });
+      updates.push("avatar_url = ?");
+      values.push(storedAvatarUrl || null);
     } else {
       updates.push("avatar_url = ?");
       values.push(avatarUrl);
@@ -4068,6 +4335,20 @@ app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
   }
 
   const businessId = cryptoRandomId();
+  value.banner_url = await normalizeStoredMediaValue({
+    entityType: "BUSINESS",
+    entityId: businessId,
+    fieldName: "banner_url",
+    value: value.banner_url,
+    createdBy: req.user.id,
+  });
+  value.logo_url = await normalizeStoredMediaValue({
+    entityType: "BUSINESS",
+    entityId: businessId,
+    fieldName: "logo_url",
+    value: value.logo_url,
+    createdBy: req.user.id,
+  });
 
   const { business, ownerAccount } = await withTransaction(async (tx) => {
     await txQuery(
@@ -4168,6 +4449,24 @@ app.put("/api/businesses/:id", requireAuth, async (req, res) => {
   const value = { ...validation.value };
   const schedule = value.schedule;
   delete value.schedule;
+  if (value.banner_url !== undefined) {
+    value.banner_url = await normalizeStoredMediaValue({
+      entityType: "BUSINESS",
+      entityId: id,
+      fieldName: "banner_url",
+      value: value.banner_url,
+      createdBy: req.user.id,
+    });
+  }
+  if (value.logo_url !== undefined) {
+    value.logo_url = await normalizeStoredMediaValue({
+      entityType: "BUSINESS",
+      entityId: id,
+      fieldName: "logo_url",
+      value: value.logo_url,
+      createdBy: req.user.id,
+    });
+  }
 
   const updates = [];
   const values = [];
@@ -4335,17 +4634,24 @@ app.post("/api/categories", requireRole("SUPERADMIN"), async (req, res) => {
   }
 
   const id = cryptoRandomId();
+  const storedImageUrl = await normalizeStoredMediaValue({
+    entityType: "CATEGORY",
+    entityId: id,
+    fieldName: "image_url",
+    value: imageUrl,
+    createdBy: req.user.id,
+  });
   if (mysqlPool) {
     await mysqlPool.execute(
       "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
-      [id, name, slug, iconName || null, imageUrl || null],
+      [id, name, slug, iconName || null, storedImageUrl || null],
     );
   } else {
     getSqliteDb()
       .prepare(
         "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
       )
-      .run(id, name, slug, iconName || null, imageUrl || null);
+      .run(id, name, slug, iconName || null, storedImageUrl || null);
   }
 
   const created = await getCategoryById(id);
@@ -4387,13 +4693,21 @@ app.put("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
     );
   }
 
+  const storedImageUrl = await normalizeStoredMediaValue({
+    entityType: "CATEGORY",
+    entityId: id,
+    fieldName: "image_url",
+    value: imageUrl,
+    createdBy: req.user.id,
+  });
+
   if (mysqlPool) {
     await mysqlPool.execute(
       `UPDATE categories
           SET name = ?, slug = ?, icon_name = ?, image_url = ?,
               updated_at = CURRENT_TIMESTAMP(3)
         WHERE id = ?`,
-      [name, slug, iconName || null, imageUrl || null, id],
+      [name, slug, iconName || null, storedImageUrl || null, id],
     );
   } else {
     getSqliteDb()
@@ -4403,7 +4717,7 @@ app.put("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
                 updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
       )
-      .run(name, slug, iconName || null, imageUrl || null, id);
+      .run(name, slug, iconName || null, storedImageUrl || null, id);
   }
 
   const updated = await getCategoryById(id);
@@ -4450,12 +4764,32 @@ app.get("/api/products", async (_req, res) => {
 
 app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
+  const requestedBusinessId = body.business_id || body.businessId || getSessionBusinessId(req.user);
+  if (!requestedBusinessId) {
+    throw validationError("El producto debe pertenecer a un negocio.", {
+      business_id: "Selecciona un negocio válido.",
+    });
+  }
+  const businessExists = await countRows(
+    "SELECT COUNT(*) AS c FROM businesses WHERE id = ?",
+    [requestedBusinessId],
+  );
+  if (!businessExists) {
+    throw validationError("El negocio seleccionado no existe.", {
+      business_id: "Selecciona un negocio válido.",
+    });
+  }
+  assertBusinessResourceAccess(
+    req.user,
+    requestedBusinessId,
+    "Solo puedes crear productos para tu propio negocio.",
+  );
   const categoryId = await resolveProductCategoryId(
     body.category_id ?? body.categoryId,
   );
   const product = {
     id: body.id || cryptoRandomId(),
-    business_id: body.business_id || body.businessId || "business-default",
+    business_id: requestedBusinessId,
     category_id: categoryId,
     name: body.name || "Nuevo producto",
     description: body.description || "",
@@ -4474,6 +4808,13 @@ app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (re
       body.additional_ingredients || body.additionalIngredients || [],
     ),
   };
+  product.image_url = await normalizeStoredMediaValue({
+    entityType: "PRODUCT",
+    entityId: product.id,
+    fieldName: "image_url",
+    value: product.image_url,
+    createdBy: req.user.id,
+  });
 
   if (mysqlPool) {
     await mysqlPool.execute(
@@ -4527,6 +4868,13 @@ app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (re
 app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
+  const existing = await getProductById(id);
+  if (!existing) throw httpError(404, "NOT_FOUND", "El producto no existe.");
+  assertBusinessResourceAccess(
+    req.user,
+    existing.business_id,
+    "Solo puedes modificar productos de tu propio negocio.",
+  );
   const updates = [];
   const values = [];
   const assign = (field, value) => {
@@ -4546,8 +4894,18 @@ app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async 
     assign("is_available", Number(body.is_available ?? body.isAvailable ?? 1));
   if (body.is_sold_out !== undefined || body.isSoldOut !== undefined)
     assign("is_sold_out", Number(body.is_sold_out ?? body.isSoldOut ?? 0));
-  if (body.image_url !== undefined || body.imageUrl !== undefined)
-    assign("image_url", body.image_url ?? body.imageUrl);
+  if (body.image_url !== undefined || body.imageUrl !== undefined) {
+    assign(
+      "image_url",
+      await normalizeStoredMediaValue({
+        entityType: "PRODUCT",
+        entityId: id,
+        fieldName: "image_url",
+        value: body.image_url ?? body.imageUrl,
+        createdBy: req.user.id,
+      }),
+    );
+  }
 
   // Campos del formulario de catálogo: sin ellos, editar un producto desde la
   // app borraba silenciosamente el tag, los ingredientes o la categoría.
@@ -4612,6 +4970,13 @@ app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async 
 
 app.delete("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
+  const existing = await getProductById(id);
+  if (!existing) throw httpError(404, "NOT_FOUND", "El producto no existe.");
+  assertBusinessResourceAccess(
+    req.user,
+    existing.business_id,
+    "Solo puedes eliminar productos de tu propio negocio.",
+  );
   if (mysqlPool) {
     await mysqlPool.execute("DELETE FROM products WHERE id = ?", [id]);
     return res.json({ success: true });
@@ -4630,6 +4995,13 @@ app.get("/api/orders", requireAuth, async (req, res) => {
 
 app.post("/api/orders", requireRole(), async (req, res) => {
   const body = req.body || {};
+  const role = String(req.user.role || "").toUpperCase();
+  if (role === "CLIENT") {
+    const requestedCustomerId = body.customerId ?? body.customer_id;
+    if (requestedCustomerId && String(requestedCustomerId) !== String(req.user.id)) {
+      throw httpError(403, "FORBIDDEN", "No puedes crear pedidos en nombre de otro cliente.");
+    }
+  }
   const orderId = body.id || cryptoRandomId();
   // El cuerpo puede llegar en camelCase (frontend) o en snake_case (clientes
   // antiguos). Se aceptan ambos para no romper pedidos ya guardados.
@@ -4661,7 +5033,10 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     order_number:
       pick("orderNumber", "order_number") ||
       `PT-${Math.floor(Math.random() * 9000 + 1000)}`,
-    customer_id: pick("customerId", "customer_id") || null,
+    customer_id:
+      role === "CLIENT"
+        ? req.user.id
+        : pick("customerId", "customer_id") || null,
     customer_name: pick("customerName", "customer_name") || "Cliente",
     customer_email:
       pick("customerEmail", "customer_email") ||
@@ -4795,8 +5170,8 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   res.status(201).json({ success: true, id: orderId });
 });
 
-// Cualquier usuario con sesión puede cambiar el estado: el cliente confirma la
-// entrega con su PIN y la cocina mueve la comanda.
+// El servidor comprueba el ámbito del usuario y el PIN antes de aceptar cambios
+// de estado; el cliente sólo puede enviar la valoración de su propio pedido.
 app.put("/api/orders/:id", requireRole(), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
@@ -4815,6 +5190,92 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
     const existing = Array.isArray(rows) ? rows[0] : rows;
     if (!existing) return { notFound: true };
 
+    const role = String(req.user.role || "").toUpperCase();
+    const orderBusinessId = String(existing.business_id || "");
+    if (role === "BUSINESS_ADMIN") {
+      assertBusinessResourceAccess(
+        req.user,
+        orderBusinessId,
+        "Solo puedes modificar pedidos de tu propio negocio.",
+      );
+    } else if (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") {
+      const assignedBusinesses = parseCourierBusinessIds(req.user);
+      const canAccess =
+        assignedBusinesses.includes(orderBusinessId) ||
+        String(existing.courier_id || "") === String(req.user.id || "");
+      if (!canAccess) {
+        throw httpError(403, "FORBIDDEN", "No puedes modificar este pedido.");
+      }
+      const courierAllowedFields = new Set([
+        "status",
+        "status_history",
+        "delivery_pin",
+        "deliveryPin",
+        "courier_id",
+        "courierId",
+        "courier_name",
+        "courierName",
+        "courier_phone",
+        "courierPhone",
+        "review_requested",
+        "updated_at",
+        "updatedAt",
+        "changed_at",
+        "changedAt",
+        "changed_by_role",
+        "changedByRole",
+        "note",
+      ]);
+      const forbiddenField = Object.keys(body).find(
+        (field) => !courierAllowedFields.has(field),
+      );
+      if (forbiddenField) {
+        throw httpError(403, "FORBIDDEN", "El repartidor solo puede actualizar el estado y los datos de entrega.");
+      }
+    } else if (role === "CLIENT") {
+      const isOwner =
+        String(existing.customer_id || "") === String(req.user.id || "") ||
+        (!existing.customer_id &&
+          String(existing.customer_email || "").toLowerCase() ===
+            String(req.user.email || "").toLowerCase());
+      if (!isOwner) {
+        throw httpError(403, "FORBIDDEN", "No puedes modificar este pedido.");
+      }
+      const clientAllowedFields = new Set([
+        "review_requested",
+        "review_score",
+        "reviewed_at",
+      ]);
+      const forbiddenField = Object.keys(body).find(
+        (field) => !clientAllowedFields.has(field),
+      );
+      if (forbiddenField) {
+        throw httpError(403, "FORBIDDEN", "El cliente solo puede enviar la valoración del pedido.");
+      }
+    }
+
+    const financialFields = [
+      "subtotalCents",
+      "subtotal_cents",
+      "deliveryFeeCents",
+      "delivery_fee_cents",
+      "platformFeeCents",
+      "platform_fee_cents",
+      "businessPayoutCents",
+      "business_payout_cents",
+      "courierPayoutCents",
+      "courier_payout_cents",
+      "totalCents",
+      "total_cents",
+      "paymentStatus",
+      "payment_status",
+      "paymentTransactionId",
+      "payment_transaction_id",
+    ];
+    if (role !== "SUPERADMIN" && financialFields.some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
+      throw httpError(403, "FORBIDDEN", "Los importes y el pago solo los puede validar el servidor.");
+    }
+
     const updates = new Map();
     const set = (field, value) => updates.set(field, value);
 
@@ -4822,6 +5283,17 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
     if (has("status", "status")) {
       nextStatus = String(read("status", "status") || "NEW");
       set("status", nextStatus);
+    }
+
+    if (
+      (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") &&
+      nextStatus === "DELIVERED" &&
+      existing.delivery_pin
+    ) {
+      const submittedPin = read("deliveryPin", "delivery_pin");
+      if (String(submittedPin || "") !== String(existing.delivery_pin)) {
+        throw httpError(400, "INVALID_DELIVERY_PIN", "El PIN de entrega no es válido.");
+      }
     }
 
     if (has("businessId", "business_id"))
@@ -5020,6 +5492,26 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
 
 app.delete("/api/orders/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
+  let existing;
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM orders WHERE id = ? LIMIT 1",
+      [id],
+    );
+    existing = rows[0] || null;
+  } else {
+    existing =
+      getSqliteDb().prepare("SELECT * FROM orders WHERE id = ? LIMIT 1").get(id) ||
+      null;
+  }
+  if (!existing) {
+    throw httpError(404, "NOT_FOUND", "El pedido no existe.");
+  }
+  assertBusinessResourceAccess(
+    req.user,
+    existing.business_id,
+    "Solo puedes eliminar pedidos de tu propio negocio.",
+  );
 
   await withTransaction(async (tx) => {
     // order_items referencia orders: hay que vaciar las líneas antes de borrar
