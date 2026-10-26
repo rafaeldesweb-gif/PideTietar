@@ -7,6 +7,8 @@ declare global {
   }
 }
 
+import { Address, getDeliveryAddressString } from '../types';
+
 export interface GoogleAuthStatus {
   isSignedIn: boolean;
   accessToken: string | null;
@@ -126,7 +128,7 @@ export async function scheduleOrderInGoogleCalendar(order: {
   customerName: string;
   customerEmail: string;
   deliveryType: string;
-  deliveryAddress?: { street: string; locality: string };
+  deliveryAddress?: Address | string;
   scheduledTime?: string;
   totalCents: number;
 }): Promise<{ success: boolean; eventLink?: string; error?: string }> {
@@ -139,8 +141,8 @@ export async function scheduleOrderInGoogleCalendar(order: {
 
     const eventPayload = {
       summary: `🍕 Pedido ${order.orderNumber} - ${order.businessName} (PideTiétar)`,
-      description: `Pedido de ${order.customerName} en ${order.businessName}.\nModalidad: ${order.deliveryType === 'DELIVERY' ? 'Reparto a domicilio' : 'Recogida en local'}\nTotal: ${(order.totalCents / 100).toFixed(2)}€\nDirección: ${order.deliveryAddress ? `${order.deliveryAddress.street}, ${order.deliveryAddress.locality}` : 'Recogida en tienda'}\n\nProgramado automáticamente desde PideTiétar.`,
-      location: order.deliveryAddress ? `${order.deliveryAddress.street}, ${order.deliveryAddress.locality}` : order.businessName,
+      description: `Pedido de ${order.customerName} en ${order.businessName}.\nModalidad: ${order.deliveryType === 'DELIVERY' ? 'Reparto a domicilio' : 'Recogida en local'}\nTotal: ${(order.totalCents / 100).toFixed(2)}€\nDirección: ${order.deliveryAddress ? getDeliveryAddressString(order.deliveryAddress) : 'Recogida en tienda'}\n\nProgramado automáticamente desde PideTiétar.`,
+      location: order.deliveryAddress ? getDeliveryAddressString(order.deliveryAddress) : order.businessName,
       start: {
         dateTime: startTime.toISOString(),
         timeZone: 'Europe/Madrid',

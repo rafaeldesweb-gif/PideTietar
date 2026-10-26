@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
 import { Business, Product } from '../types';
+import { MediaView } from './MediaView';
 
 interface HomeViewProps {
   onSelectBusiness: (biz: Business) => void;
@@ -114,10 +115,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
       {activeBanner ? (
         <section className="relative overflow-hidden rounded-3xl bg-[#140600] text-white shadow-2xl border border-stone-800">
           <div className="relative min-h-[300px] sm:min-h-[360px] overflow-hidden">
-            <img
+            <MediaView
               src={activeBanner.image}
               alt={activeBanner.title}
-              className="absolute inset-0 h-full w-full object-cover opacity-80 saturate-125 contrast-110"
+              className="absolute inset-0 h-full w-full opacity-80 saturate-125 contrast-110"
+              fit="cover"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-[#1a0802]/90 via-[#1a0802]/75 to-[#1a0802]/20" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#1a0802]/80 via-transparent to-transparent" />
@@ -146,10 +148,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
 
               <div className="pointer-events-none absolute right-4 top-4 h-36 w-36 sm:right-6 sm:top-6 sm:h-52 sm:w-52 lg:right-8 lg:top-8 lg:h-64 lg:w-64">
                 <div className="relative h-full w-full">
-                  <img
+                  <MediaView
                     src={activeBanner.image}
                     alt={activeBanner.title}
-                    className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 object-cover shadow-[0_0_40px_rgba(255,78,0,0.28)]"
+                    className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 shadow-[0_0_40px_rgba(255,78,0,0.28)]"
+                    fit="cover"
                   />
                 </div>
               </div>
@@ -250,7 +253,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                       : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
                   }`}>
                     <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner">
-                      <img src={cat.imageUrl} alt={cat.name} className="h-full w-full object-cover transition duration-300 group-hover:scale-110" />
+                      <MediaView
+                        src={cat.imageUrl}
+                        alt={cat.name}
+                        className="h-full w-full transition duration-300 group-hover:scale-110"
+                        fit="cover"
+                      />
                       <div className="absolute inset-0 bg-black/10 transition group-hover:bg-transparent" />
                     </div>
                   </div>
@@ -302,10 +310,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   className="bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between"
                 >
                   <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
-                    <img
+                    <MediaView
                       src={prod.imageUrl}
                       alt={prod.name}
-                      className="w-full h-full object-cover transition duration-300"
+                      className="w-full h-full transition duration-300"
                     />
                     <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-1 rounded-lg">
                       {(prod.priceCents / 100).toFixed(2)}€
@@ -396,10 +404,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               >
                 {/* Banner & Open indicator */}
                 <div className="relative h-48 overflow-hidden">
-                  <img
+                  <MediaView
                     src={biz.bannerUrl}
                     alt={biz.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                    className="w-full h-full group-hover:scale-105 transition duration-500"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30" />
                   

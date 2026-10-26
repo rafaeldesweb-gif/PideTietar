@@ -1,12 +1,37 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Package, Clock, CheckCircle2, MapPin, Bike, 
+  Package, Clock, CheckCircle2, MapPin, 
   Calendar, ExternalLink, ShieldCheck, Mail, RefreshCw,
-  Star
+  Star, Lock
 } from 'lucide-react';
-import { OrderStatus } from '../types';
+import { OrderStatus, getDeliveryAddressString } from '../types';
 import { canViewOrdersPage, filterOrdersForCurrentUser } from '../utils/orderVisibility';
+// Pasos del progreso según el tipo de entrega.
+// - RECIDA (PICKUP): 1. Pedido, 2. En Cocina, 3. Listo, 4. Entregado
+// - REPARTO (DELIVERY): 1. Pagado, 2. En Cocina, 3. En Camino, 4. Entregado
+const ORDER_PROGRESS_STEPS: Record<'PICKUP' | 'DELIVERY', Array<{
+  key: string;
+  label: string;
+  activeStatuses: string[];
+}>> = {
+  PICKUP: [
+    { key: 'PAID', label: '1. Pedido', activeStatuses: ['PAID', 'NEW', 'ACCEPTED', 'PREPARING', 'READY', 'PICKED_UP', 'DELIVERED'] },
+    { key: 'PREPARING', label: '2. En Cocina', activeStatuses: ['PREPARING', 'READY', 'PICKED_UP', 'DELIVERED'] },
+    { key: 'READY', label: '3. Listo', activeStatuses: ['READY', 'PICKED_UP', 'DELIVERED'] },
+    { key: 'DELIVERED', label: '4. Entregado', activeStatuses: ['DELIVERED'] },
+  ],
+  DELIVERY: [
+    { key: 'PAID', label: '1. Pagado', activeStatuses: ['PAID', 'NEW', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'PICKED_UP', 'DELIVERED'] },
+    { key: 'PREPARING', label: '2. En Cocina', activeStatuses: ['PREPARING', 'READY', 'ASSIGNED', 'PICKED_UP', 'DELIVERED'] },
+    { key: 'PICKED_UP', label: '3. En Camino', activeStatuses: ['PICKED_UP', 'DELIVERED'] },
+    { key: 'DELIVERED', label: '4. Entregado', activeStatuses: ['DELIVERED'] },
+  ],
+};
+
+function getOrderProgressSteps(deliveryType: 'PICKUP' | 'DELIVERY') {
+  return ORDER_PROGRESS_STEPS[deliveryType] ?? ORDER_PROGRESS_STEPS.DELIVERY;
+}
 
 export const OrdersView: React.FC = () => {
   const { orders, currentUser, submitBusinessReview, businesses, localities, updateOrderStatus } = useApp();
@@ -219,23 +244,14 @@ export const OrdersView: React.FC = () => {
                 {/* Body: Live timeline & Items snapshot */}
                 <div className="p-4 sm:p-6 space-y-6">
                   
-                  {/* Status Progress Bar */}
+                  {/* Status Progress Bar: pasos diferentes para Recogida vs Reparto */}
                   <div>
                     <div className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">
                       Progreso del Pedido
                     </div>
                     <div className="grid grid-cols-4 gap-2">
-                      {[
-                        { key: 'PAID', label: '1. Pagado' },
-                        { key: 'PREPARING', label: '2. En Cocina' },
-                        { key: 'PICKED_UP', label: '3. En Camino' },
-                        { key: 'DELIVERED', label: '4. Entregado' }
-                      ].map((step, idx) => {
-                        const isPastOrCurrent = 
-                          (step.key === 'PAID' && ['PAID', 'NEW', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'PICKED_UP', 'DELIVERED'].includes(order.status)) ||
-                          (step.key === 'PREPARING' && ['PREPARING', 'READY', 'ASSIGNED', 'PICKED_UP', 'DELIVERED'].includes(order.status)) ||
-                          (step.key === 'PICKED_UP' && ['PICKED_UP', 'DELIVERED'].includes(order.status)) ||
-                          (step.key === 'DELIVERED' && order.status === 'DELIVERED');
+                      {getOrderProgressSteps(order.deliveryType).map((step, idx) => {
+                        const isPastOrCurrent = step.activeStatuses.includes(order.status);
 
                         return (
                           <div key={step.key} className="space-y-1">
@@ -314,31 +330,47 @@ export const OrdersView: React.FC = () => {
                     )}
                   </div>
 
-                  {isSuperAdmin && order.deliveryType === 'DELIVERY' && (
-                    <div className="mt-4 p-4 rounded-xl border border-blue-200 bg-blue-50/50 dark:border-blue-900/50 dark:bg-blue-950/20 text-xs">
-                      <div className="flex items-center justify-between mb-3 border-b border-blue-100 dark:border-blue-900/50 pb-2">
-                        <span className="font-bold text-blue-900 dark:text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
-                          <Bike className="w-4 h-4" />
-                          Control Operativo Repartidor (SuperAdmin)
+                  {isSuperAdmin && (
+                    <div className="mt-4 p-4 rounded-xl border border-orange-200 bg-orange-50/50 dark:border-orange-900/50 dark:bg-orange-950/20 text-xs">
+                      <div className="flex items-center justify-between mb-3 border-b border-orange-100 dark:border-orange-900/50 pb-2">
+                        <span className="font-bold text-orange-900 dark:text-orange-300 uppercase tracking-wider flex items-center gap-1.5">
+                          <Lock className="w-4 h-4" />
+                          Cierre Forzado de Comanda (SuperAdmin)
                         </span>
                         <button
                           onClick={() => {
-                            updateOrderStatus(order.id, 'DELIVERED', 'Limpiado/Forzado por SuperAdmin');
-                            setClearedOrderIds(prev => new Set(prev).add(order.id));
+                            const pin = Math.floor(100000 + Math.random() * 900000).toString();
+                            const tipo = order.deliveryType === 'PICKUP' ? 'recogida en local' : 'reparto a domicilio';
+                            if (
+                              window.confirm(
+                                `¿Forzar cierre de la comanda ${order.orderNumber}?\n\n` +
+                                `Se asignará automáticamente el PIN de entrega: ${pin}\n` +
+                                `El ticket pasará al estado final (Entregado) para ${tipo}.\n` +
+                                `Esta acción no se puede deshacer.`
+                              )
+                            ) {
+                              updateOrderStatus(
+                                order.id,
+                                'DELIVERED',
+                                `Cierre forzado por SuperAdmin (PIN ${pin}, ${tipo})`,
+                                pin,
+                              );
+                              setClearedOrderIds(prev => new Set(prev).add(order.id));
+                            }
                           }}
-                          className="px-3 py-1.5 rounded-lg bg-red-100 text-red-700 font-bold hover:bg-red-200 border border-red-200 dark:border-red-900/50 dark:bg-red-950/50 dark:text-red-400 transition cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-orange-600 text-white font-bold hover:bg-orange-700 transition cursor-pointer"
                         >
-                          Limpiar Ticket
+                          Forzar Cierre
                         </button>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-blue-800 dark:text-blue-200">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-orange-800 dark:text-orange-200">
                         <div>
-                          <strong className="block mb-0.5 text-blue-900 dark:text-blue-100">Información del Cliente:</strong>
+                          <strong className="block mb-0.5 text-orange-900 dark:text-orange-100">Información del Cliente:</strong>
                           <span className="font-semibold">{order.customerName}</span> - {order.customerPhone}
-                          <br />{order.deliveryAddress ? `${order.deliveryAddress.street}, ${order.deliveryAddress.locality}` : 'Sin dirección'}
+                          <br />{order.deliveryAddress ? getDeliveryAddressString(order.deliveryAddress) : 'Sin dirección'}
                         </div>
                         <div>
-                          <strong className="block mb-0.5 text-blue-900 dark:text-blue-100">Información del Repartidor:</strong>
+                          <strong className="block mb-0.5 text-orange-900 dark:text-orange-100">Información del Repartidor:</strong>
                           {order.courierName ? <span className="font-semibold">{order.courierName} (asignado)</span> : 'Aún sin repartidor asignado'}
                           <br />Hora pedida: {new Date(order.createdAt).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}
                           {order.statusHistory.find(h => h.status === 'PICKED_UP') && (

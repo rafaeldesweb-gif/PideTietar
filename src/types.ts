@@ -44,6 +44,13 @@ export interface Address {
   isDefault?: boolean;
 }
 
+/** Devuelve la dirección de entrega como texto plano, ya sea un Address o un string. */
+export function getDeliveryAddressString(addr: Address | string | undefined): string {
+  if (!addr) return '';
+  if (typeof addr === 'string') return addr;
+  return `${addr.street}, ${addr.locality}`;
+}
+
 export interface Locality {
   id: string;
   name: string;
@@ -222,7 +229,7 @@ export interface Order {
   customerPhone: string;
   customerEmail: string;
   deliveryType: 'DELIVERY' | 'PICKUP';
-  deliveryAddress?: Address;
+  deliveryAddress?: Address | string;
   scheduledTime?: string; // or 'ASAP'
   items: OrderItemSnapshot[];
   

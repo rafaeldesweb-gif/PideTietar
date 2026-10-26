@@ -25,7 +25,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
   } = useApp();
 
   const [deliveryType, setDeliveryType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
-  const [selectedAddressIndex, setSelectedAddressIndex] = useState(0);
   const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || '');
   const [paymentMethod, setPaymentMethod] = useState<'STRIPE' | 'PAYPAL' | 'CASH_ON_DELIVERY'>('STRIPE');
   const [tipCents, setTipCents] = useState(150); // 1.50€ standard tip
@@ -76,13 +75,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
     }
 
     if (deliveryType === 'DELIVERY') {
-      const selectedAddress = currentUser?.addresses?.[selectedAddressIndex];
-      if (!selectedAddress) {
-        showNotification('Selecciona una dirección de entrega antes de confirmar.', 'error');
-        return;
-      }
-      if (!selectedAddress.street.trim()) {
-        showNotification('La dirección de entrega es obligatoria para repartir.', 'error');
+      if (!currentUser?.address?.trim()) {
+        showNotification('Debes registrar una dirección de entrega en tu perfil para hacer pedidos a domicilio.', 'error');
         return;
       }
     }
@@ -90,7 +84,6 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
     setIsSubmitting(true);
     const result = await createOrder({
       deliveryType,
-      addressIndex: selectedAddressIndex,
       paymentMethod,
       tipCents,
       syncCalendar
@@ -291,28 +284,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
                   />
                 </div>
 
-                {/* Delivery Address selection */}
+                {/* Delivery Address (desde el perfil del cliente) */}
                 {deliveryType === 'DELIVERY' && currentUser && (
                   <div>
                     <label className="block text-xs font-semibold uppercase text-stone-400 mb-2">
                       Dirección de Entrega
                     </label>
-                    {currentUser.addresses.length === 0 ? (
-                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
-                        No tienes direcciones guardadas. Actualiza tu perfil para activar el reparto a domicilio.
+                    {currentUser.address?.trim() ? (
+                      <div className="rounded-xl border border-[#FF4E00]/40 bg-[#FF4E00]/10 p-3 text-xs text-[#FF4E00] dark:text-[#FF4E00]">
+                        📍 {currentUser.address}
                       </div>
                     ) : (
-                      <select
-                        value={selectedAddressIndex}
-                        onChange={(e) => setSelectedAddressIndex(Number(e.target.value))}
-                        className="w-full text-xs p-2.5 rounded-xl border border-stone-200 dark:border-stone-800 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100"
-                      >
-                        {currentUser.addresses.map((addr, idx) => (
-                          <option key={addr.id} value={idx}>
-                            {addr.label}: {addr.street} ({addr.locality})
-                          </option>
-                        ))}
-                      </select>
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                        No tienes una dirección registrada. Completa tu perfil para activar el reparto a domicilio.
+                      </div>
                     )}
                   </div>
                 )}

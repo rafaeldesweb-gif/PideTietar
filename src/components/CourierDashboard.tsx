@@ -4,7 +4,7 @@ import {
   Bike, MapPin, Navigation, CheckCircle2, ShieldCheck, 
   Clock, Phone, AlertCircle, KeyRound, ArrowRight
 } from 'lucide-react';
-import { Order } from '../types';
+import { Order, getDeliveryAddressString } from '../types';
 import { SensitiveInput } from './SensitiveInput';
 
 export const CourierDashboard: React.FC = () => {
@@ -153,7 +153,7 @@ export const CourierDashboard: React.FC = () => {
                   <div className="flex items-center space-x-2 text-stone-700 dark:text-stone-300 font-semibold">
                     <MapPin className="w-4 h-4 text-[#FF4E00] shrink-0" />
                     <span>
-                      {ord.deliveryAddress ? `${ord.deliveryAddress.street}, ${ord.deliveryAddress.locality}` : 'Dirección pendiente'}
+                      {ord.deliveryAddress ? getDeliveryAddressString(ord.deliveryAddress) : 'Dirección pendiente'}
                     </span>
                   </div>
                   <div className="flex items-center space-x-2 text-stone-500">
@@ -211,7 +211,7 @@ export const CourierDashboard: React.FC = () => {
             >
               <div>
                 <span className="font-mono font-bold text-[#FF4E00]">#{ord.orderNumber}</span>
-                <span className="text-stone-500 ml-2">{ord.businessName} → {ord.deliveryAddress?.locality}</span>
+                <span className="text-stone-500 ml-2">{ord.businessName} → {getDeliveryAddressString(ord.deliveryAddress)}</span>
               </div>
               <span className="text-emerald-600 font-bold flex items-center space-x-1">
                 <CheckCircle2 className="w-4 h-4" />

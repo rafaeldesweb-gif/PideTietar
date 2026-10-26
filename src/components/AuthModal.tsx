@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useApp, setSessionToken } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
-import { fileToDataUrl } from '../utils/imageUpload';
+import { MediaView } from './MediaView';
+import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
 import { 
   X, LogOut, ArrowLeft
@@ -46,6 +47,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
   const [phoneNumber, setPhoneNumber] = useState(currentUser?.phone || '');
+  const [addressInput, setAddressInput] = useState(currentUser?.address || '');
   const [emailInput, setEmailInput] = useState(currentUser?.email || '');
   const [password, setPassword] = useState('');
 
@@ -94,6 +96,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (isRegisterMode && !addressInput.trim()) {
+      showNotification('La dirección es obligatoria para crear la cuenta.', 'error');
+      return;
+    }
+
     const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
 
     try {
@@ -104,6 +111,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           email: normalizedUser,
           password: normalizedPassword,
           phone: phoneNumber || undefined,
+          address: addressInput.trim() || undefined,
           role: 'CLIENT' as const,
         };
 
@@ -266,22 +274,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
-      showNotification('Selecciona un archivo de imagen válido.', 'error');
-      event.target.value = '';
-      return;
-    }
-
     try {
-      // Convierte a data URL y, si hace falta, reescala: el servidor limita la
-      // petición JSON a 2MB, así que un avatar de 1.5MB en base64 acababa en
-      // un 413 aunque el límite de archivo lo permitiera.
-      const dataUrl = await fileToDataUrl(file);
-      setProfileAvatarUrl(dataUrl);
+      const media = await processMediaFile(file);
+      setProfileAvatarUrl(media.dataUrl);
       showNotification('Foto de perfil cargada desde archivo.', 'success');
     } catch (error) {
       showNotification(
-        error instanceof Error ? error.message : 'No se pudo procesar la imagen.',
+        error instanceof Error ? error.message : 'No se pudo procesar el archivo.',
         'error',
       );
     } finally {
@@ -350,11 +349,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <div className="space-y-5">
               <div className="rounded-2xl border border-stone-800 bg-stone-900 p-4">
                 <div className="flex items-center space-x-3.5">
-                  <img
+                  <MediaView
                     src={profileAvatarUrl || currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
                     alt={currentUser.name}
-                    className="block h-14 w-14 rounded-full border-2 border-[#FF4E00] bg-stone-100 object-cover object-center"
+                    className="block h-14 w-14 rounded-full border-2 border-[#FF4E00] bg-stone-100 object-center"
                     style={{ borderRadius: '9999px' }}
+                    fit="cover"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold text-white">{currentUser.name}</div>
@@ -370,7 +370,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   <label className="mb-1 block text-xs font-bold text-stone-300">Foto de perfil (archivo)</label>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={MEDIA_ACCEPT}
                     onChange={handleAvatarFileSelected}
                     className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-3 py-2 text-xs text-stone-200 file:mr-3 file:rounded-lg file:border-0 file:bg-[#FF4E00] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
                   />
@@ -515,6 +515,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
                       placeholder="+34 600 000 000"
+                      className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                    />
+                  </div>
+                )}
+
+                {isRegisterMode && (
+                  <div>
+                    <label className="block text-xs font-bold text-stone-300 mb-1">
+                      Dirección
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={addressInput}
+                      onChange={(e) => setAddressInput(e.target.value)}
+                      placeholder="Calle, localidad, código postal"
                       className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                     />
                   </div>

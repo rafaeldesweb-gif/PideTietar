@@ -114,7 +114,7 @@ const sqliteSchema = `
     phone TEXT,
     address TEXT,
     dni TEXT,
-    avatar_url TEXT,
+    avatar_url MEDIUMTEXT,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'CLIENT',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -147,7 +147,7 @@ const sqliteSchema = `
     name TEXT NOT NULL,
     slug TEXT UNIQUE NOT NULL,
     icon_name TEXT,
-    image_url TEXT,
+    image_url MEDIUMTEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -176,8 +176,8 @@ const sqliteSchema = `
     estimated_time_max INTEGER DEFAULT 60,
     delivery_fee_cents INTEGER DEFAULT 0,
     min_order_cents INTEGER DEFAULT 0,
-    banner_url TEXT,
-    logo_url TEXT,
+    banner_url MEDIUMTEXT,
+    logo_url MEDIUMTEXT,
     is_shift_open INTEGER DEFAULT 0,
     delivery_modes TEXT DEFAULT '[]',
     delivery_radius_km REAL DEFAULT 0,
@@ -214,7 +214,7 @@ const sqliteSchema = `
     allergens TEXT,
     price_cents INTEGER DEFAULT 0,
     tax_percentage REAL DEFAULT 0,
-    image_url TEXT,
+    image_url MEDIUMTEXT,
     is_available INTEGER DEFAULT 1,
     is_sold_out INTEGER DEFAULT 0,
     removable_ingredients TEXT,
@@ -296,7 +296,7 @@ const mysqlSchema = `
     phone VARCHAR(30) NULL,
     address TEXT NULL,
     dni VARCHAR(20) NULL,
-    avatar_url TEXT NULL,
+    avatar_url MEDIUMTEXT NULL,
     password_hash VARCHAR(255) NOT NULL,
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
@@ -365,8 +365,8 @@ const mysqlSchema = `
     estimated_time_max INT NOT NULL DEFAULT 60,
     delivery_fee_cents INT NOT NULL DEFAULT 0,
     min_order_cents INT NOT NULL DEFAULT 0,
-    banner_url TEXT NULL,
-    logo_url TEXT NULL,
+    banner_url MEDIUMTEXT NULL,
+    logo_url MEDIUMTEXT NULL,
     is_shift_open TINYINT(1) NOT NULL DEFAULT 0,
     delivery_modes JSON NOT NULL,
     delivery_radius_km DECIMAL(5,2) NOT NULL DEFAULT 0.00,
@@ -414,7 +414,7 @@ const mysqlSchema = `
     allergens JSON NULL,
     price_cents INT NOT NULL DEFAULT 0,
     tax_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
-    image_url TEXT NULL,
+    image_url MEDIUMTEXT NULL,
     is_available TINYINT(1) NOT NULL DEFAULT 1,
     is_sold_out TINYINT(1) NOT NULL DEFAULT 0,
     removable_ingredients JSON NULL,
@@ -531,6 +531,30 @@ async function ensureMysqlColumns(pool, tableName, definitions) {
   if (!pendingClauses.length) return;
 
   await pool.query(`ALTER TABLE ${tableName} ${pendingClauses.join(", ")}`);
+}
+
+// Migra columnas existentes de TEXT a MEDIUMTEXT (necesario para albergar
+// data URLs largas de fotos y vídeos sin truncarlas).
+async function ensureMysqlColumnTypes(pool, definitions) {
+  for (const [tableName, columnName, newDefinition] of definitions) {
+    const [rows] = await pool.query(
+      `SELECT DATA_TYPE
+         FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?`,
+      [tableName, columnName],
+    );
+
+    if (!rows.length) continue;
+
+    const currentType = String(rows[0].DATA_TYPE || "").toLowerCase();
+    if (currentType === "mediumtext" || currentType === "longtext") continue;
+
+    await pool.query(
+      `ALTER TABLE ${tableName} MODIFY COLUMN ${columnName} ${newDefinition}`,
+    );
+  }
 }
 
 async function ensureMysqlForeignKey(
@@ -663,6 +687,13 @@ async function ensureMySqlSchemaShape(pool) {
     refColumns: ["id"],
     onDelete: "RESTRICT",
   });
+
+  await ensureMysqlColumnTypes(pool, [
+    ["app_users", "avatar_url", "MEDIUMTEXT NULL"],
+    ["businesses", "banner_url", "MEDIUMTEXT NULL"],
+    ["businesses", "logo_url", "MEDIUMTEXT NULL"],
+    ["products", "image_url", "MEDIUMTEXT NULL"],
+  ]);
 }
 
 function getSqliteDb() {
@@ -2323,8 +2354,12 @@ const asBooleanFlag = (value, fallback) => {
 };
 
 function isValidImageUrl(value) {
+  const isDataMedia =
+    value.startsWith("data:image/") ||
+    value.startsWith("data:video/mp4") ||
+    value.startsWith("data:video/webm");
   if (/^https?:\/\/\S+$/i.test(value)) return true;
-  return value.startsWith("data:image/") && !value.includes(" ");
+  return isDataMedia && !value.includes(" ");
 }
 
 function normalizeCategorySlug(value) {
@@ -3005,6 +3040,7 @@ app.post("/api/auth/register", async (req, res) => {
     email,
     password,
     phone,
+    address,
     avatarUrl,
   } = req.body || {};
   const cleanPassword = normalizePassword(password);
@@ -3018,6 +3054,13 @@ app.post("/api/auth/register", async (req, res) => {
     return res.status(400).json({
       code: "VALIDATION_ERROR",
       message: `La contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`,
+    });
+  }
+  if (!address || !String(address).trim()) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "La dirección es obligatoria para crear la cuenta.",
+      errors: { address: "La dirección es obligatoria." },
     });
   }
 
@@ -3034,6 +3077,7 @@ app.post("/api/auth/register", async (req, res) => {
     email,
     password: cleanPassword,
     phone,
+    address,
     avatarUrl,
     role: "CLIENT",
   });

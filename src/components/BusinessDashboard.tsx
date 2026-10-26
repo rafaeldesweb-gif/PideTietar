@@ -50,7 +50,8 @@ import {
   firstErrorMessage,
   toBusinessFieldErrors,
 } from './FormErrors';
-import { fileToDataUrl } from '../utils/imageUpload';
+import { MediaView } from './MediaView';
+import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
 
@@ -778,10 +779,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setEditingZoneId(null);
   };
 
-  // Reutiliza la utilidad compartida: además de leer el archivo convierte la
-  // imagen a data URL y, si pesa demasiado, la reescala para no superar el
-  // límite de ~1 MB que impone el servidor.
-  const readFileAsDataUrl = (file: File): Promise<string> => fileToDataUrl(file);
+  // Reutiliza la utilidad compartida: lee el archivo y lo convierte a data URL,
+  // reescalando imágenes y recodificando vídeos (máximo 2 s) para no superar
+  // el límite de ~1 MB que impone el servidor.
+  const readMediaFile = async (file: File): Promise<string> => {
+    const media = await processMediaFile(file);
+    return media.dataUrl;
+  };
 
   const handleBusinessImageUpload = async (
     field: 'bannerUrl' | 'logoUrl',
@@ -791,10 +795,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (!file) return;
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await readMediaFile(file);
       setNewBusinessForm((prev) => ({ ...prev, [field]: dataUrl }));
     } catch (error) {
-      showNotification('No se pudo cargar la imagen seleccionada.', 'error');
+      showNotification('No se pudo cargar el archivo seleccionado.', 'error');
     }
   };
 
@@ -803,10 +807,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (!file) return;
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await readMediaFile(file);
       setCatalogForm((prev) => ({ ...prev, imageUrl: dataUrl }));
     } catch (error) {
-      showNotification('No se pudo leer la imagen del producto.', 'error');
+      showNotification('No se pudo leer el archivo del producto.', 'error');
     }
   };
 
@@ -824,10 +828,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     if (!file) return;
 
     try {
-      const dataUrl = await readFileAsDataUrl(file);
+      const dataUrl = await readMediaFile(file);
       setUserSettingsForm((prev) => ({ ...prev, avatarUrl: dataUrl }));
     } catch (error) {
-      showNotification('No se pudo leer la imagen del avatar.', 'error');
+      showNotification('No se pudo leer el archivo del avatar.', 'error');
     }
   };
 
@@ -1119,11 +1123,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
             {currentUser && (
               <div className="p-2.5 rounded-xl bg-white border border-stone-200 flex items-center space-x-2.5 shadow-sm">
-                <img
+                <MediaView
                   src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
                   alt="user"
-                  className="block w-10 h-10 rounded-full object-cover object-center border-2 border-stone-700 bg-stone-100"
+                  className="block w-10 h-10 rounded-full border-2 border-stone-700 bg-stone-100"
                   style={{ borderRadius: '9999px' }}
+                  fit="cover"
                 />
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold text-stone-900 truncate">{currentUser.name}</div>
@@ -1477,7 +1482,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       restaurantProducts.map((prod) => (
                         <div key={prod.id} className="p-4 flex items-center justify-between gap-4 hover:bg-[#fff7f2] transition">
                           <div className="flex items-center space-x-3.5 min-w-0 flex-1">
-                            <img src={prod.imageUrl} alt={prod.name} className="w-12 h-12 rounded-xl object-cover border border-[#e9dac8]" />
+                            <MediaView
+                      src={prod.imageUrl}
+                      alt={prod.name}
+                      className="w-12 h-12 rounded-xl border border-[#e9dac8]"
+                    />
                             <div className="min-w-0">
                               <div className="font-bold text-stone-900 text-sm truncate">{prod.name}</div>
                               <div className="text-xs text-stone-600 line-clamp-1 max-w-md">{prod.description}</div>
@@ -1641,7 +1650,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Subir una imagen del producto</label>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept={MEDIA_ACCEPT}
                         onChange={handleProductImageUpload}
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                       />
@@ -2022,7 +2031,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                         className="w-full flex items-center justify-between gap-3 rounded-xl border border-stone-700 bg-stone-950/70 p-2.5 hover:border-[#FF4E00] hover:bg-[#1e140f] transition text-left"
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <img src={prod.imageUrl} alt={prod.name} className="w-12 h-12 rounded-xl object-cover border border-stone-700" />
+                          <MediaView
+                          src={prod.imageUrl}
+                          alt={prod.name}
+                          className="w-12 h-12 rounded-xl border border-stone-700"
+                        />
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-stone-100 truncate">{prod.name}</div>
                             <div className="text-xs text-stone-400">{(prod.priceCents / 100).toFixed(2)}€</div>
@@ -2103,7 +2116,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="relative h-40 shrink-0">
-              <img src={manualCustomizerProduct.imageUrl} alt={manualCustomizerProduct.name} className="w-full h-full object-cover" />
+            <MediaView
+              src={manualCustomizerProduct.imageUrl}
+              alt={manualCustomizerProduct.name}
+              className="w-full h-full"
+            />
               <button
                 type="button"
                 onClick={closeManualCustomizer}
@@ -2243,17 +2260,18 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
             <div className="space-y-4 text-sm">
               <div className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3">
-                <img
+                <MediaView
                   src={userSettingsForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
                   alt="Avatar del administrador"
-                  className="block w-14 h-14 rounded-full object-cover object-center border-2 border-[#e7d5c7] bg-stone-100"
+                  className="block w-14 h-14 rounded-full border-2 border-[#e7d5c7] bg-stone-100"
                   style={{ borderRadius: '9999px' }}
+                  fit="cover"
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] uppercase tracking-wider text-stone-500">Avatar</div>
                   <input
                     type="file"
-                    accept="image/*"
+                    accept={MEDIA_ACCEPT}
                     onChange={handleUserAvatarUpload}
                     className="mt-1 block w-full text-xs text-stone-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:px-2 file:py-1.5 file:text-white"
                   />
@@ -2819,12 +2837,16 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Banner del negocio</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={MEDIA_ACCEPT}
                   onChange={(event) => handleBusinessImageUpload('bannerUrl', event)}
                   className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                 />
                 {newBusinessForm.bannerUrl && (
-                  <img src={newBusinessForm.bannerUrl} alt="Banner preview" className="mt-2 h-20 w-full rounded-xl object-cover border border-[#e6d7c5]" />
+                  <MediaView
+                    src={newBusinessForm.bannerUrl}
+                    alt="Banner preview"
+                    className="mt-2 h-20 w-full rounded-xl border border-[#e6d7c5]"
+                  />
                 )}
               </div>
 
@@ -2832,12 +2854,16 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Logo del negocio</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={MEDIA_ACCEPT}
                   onChange={(event) => handleBusinessImageUpload('logoUrl', event)}
                   className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                 />
                 {newBusinessForm.logoUrl && (
-                  <img src={newBusinessForm.logoUrl} alt="Logo preview" className="mt-2 h-16 w-16 rounded-xl object-cover border border-[#e6d7c5]" />
+                  <MediaView
+                    src={newBusinessForm.logoUrl}
+                    alt="Logo preview"
+                    className="mt-2 h-16 w-16 rounded-xl border border-[#e6d7c5]"
+                  />
                 )}
               </div>
 

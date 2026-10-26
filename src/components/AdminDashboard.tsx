@@ -14,7 +14,8 @@ import {
   toBusinessFieldErrors,
   toCourierFieldErrors,
 } from './FormErrors';
-import { fileToDataUrl } from '../utils/imageUpload';
+import { MediaView } from './MediaView';
+import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { CategoryManagerModal } from './CategoryManagerModal';
 import { SensitiveInput } from './SensitiveInput';
@@ -63,6 +64,7 @@ interface AdminDashboardProps {
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusiness }) => {
   const { 
+    currentUser,
     businesses, 
     orders, 
     categories,
@@ -432,20 +434,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   // Antes se guardaba URL.createObjectURL(file), un enlace blob que sólo
-  // existe en la pestaña abierta: al recargar la app la imagen desaparecía y
-  // el servidor la rechazaba. Ahora se convierte en un data URL real, y si la
-  // foto pesa demasiado se reescala antes de enviarla.
+  // Convierte el archivo en un data URL real, reescalando imágenes y
+  // recodificando vídeos (máximo 2 s) para no superar el límite del servidor.
   const handleBannerUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const media = await processMediaFile(file);
       setBusinessFormErrors((prev) => ({ ...prev, bannerUrl: '' }));
-      setNewBusinessForm((prev) => ({ ...prev, bannerUrl: dataUrl }));
+      setNewBusinessForm((prev) => ({ ...prev, bannerUrl: media.dataUrl }));
     } catch (error) {
       showNotification(
-        error instanceof Error ? error.message : 'No se pudo cargar la imagen del banner.',
+        error instanceof Error ? error.message : 'No se pudo cargar el archivo del banner.',
         'error',
       );
     }
@@ -640,7 +641,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </p>
         </div>
         <div className="text-right text-xs text-stone-400 font-mono">
-          rafaeldesweb@gmail.com
+          {currentUser?.email || 'Superadministrador'}
         </div>
       </div>
 
@@ -1155,7 +1156,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <label className="block text-xs font-semibold text-stone-500 mb-1">Foto para Banner</label>
             <input
               type="file"
-              accept="image/*"
+              accept={MEDIA_ACCEPT}
               onChange={handleBannerUpload}
               className={fieldClass(
                 'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200',
@@ -1164,10 +1165,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             />
             <FieldError message={businessFormErrors.bannerUrl} />
             {newBusinessForm.bannerUrl && (
-              <img
+              <MediaView
                 src={newBusinessForm.bannerUrl}
                 alt="Vista previa del banner"
-                className="mt-2 h-20 w-full rounded-xl object-cover"
+                className="mt-2 h-20 w-full rounded-xl"
               />
             )}
           </div>

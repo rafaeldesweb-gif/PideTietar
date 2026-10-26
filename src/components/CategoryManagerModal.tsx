@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { Edit3, Trash2, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BusinessCategory } from '../types';
-import { fileToDataUrl } from '../utils/imageUpload';
+import { MediaView } from './MediaView';
+import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
 
 interface CategoryManagerModalProps {
   open: boolean;
@@ -123,10 +124,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     if (!file) return;
 
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setCategoryForm((previous) => ({ ...previous, imageUrl: dataUrl }));
+      const dataUrl = await processMediaFile(file);
+      setCategoryForm((previous) => ({ ...previous, imageUrl: dataUrl.dataUrl }));
     } catch {
-      showNotification('No se pudo leer la imagen de la categoría.', 'error');
+      showNotification('No se pudo leer el archivo de la categoría.', 'error');
     }
   };
 
@@ -233,7 +234,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 </label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept={MEDIA_ACCEPT}
                   onChange={handleCategoryImageUpload}
                   className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                 />
@@ -288,10 +289,10 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     key={category.id}
                     className="p-3 flex items-center gap-3 hover:bg-[#fff7f2] transition"
                   >
-                    <img
+                    <MediaView
                       src={category.imageUrl || DEFAULT_CATEGORY_IMAGE}
                       alt={category.name}
-                      className="w-14 h-14 rounded-xl object-cover border border-[#e9dac8]"
+                      className="w-14 h-14 rounded-xl border border-[#e9dac8]"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="font-bold text-stone-900 text-sm truncate">

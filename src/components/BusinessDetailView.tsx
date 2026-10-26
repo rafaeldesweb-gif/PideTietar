@@ -5,6 +5,7 @@ import {
   Info, ShieldCheck, Plus, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { Business, Product } from '../types';
+import { MediaView } from './MediaView';
 
 interface BusinessDetailViewProps {
   business: Business;
@@ -44,10 +45,10 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
       {/* Business Header Card */}
       <div className="relative rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm">
         <div className="relative h-56 sm:h-72 w-full overflow-hidden">
-          <img
+          <MediaView
             src={business.bannerUrl}
             alt={business.name}
-            className="w-full h-full object-cover"
+            className="w-full h-full"
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           
@@ -180,10 +181,10 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
                   </div>
 
                   <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 bg-stone-100 dark:bg-stone-800">
-                    <img
+                    <MediaView
                       src={product.imageUrl}
                       alt={product.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                      className="w-full h-full group-hover:scale-105 transition duration-300"
                     />
                   </div>
                 </div>

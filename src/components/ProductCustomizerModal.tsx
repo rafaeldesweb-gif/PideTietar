@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Plus, Minus, Check, AlertCircle } from 'lucide-react';
 import { Product, CartItemOptionSelected } from '../types';
+import { MediaView } from './MediaView';
 import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
 
 interface ProductModalProps {
@@ -95,11 +96,11 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
         
         {/* Header Image */}
         <div className="relative h-48 sm:h-56 w-full shrink-0">
-          <img
-            src={product.imageUrl}
-            alt={product.name}
-            className="w-full h-full object-cover"
-          />
+        <MediaView
+          src={product.imageUrl}
+          alt={product.name}
+          className="w-full h-full"
+        />
           <button
             onClick={onClose}
             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 transition"

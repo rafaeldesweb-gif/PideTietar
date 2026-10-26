@@ -5,6 +5,7 @@ import {
   ChevronDown, LogOut
 } from 'lucide-react';
 import { ProjectLogo } from './ProjectLogo';
+import { MediaView } from './MediaView';
 import { canViewOrdersPage } from '../utils/orderVisibility';
 
 interface HeaderProps {
@@ -150,10 +151,11 @@ export const Header: React.FC<HeaderProps> = ({
                   className="hidden items-center gap-2 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] sm:flex"
                   aria-label="Ver perfil"
                 >
-                  <img
+                  <MediaView
                     src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
                     alt={currentUser.name}
-                    className="h-9 w-9 rounded-full border-2 border-stone-200 object-cover dark:border-stone-700"
+                    className="h-9 w-9 rounded-full border-2 border-stone-200 dark:border-stone-700"
+                    fit="cover"
                   />
                 </button>
                 <button

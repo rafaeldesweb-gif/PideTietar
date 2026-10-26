@@ -115,7 +115,7 @@ interface AppContextType {
     tipCents: number;
     syncCalendar: boolean;
   }) => Promise<{ success: boolean; order?: Order; error?: string }>;
-  updateOrderStatus: (orderId: string, newStatus: Order['status'], note?: string) => void;
+  updateOrderStatus: (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string) => void;
   verifyDeliveryPin: (orderId: string, pin: string) => boolean;
   submitBusinessReview: (businessId: string, orderId: string, score: number) => void;
 
@@ -375,11 +375,14 @@ const normalizeOrder = (item: any): Order => {
   } else if (typeof rawAddress === 'string' && rawAddress.trim()) {
     try {
       const parsed = JSON.parse(rawAddress);
-      if (parsed && typeof parsed === 'object') {
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         deliveryAddress = parsed as Order['deliveryAddress'];
+      } else {
+        deliveryAddress = rawAddress;
       }
     } catch {
-      // La dirección no era JSON: se ignora en lugar de romper el pedido.
+      // La dirección es un string plano (no JSON): se usa tal cual.
+      deliveryAddress = rawAddress;
     }
   }
 
@@ -1860,7 +1863,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
     const selectedAddr = data.deliveryType === 'DELIVERY' 
-      ? (currentUser.addresses[data.addressIndex || 0] || currentUser.addresses[0])
+      ? currentUser.address || undefined
       : undefined;
 
     const newOrder: Order = {
@@ -1890,12 +1893,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courierPayoutCents: courierPayout,
       tipCents: data.tipCents,
       totalCents,
-      status: 'PAID',
+      status: data.deliveryType === 'PICKUP' ? 'NEW' : 'PAID',
       statusHistory: [
-        { status: 'PAID', timestamp: new Date().toISOString(), changedByRole: 'CLIENTE', note: 'Pago completado con éxito' }
+        { status: data.deliveryType === 'PICKUP' ? 'NEW' : 'PAID', timestamp: new Date().toISOString(), changedByRole: 'CLIENTE', note: data.deliveryType === 'PICKUP' ? 'Pedido creado para recogida en local' : 'Pago completado con éxito' }
       ],
       paymentMethod: data.paymentMethod,
-      paymentStatus: 'PAID',
+      paymentStatus: data.deliveryType === 'PICKUP' ? 'PENDING' : 'PAID',
       paymentTransactionId: transactionId,
       deliveryPin: pin,
       createdAt: new Date().toISOString(),
@@ -1965,7 +1968,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, order: newOrder };
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: Order['status'], note?: string) => {
+  const updateOrderStatus = (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string) => {
     const previousOrder = orders.find(ord => ord.id === orderId);
     const changedAt = new Date().toISOString();
     const historyEntry: Order['statusHistory'][number] = {
@@ -1998,6 +2001,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       note,
       changed_by_role: currentUser?.role || 'SISTEMA',
     };
+    if (deliveryPin) payload.deliveryPin = deliveryPin;
     if (nextHistory) payload.status_history = nextHistory;
     if (newStatus === 'DELIVERED') payload.review_requested = true;
 
