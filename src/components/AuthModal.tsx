@@ -581,6 +581,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 {isRegisterMode && (
                   <div>
                     <label className="block text-xs font-bold text-stone-300 mb-1">
+                      Dirección de entrega
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={addressInput}
+                      onChange={(e) => setAddressInput(e.target.value)}
+                      placeholder="Calle, número, código postal y localidad"
+                      className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                      autoComplete="street-address"
+                    />
+                  </div>
+                )}
+
+                {isRegisterMode && (
+                  <div>
+                    <label className="block text-xs font-bold text-stone-300 mb-1">
                       Localidad
                     </label>
                     <select
