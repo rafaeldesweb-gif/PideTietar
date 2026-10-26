@@ -685,11 +685,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [orders]);
 
   // Al cerrar sesión (o si el token guardado ya no vale) no deben quedar en
-  // memoria pedidos de la sesión anterior.
+  // memoria pedidos ni carrito de la sesión anterior.
   useEffect(() => {
     if (!sessionChecked || currentUser) return;
     setOrders([]);
+    setCart(null);
     localStorage.removeItem('pidetietar_orders');
+    localStorage.removeItem('pidetietar_cart');
   }, [sessionChecked, currentUser]);
 
   // Sincronización periódica de pedidos: el cliente, el negocio y el
@@ -814,7 +816,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         : undefined,
     };
 
-    if (role === 'BUSINESS_ADMIN' || role === 'SUPERADMIN') {
+    if (role === 'BUSINESS_ADMIN' || role === 'SUPERADMIN' || role === 'CLIENT') {
       setCart(null);
     }
 
@@ -831,7 +833,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSessionToken(null);
     setCurrentUser(null);
     setOrders([]);
+    setCart(null);
     localStorage.removeItem('pidetietar_orders');
+    localStorage.removeItem('pidetietar_cart');
     showNotification('Has cerrado la sesión.', 'info');
   };
 

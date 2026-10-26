@@ -35,6 +35,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     loginAs,
     updateCurrentUserProfile,
     showNotification,
+    localities,
   } = useApp();
 
   const [isRegisterMode, setIsRegisterMode] = useState(true);
@@ -57,6 +58,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [addressInput, setAddressInput] = useState(currentUser?.address || '');
   const [emailInput, setEmailInput] = useState(currentUser?.email || '');
   const [password, setPassword] = useState('');
+  const [localityId, setLocalityId] = useState('');
+
+  // Resetea el formulario de registro cada vez que se cierra el modal, para que
+  // al volver a abrirlo los campos estén limpios (sin datos residuales).
+  useEffect(() => {
+    if (!isOpen) {
+      setFullName('');
+      setPhoneNumber('');
+      setAddressInput('');
+      setEmailInput('');
+      setPassword('');
+      setLocalityId('');
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !currentUser) return;
@@ -108,6 +123,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (isRegisterMode && !localityId) {
+      showNotification('Selecciona una localidad para crear la cuenta.', 'error');
+      return;
+    }
+
     const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
 
     try {
@@ -119,6 +139,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           password: normalizedPassword,
           phone: phoneNumber || undefined,
           address: addressInput.trim() || undefined,
+          localityId,
           role: 'CLIENT' as const,
         };
 
@@ -560,16 +581,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 {isRegisterMode && (
                   <div>
                     <label className="block text-xs font-bold text-stone-300 mb-1">
-                      Dirección
+                      Localidad
                     </label>
-                    <input
-                      type="text"
+                    <select
                       required
-                      value={addressInput}
-                      onChange={(e) => setAddressInput(e.target.value)}
-                      placeholder="Calle, localidad, código postal"
+                      value={localityId}
+                      onChange={(e) => setLocalityId(e.target.value)}
                       className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
-                    />
+                    >
+                      <option value="">Selecciona una localidad…</option>
+                      {localities.map((loc) => (
+                        <option key={loc.id} value={loc.id}>
+                          {loc.name}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 )}
 

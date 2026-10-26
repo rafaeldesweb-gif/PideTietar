@@ -36,7 +36,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
 
   const subtotalCents = cart ? cart.items.reduce((acc, i) => acc + i.itemPriceCents * i.quantity, 0) : 0;
   const hasFreeDelivery = currentUser?.subscriptionPlan === 'PRO_MONTHLY' && subtotalCents >= 1200;
-  
+   
   const ledger = calculateOrderLedger(
     cart ? cart.items : [],
     currentBusiness?.deliveryFeeCents || 200,
@@ -44,6 +44,18 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
     tipCents,
     hasFreeDelivery
   );
+
+  // Resetea los campos del formulario cada vez que se abre el drawer, para que
+  // al cerrar y volver a abrir los datos no queden residuales.
+  React.useEffect(() => {
+    if (isOpen) {
+      setDeliveryType('DELIVERY');
+      setCustomerPhone(currentUser?.phone || '');
+      setPaymentMethod('STRIPE');
+      setTipCents(150);
+      setSyncCalendar(true);
+    }
+  }, [isOpen, currentUser?.phone]);
 
   React.useEffect(() => {
     setCustomerPhone(currentUser?.phone || '');

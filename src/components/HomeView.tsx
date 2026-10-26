@@ -8,6 +8,7 @@ import {
 import { getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
 import { Business, Product } from '../types';
 import { MediaView } from './MediaView';
+import { LazyMediaView } from './LazyMediaView';
 
 interface HomeViewProps {
   onSelectBusiness: (biz: Business) => void;
@@ -253,11 +254,13 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                       : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
                   }`}>
                     <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner">
-                      <MediaView
+                      <LazyMediaView
                         src={cat.imageUrl}
                         alt={cat.name}
                         className="h-full w-full transition duration-300 group-hover:scale-110"
                         fit="cover"
+                        lazy
+                        skeletonLabel="Categoría"
                       />
                       <div className="absolute inset-0 bg-black/10 transition group-hover:bg-transparent" />
                     </div>
@@ -310,10 +313,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   className="bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between"
                 >
                   <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
-                    <MediaView
+                    <LazyMediaView
                       src={prod.imageUrl}
                       alt={prod.name}
                       className="w-full h-full transition duration-300"
+                      lazy
+                      skeletonLabel="Producto"
                     />
                     <div className="absolute top-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] font-bold px-2 py-1 rounded-lg">
                       {(prod.priceCents / 100).toFixed(2)}€
@@ -404,10 +409,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               >
                 {/* Banner & Open indicator */}
                 <div className="relative h-48 overflow-hidden">
-                  <MediaView
+                  <LazyMediaView
                     src={biz.bannerUrl}
                     alt={biz.name}
                     className="w-full h-full group-hover:scale-105 transition duration-500"
+                    lazy
+                    skeletonLabel="Banner"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30" />
                   
