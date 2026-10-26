@@ -9,15 +9,15 @@
 // Nota: el servidor limita el cuerpo JSON a ~2 MB, así que los archivos se
 // convierten a data URL y se reescala/recodifica antes de enviarlos.
 
-const MAX_WIDTH = 1280;
-const JPEG_QUALITY = 0.82;
+const MAX_WIDTH = 800; // Reducido para carga más rápida
+const JPEG_QUALITY = 0.65; // Reducido para menor tamaño
 // Margen por debajo del límite del servidor (~1.048.576 caracteres).
-const MAX_DATA_URL_LENGTH = 900_000;
+const MAX_DATA_URL_LENGTH = 700_000; // Más margen de seguridad
 // Duración máxima permitida para un vídeo (segundos).
 const MAX_VIDEO_DURATION_SECONDS = 2;
-// Vídeo recodificado: 720p, ~1.2 Mbps, sin audio, para que quepa en el JSON.
-const VIDEO_MAX_WIDTH = 720;
-const VIDEO_BITRATE_KBPS = 1200;
+// Vídeo recodificado: 480p, ~800 kbps, sin audio, H.264 para compatibilidad.
+const VIDEO_MAX_WIDTH = 480;
+const VIDEO_BITRATE_KBPS = 800;
 
 type MediaType = 'image' | 'video';
 
@@ -90,6 +90,7 @@ const scaleToDataUrl = async (
   width: number,
   height: number,
   mimeType: string,
+  quality: number = JPEG_QUALITY,
 ): Promise<string> => {
   const canvas = document.createElement('canvas');
   const ratio = Math.min(1, MAX_WIDTH / width);
@@ -103,7 +104,7 @@ const scaleToDataUrl = async (
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.drawImage(await loadImage(src), 0, 0, canvas.width, canvas.height);
 
-  return canvas.toDataURL(mimeType, JPEG_QUALITY);
+  return canvas.toDataURL(mimeType, quality);
 };
 
 // Recodifica un vídeo a WebM con los primeros 2 segundos (o menos) para que
@@ -145,9 +146,9 @@ const recodeVideoToWebM = async (
   if (!context) throw new Error('El navegador no puede procesar el vídeo.');
 
   const stream = canvas.captureStream(30);
-  // bits por segundo ≈ bitrate_kbps * 1000. MediaRecorder acepta bitsPerSecond.
+  // H.264 para máxima compatibilidad en navegadores.
   const mediaRecorder = new MediaRecorder(stream, {
-    mimeType: 'video/webm; codecs=vp9',
+    mimeType: 'video/webm; codecs=avc1.42E01E',
     bitsPerSecond: VIDEO_BITRATE_KBPS * 1000,
   });
 
@@ -192,6 +193,7 @@ const recodeVideoToWebM = async (
   return dataUrl;
 };
 
+// Procesa un archivo de entrada (File).
 export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
   if (!isAllowedFile(file)) {
     throw new Error(
@@ -222,13 +224,14 @@ export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
     };
   }
 
-  // Las imágenes pesadas se reescala.
+  // Las imágenes pesadas se reescala con calidad reducida.
   const image = await loadImage(original);
   const scaled = await scaleToDataUrl(
     original,
     image.naturalWidth,
     image.naturalHeight,
     mimeType,
+    JPEG_QUALITY,
   );
 
   if (scaled.length > MAX_DATA_URL_LENGTH) {
@@ -242,6 +245,92 @@ export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
     dataUrl: scaled,
     originalName: file.name,
     mimeType,
+  };
+};
+
+// Procesa una URL pegada por el usuario (http(s):// o data:).
+export const processMediaUrl = async (url: string): Promise<ProcessedMedia> => {
+  if (!url || typeof url !== 'string') {
+    throw new Error('La URL no es válida.');
+  }
+
+  const trimmed = url.trim();
+
+  if (!isMediaUrl(trimmed)) {
+    throw new Error('Solo se aceptan direcciones web (http/https) o archivos de datos.');
+  }
+
+  const isVideo = isVideoUrl(trimmed);
+
+  // Para URLs http(s), leemos el recurso y lo convertimos a data URL.
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    try {
+      const response = await fetch(trimmed);
+      if (!response.ok) {
+        throw new Error(`No se pudo descargar el archivo (${response.status}).`);
+      }
+      const blob = await response.blob();
+      const dataUrl = await readAsDataUrl(blob);
+
+      if (isVideo) {
+        // Si es un vídeo remoto, intentamos recodificarlo si es posible.
+        // Para simplificar, si cabe en el límite lo usamos tal cual.
+        if (dataUrl.length > MAX_DATA_URL_LENGTH) {
+          throw new Error('El vídeo remoto pesa demasiado. Sube un archivo más ligero.');
+        }
+        return {
+          type: 'video',
+          dataUrl,
+          originalName: trimmed.split('/').pop() || 'video',
+          mimeType: 'video/webm',
+        };
+      }
+
+      // Si es una imagen remota, la reescala para optimizarla.
+      if (dataUrl.length <= MAX_DATA_URL_LENGTH) {
+        return {
+          type: 'image',
+          dataUrl,
+          originalName: trimmed.split('/').pop() || 'imagen',
+          mimeType: imageMimeType(new File([blob], 'image', { type: blob.type })),
+        };
+      }
+
+      const image = await loadImage(dataUrl);
+      const scaled = await scaleToDataUrl(
+        dataUrl,
+        image.naturalWidth,
+        image.naturalHeight,
+        imageMimeType(new File([blob], 'image', { type: blob.type })),
+        JPEG_QUALITY,
+      );
+
+      if (scaled.length > MAX_DATA_URL_LENGTH) {
+        throw new Error('La imagen remota pesa demasiado aunque se reescale.');
+      }
+
+      return {
+        type: 'image',
+        dataUrl: scaled,
+        originalName: trimmed.split('/').pop() || 'imagen',
+        mimeType: imageMimeType(new File([blob], 'image', { type: blob.type })),
+      };
+    } catch (error) {
+      if (error instanceof Error) throw error;
+      throw new Error('No se pudo procesar la URL proporcionada.');
+    }
+  }
+
+  // Para data URLs, validamos que el tamaño sea aceptable.
+  if (trimmed.length > MAX_DATA_URL_LENGTH) {
+    throw new Error('El archivo proporcionado pesa demasiado.');
+  }
+
+  return {
+    type: isVideo ? 'video' : 'image',
+    dataUrl: trimmed,
+    originalName: isVideo ? 'video' : 'imagen',
+    mimeType: isVideo ? 'video/webm' : 'image/jpeg',
   };
 };
 

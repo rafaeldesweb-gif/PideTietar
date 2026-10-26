@@ -2,7 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { useApp, setSessionToken } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
 import { MediaView } from './MediaView';
-import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
+import {
+  MEDIA_ACCEPT,
+  isMediaUrl,
+  processMediaFile,
+  processMediaUrl,
+} from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
 import { 
   X, LogOut, ArrowLeft
@@ -43,6 +48,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [profilePhone, setProfilePhone] = useState('');
   const [profileNewPassword, setProfileNewPassword] = useState('');
   const [profileAvatarUrl, setProfileAvatarUrl] = useState('');
+  // Texto pegado para URL del avatar.
+  const [profileAvatarUrlText, setProfileAvatarUrlText] = useState('');
   
   // Form inputs matching Image 4
   const [fullName, setFullName] = useState(currentUser?.name || '');
@@ -288,6 +295,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const handleAvatarUrlPaste = async (urlText: string, setUrlText: (v: string) => void) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setProfileAvatarUrl(media.dataUrl);
+      setUrlText('');
+      showNotification('Foto de perfil cargada desde URL.', 'success');
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
+        'error',
+      );
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (!currentUser) return;
     const cleanName = profileFullName.trim();
@@ -368,12 +395,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <div className="grid grid-cols-1 gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-bold text-stone-300">Foto de perfil (archivo)</label>
-                  <input
-                    type="file"
-                    accept={MEDIA_ACCEPT}
-                    onChange={handleAvatarFileSelected}
-                    className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-3 py-2 text-xs text-stone-200 file:mr-3 file:rounded-lg file:border-0 file:bg-[#FF4E00] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
-                  />
+                  <div className="flex flex-col gap-2">
+                    <input
+                      type="file"
+                      accept={MEDIA_ACCEPT}
+                      onChange={handleAvatarFileSelected}
+                      className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-3 py-2 text-xs text-stone-200 file:mr-3 file:rounded-lg file:border-0 file:bg-[#FF4E00] file:px-3 file:py-1.5 file:text-xs file:font-bold file:text-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Pega aquí una URL de avatar…"
+                      value={profileAvatarUrlText}
+                      onChange={(e) => setProfileAvatarUrlText(e.target.value)}
+                      onBlur={() => handleAvatarUrlPaste(profileAvatarUrlText, setProfileAvatarUrlText)}
+                      className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-3 py-2 text-xs text-stone-200 placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                    />
+                  </div>
                 </div>
 
                 <div>

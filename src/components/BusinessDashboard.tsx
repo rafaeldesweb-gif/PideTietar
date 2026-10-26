@@ -51,7 +51,12 @@ import {
   toBusinessFieldErrors,
 } from './FormErrors';
 import { MediaView } from './MediaView';
-import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
+import {
+  MEDIA_ACCEPT,
+  isMediaUrl,
+  processMediaFile,
+  processMediaUrl,
+} from '../utils/mediaUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
 
@@ -182,6 +187,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     isAvailable: true,
     allergens: '',
   });
+  // Texto pegado para imagen del producto.
+  const [catalogImageUrlText, setCatalogImageUrlText] = useState('');
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [newBusinessModalOpen, setNewBusinessModalOpen] = useState(false);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
@@ -223,6 +230,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     estimatedTimeMax: '40',
     schedule: defaultBusinessSchedule,
   });
+  // Textos pegados para banner y logo (alternativa al input de archivo).
+  const [newBusinessBannerUrlText, setNewBusinessBannerUrlText] = useState('');
+  const [newBusinessLogoUrlText, setNewBusinessLogoUrlText] = useState('');
   // Errores campo a campo que devuelve el servidor al crear el comercio.
   const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
   // Si la categoría elegida desaparece (por ejemplo, se elimina desde el
@@ -257,6 +267,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     phone: currentUser?.phone || '',
     avatarUrl: currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
   });
+  // Texto pegado para avatar de usuario.
+  const [userSettingsAvatarUrlText, setUserSettingsAvatarUrlText] = useState('');
 
   useEffect(() => {
     if (currentUser) {
@@ -802,6 +814,29 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     }
   };
 
+  const handleBusinessUrlPaste = async (
+    field: 'bannerUrl' | 'logoUrl',
+    urlText: string,
+    setUrlText: (v: string) => void,
+  ) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setNewBusinessForm((prev) => ({ ...prev, [field]: media.dataUrl }));
+      setUrlText('');
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
+        'error',
+      );
+    }
+  };
+
   const handleProductImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -811,6 +846,25 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       setCatalogForm((prev) => ({ ...prev, imageUrl: dataUrl }));
     } catch (error) {
       showNotification('No se pudo leer el archivo del producto.', 'error');
+    }
+  };
+
+  const handleProductUrlPaste = async (urlText: string, setUrlText: (v: string) => void) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setCatalogForm((prev) => ({ ...prev, imageUrl: media.dataUrl }));
+      setUrlText('');
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
+        'error',
+      );
     }
   };
 
@@ -832,6 +886,25 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       setUserSettingsForm((prev) => ({ ...prev, avatarUrl: dataUrl }));
     } catch (error) {
       showNotification('No se pudo leer el archivo del avatar.', 'error');
+    }
+  };
+
+  const handleUserAvatarUrlPaste = async (urlText: string, setUrlText: (v: string) => void) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setUserSettingsForm((prev) => ({ ...prev, avatarUrl: media.dataUrl }));
+      setUrlText('');
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
+        'error',
+      );
     }
   };
 
@@ -1648,15 +1721,28 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
                     <div>
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Subir una imagen del producto</label>
-                      <input
-                        type="file"
-                        accept={MEDIA_ACCEPT}
-                        onChange={handleProductImageUpload}
-                        className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
+                      <div className="flex flex-col gap-2">
+                        <input
+                          type="file"
+                          accept={MEDIA_ACCEPT}
+                          onChange={handleProductImageUpload}
+                          className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Pega aquí una URL de imagen…"
+                          value={catalogImageUrlText}
+                          onChange={(e) => setCatalogImageUrlText(e.target.value)}
+                          onBlur={() => handleProductUrlPaste(catalogImageUrlText, setCatalogImageUrlText)}
+                          className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
+                        />
+                      </div>
+                      <MediaView
+                        src={catalogForm.imageUrl || undefined}
+                        alt={catalogForm.name}
+                        className="mt-2 w-full h-24 rounded-xl border border-[#e6d7c5]"
+                        showLoading
                       />
-                      {catalogForm.imageUrl && !catalogForm.imageUrl.startsWith('https://images.unsplash.com') && (
-                        <p className="mt-1 text-[10px] text-emerald-600 font-bold">Imagen cargada correctamente</p>
-                      )}
                     </div>
 
                     <div>
@@ -2269,12 +2355,22 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 />
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] uppercase tracking-wider text-stone-500">Avatar</div>
-                  <input
-                    type="file"
-                    accept={MEDIA_ACCEPT}
-                    onChange={handleUserAvatarUpload}
-                    className="mt-1 block w-full text-xs text-stone-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:px-2 file:py-1.5 file:text-white"
-                  />
+                  <div className="mt-1 block w-full">
+                    <input
+                      type="file"
+                      accept={MEDIA_ACCEPT}
+                      onChange={handleUserAvatarUpload}
+                      className="text-xs text-stone-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:px-2 file:py-1.5 file:text-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Pega aquí una URL de avatar…"
+                      value={userSettingsAvatarUrlText}
+                      onChange={(e) => setUserSettingsAvatarUrlText(e.target.value)}
+                      onBlur={() => handleUserAvatarUrlPaste(userSettingsAvatarUrlText, setUserSettingsAvatarUrlText)}
+                      className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs mt-1"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -2835,36 +2931,54 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
               <div>
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Banner del negocio</label>
-                <input
-                  type="file"
-                  accept={MEDIA_ACCEPT}
-                  onChange={(event) => handleBusinessImageUpload('bannerUrl', event)}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
-                />
-                {newBusinessForm.bannerUrl && (
-                  <MediaView
-                    src={newBusinessForm.bannerUrl}
-                    alt="Banner preview"
-                    className="mt-2 h-20 w-full rounded-xl border border-[#e6d7c5]"
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="file"
+                    accept={MEDIA_ACCEPT}
+                    onChange={(event) => handleBusinessImageUpload('bannerUrl', event)}
+                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                   />
-                )}
+                  <input
+                    type="text"
+                    placeholder="Pega aquí una URL de banner…"
+                    value={newBusinessBannerUrlText}
+                    onChange={(e) => setNewBusinessBannerUrlText(e.target.value)}
+                    onBlur={() => handleBusinessUrlPaste('bannerUrl', newBusinessBannerUrlText, setNewBusinessBannerUrlText)}
+                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
+                  />
+                </div>
+                <MediaView
+                  src={newBusinessForm.bannerUrl || undefined}
+                  alt="Banner preview"
+                  className="mt-2 h-20 w-full rounded-xl border border-[#e6d7c5]"
+                  showLoading
+                />
               </div>
 
               <div>
                 <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Logo del negocio</label>
-                <input
-                  type="file"
-                  accept={MEDIA_ACCEPT}
-                  onChange={(event) => handleBusinessImageUpload('logoUrl', event)}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
-                />
-                {newBusinessForm.logoUrl && (
-                  <MediaView
-                    src={newBusinessForm.logoUrl}
-                    alt="Logo preview"
-                    className="mt-2 h-16 w-16 rounded-xl border border-[#e6d7c5]"
+                <div className="flex flex-col gap-2">
+                  <input
+                    type="file"
+                    accept={MEDIA_ACCEPT}
+                    onChange={(event) => handleBusinessImageUpload('logoUrl', event)}
+                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                   />
-                )}
+                  <input
+                    type="text"
+                    placeholder="Pega aquí una URL de logo…"
+                    value={newBusinessLogoUrlText}
+                    onChange={(e) => setNewBusinessLogoUrlText(e.target.value)}
+                    onBlur={() => handleBusinessUrlPaste('logoUrl', newBusinessLogoUrlText, setNewBusinessLogoUrlText)}
+                    className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
+                  />
+                </div>
+                <MediaView
+                  src={newBusinessForm.logoUrl || undefined}
+                  alt="Logo preview"
+                  className="mt-2 h-16 w-16 rounded-xl border border-[#e6d7c5]"
+                  showLoading
+                />
               </div>
 
               <button

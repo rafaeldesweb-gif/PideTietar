@@ -15,7 +15,12 @@ import {
   toCourierFieldErrors,
 } from './FormErrors';
 import { MediaView } from './MediaView';
-import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
+import {
+  MEDIA_ACCEPT,
+  isMediaUrl,
+  processMediaFile,
+  processMediaUrl,
+} from '../utils/mediaUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { CategoryManagerModal } from './CategoryManagerModal';
 import { SensitiveInput } from './SensitiveInput';
@@ -121,6 +126,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       { dayOfWeek: 0, openTime: '12:00', closeTime: '23:00', isOpen: true },
     ]
   });
+  // Texto pegado para URL del banner.
+  const [newBusinessBannerUrlText, setNewBusinessBannerUrlText] = useState('');
 
   // Errores campo a campo devueltos por el servidor (clave camelCase del form).
   const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
@@ -447,6 +454,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : 'No se pudo cargar el archivo del banner.',
+        'error',
+      );
+    }
+  };
+
+  const handleBannerUrlPaste = async (urlText: string, setUrlText: (v: string) => void) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setBusinessFormErrors((prev) => ({ ...prev, bannerUrl: '' }));
+      setNewBusinessForm((prev) => ({ ...prev, bannerUrl: media.dataUrl }));
+      setUrlText('');
+    } catch (error) {
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
         'error',
       );
     }
@@ -1154,23 +1181,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </div>
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Foto para Banner</label>
-            <input
-              type="file"
-              accept={MEDIA_ACCEPT}
-              onChange={handleBannerUpload}
-              className={fieldClass(
-                'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200',
-                Boolean(businessFormErrors.bannerUrl),
-              )}
-            />
-            <FieldError message={businessFormErrors.bannerUrl} />
-            {newBusinessForm.bannerUrl && (
-              <MediaView
-                src={newBusinessForm.bannerUrl}
-                alt="Vista previa del banner"
-                className="mt-2 h-20 w-full rounded-xl"
+            <div className="flex flex-col gap-2">
+              <input
+                type="file"
+                accept={MEDIA_ACCEPT}
+                onChange={handleBannerUpload}
+                className={fieldClass(
+                  'w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-stone-100 file:text-[#FF4E00] hover:file:bg-stone-200',
+                  Boolean(businessFormErrors.bannerUrl),
+                )}
               />
-            )}
+              <input
+                type="text"
+                placeholder="Pega aquí una URL de banner…"
+                value={newBusinessBannerUrlText}
+                onChange={(e) => setNewBusinessBannerUrlText(e.target.value)}
+                onBlur={() => handleBannerUrlPaste(newBusinessBannerUrlText, setNewBusinessBannerUrlText)}
+                className="w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400"
+              />
+            </div>
+            <FieldError message={businessFormErrors.bannerUrl} />
+            <MediaView
+              src={newBusinessForm.bannerUrl || undefined}
+              alt="Vista previa del banner"
+              className="mt-2 h-20 w-full rounded-xl"
+              showLoading
+            />
           </div>
 
           <div className="col-span-full pt-2">

@@ -3,7 +3,12 @@ import { Edit3, Trash2, X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BusinessCategory } from '../types';
 import { MediaView } from './MediaView';
-import { MEDIA_ACCEPT, processMediaFile } from '../utils/mediaUpload';
+import {
+  MEDIA_ACCEPT,
+  isMediaUrl,
+  processMediaFile,
+  processMediaUrl,
+} from '../utils/mediaUpload';
 
 interface CategoryManagerModalProps {
   open: boolean;
@@ -32,6 +37,8 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     iconName: 'Utensils',
     imageUrl: DEFAULT_CATEGORY_IMAGE,
   });
+  // Texto pegado para URL de imagen de categoría.
+  const [categoryImageUrlText, setCategoryImageUrlText] = useState('');
 
   const normaliseCategorySlug = (value: string): string =>
     value
@@ -124,10 +131,29 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     if (!file) return;
 
     try {
-      const dataUrl = await processMediaFile(file);
-      setCategoryForm((previous) => ({ ...previous, imageUrl: dataUrl.dataUrl }));
+      const media = await processMediaFile(file);
+      setCategoryForm((previous) => ({ ...previous, imageUrl: media.dataUrl }));
     } catch {
       showNotification('No se pudo leer el archivo de la categoría.', 'error');
+    }
+  };
+
+  const handleCategoryUrlPaste = async (
+    urlText: string,
+    setUrlText: (v: string) => void,
+  ) => {
+    const url = urlText.trim();
+    if (!url) return;
+    if (!isMediaUrl(url)) {
+      showNotification('Introduce una dirección web válida (http/https) o un archivo de datos.', 'error');
+      return;
+    }
+    try {
+      const media = await processMediaUrl(url);
+      setCategoryForm((previous) => ({ ...previous, imageUrl: media.dataUrl }));
+      setUrlText('');
+    } catch {
+      showNotification('No se pudo procesar la dirección web.', 'error');
     }
   };
 
@@ -238,14 +264,20 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   onChange={handleCategoryImageUpload}
                   className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:text-white file:px-2 file:py-1.5"
                 />
-                {categoryForm.imageUrl &&
-                  !categoryForm.imageUrl.startsWith(
-                    'https://images.unsplash.com',
-                  ) && (
-                    <p className="mt-1 text-[10px] text-emerald-600 font-bold">
-                      Imagen cargada correctamente
-                    </p>
-                  )}
+                <input
+                  type="text"
+                  placeholder="Pega aquí una URL de imagen…"
+                  value={categoryImageUrlText}
+                  onChange={(e) => setCategoryImageUrlText(e.target.value)}
+                  onBlur={() => handleCategoryUrlPaste(categoryImageUrlText, setCategoryImageUrlText)}
+                  className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] mt-1 text-xs"
+                />
+                <MediaView
+                  src={categoryForm.imageUrl || undefined}
+                  alt={categoryForm.name}
+                  className="mt-2 w-14 h-14 rounded-xl border border-[#e9dac8]"
+                  showLoading
+                />
               </div>
 
               <div className="flex items-center gap-2 pt-2">
