@@ -1,5 +1,11 @@
 import { CartItemOptionSelected, OptionGroup, Product, ProductExtraIngredient } from '../types';
 
+export interface ProductCategorySettings {
+  showIngredients?: boolean;
+  showRemovableIngredients?: boolean;
+  showAdditionalIngredients?: boolean;
+}
+
 export const EXTRAS_GROUP_NAME = 'Añade extras';
 export const MEAT_DONENESS_GROUP_NAME = 'Punto de la carne';
 export const DEFAULT_MEAT_DONENESS = 'Al punto';
@@ -50,15 +56,27 @@ const normalizeExtras = (product: Product) => {
 /**
  * Devuelve los grupos que debe mostrar la ficha del producto:
  * - los grupos configurados por el negocio
- * - un grupo multiselección con los ingredientes adicionales y su precio
+ * - un grupo multiselección con los ingredientes adicionales y su precio,
+ *   si la categoría lo permite
  * - el punto de la carne para hamburguesas
  */
-export const buildEffectiveOptionGroups = (product: Product): OptionGroup[] => {
-  const configuredGroups = Array.isArray(product.optionGroups) ? product.optionGroups : [];
+export const buildEffectiveOptionGroups = (
+  product: Product,
+  category?: ProductCategorySettings,
+): OptionGroup[] => {
+  const configuredGroups = (Array.isArray(product.optionGroups) ? product.optionGroups : [])
+    .filter((group) =>
+      category?.showAdditionalIngredients !== false ||
+      normalizeGroupName(group.name) !== normalizeGroupName(EXTRAS_GROUP_NAME),
+    );
   const groups = [...configuredGroups];
   const extras = normalizeExtras(product);
 
-  if (extras.length > 0 && !hasGroupNamed(groups, EXTRAS_GROUP_NAME)) {
+  if (
+    category?.showAdditionalIngredients !== false &&
+    extras.length > 0 &&
+    !hasGroupNamed(groups, EXTRAS_GROUP_NAME)
+  ) {
     groups.push({
       id: 'synthetic-additional-ingredients',
       name: EXTRAS_GROUP_NAME,
@@ -83,10 +101,13 @@ export const buildEffectiveOptionGroups = (product: Product): OptionGroup[] => {
   return groups;
 };
 
-export const getDefaultSelectedOptions = (product: Product): CartItemOptionSelected[] => {
+export const getDefaultSelectedOptions = (
+  product: Product,
+  category?: ProductCategorySettings,
+): CartItemOptionSelected[] => {
   const defaults: CartItemOptionSelected[] = [];
 
-  buildEffectiveOptionGroups(product).forEach((group) => {
+  buildEffectiveOptionGroups(product, category).forEach((group) => {
     if (!group.required || group.options.length === 0) return;
 
     const preferredOption =

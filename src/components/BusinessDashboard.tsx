@@ -519,7 +519,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setManualCustomizerProduct(prod);
     setManualCustomizerQuantity(1);
     setManualCustomizerRemoved([]);
-    setManualCustomizerOptions(getDefaultSelectedOptions(prod));
+    setManualCustomizerOptions(
+      getDefaultSelectedOptions(
+        prod,
+        categories.find((category) => category.id === prod.categoryId),
+      ),
+    );
     setManualCustomizerNote('');
   };
 
@@ -669,6 +674,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     return categories[0]?.id || '';
   };
 
+  const selectedCatalogCategory = categories.find(
+    (category) => category.id === catalogForm.categoryId,
+  );
+
   const resetCatalogForm = () => {
     setCatalogForm({
       name: '',
@@ -722,12 +731,18 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       name: trimmedName,
       description: trimmedDescription,
       tag: catalogForm.tag.trim(),
-      ingredients: catalogForm.ingredients.split(',').map((item) => item.trim()).filter(Boolean),
-      removableIngredients: catalogForm.removableIngredients.split(',').map((item) => item.trim()).filter(Boolean),
-      additionalIngredients: catalogForm.additionalIngredients
-        .split(',')
-        .map(parseExtraIngredient)
-        .filter(Boolean) as Array<{ name: string; priceCents: number }>,
+      ingredients: selectedCatalogCategory?.showIngredients === false
+        ? []
+        : catalogForm.ingredients.split(',').map((item) => item.trim()).filter(Boolean),
+      removableIngredients: selectedCatalogCategory?.showRemovableIngredients === false
+        ? []
+        : catalogForm.removableIngredients.split(',').map((item) => item.trim()).filter(Boolean),
+      additionalIngredients: selectedCatalogCategory?.showAdditionalIngredients === false
+        ? []
+        : catalogForm.additionalIngredients
+          .split(',')
+          .map(parseExtraIngredient)
+          .filter(Boolean) as Array<{ name: string; priceCents: number }>,
       priceCents: Math.round(normalizedPrice * 100),
       imageUrl: catalogForm.imageUrl || '/Logo.png',
       categoryId: catalogForm.categoryId,
@@ -1139,7 +1154,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             onClick={() => setActiveTab('orders')}
             className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition ${
               activeTab === 'orders'
-                ? 'bg-[#FF4E00] text-white'
+                ? 'selection-glow bg-[#FF4E00] text-white'
                 : 'bg-white text-stone-600'
             }`}
           >
@@ -1149,7 +1164,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             onClick={() => setActiveTab('menu')}
             className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition ${
               activeTab === 'menu'
-                ? 'bg-[#FF4E00] text-white'
+                ? 'selection-glow bg-[#FF4E00] text-white'
                 : 'bg-white text-stone-600'
             }`}
           >
@@ -1159,7 +1174,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             onClick={() => setActiveTab('stats')}
             className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition ${
               activeTab === 'stats'
-                ? 'bg-[#FF4E00] text-white'
+                ? 'selection-glow bg-[#FF4E00] text-white'
                 : 'bg-white text-stone-600'
             }`}
           >
@@ -1169,7 +1184,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             onClick={() => setActiveTab('team')}
             className={`shrink-0 rounded-lg px-3 py-2 text-xs font-bold transition ${
               activeTab === 'team'
-                ? 'bg-[#FF4E00] text-white'
+                ? 'selection-glow bg-[#FF4E00] text-white'
                 : 'bg-white text-stone-600'
             }`}
           >
@@ -1220,7 +1235,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 onClick={() => setActiveTab('orders')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'orders'
-                    ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
+                    ? 'selection-glow bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
                 }`}
               >
@@ -1237,7 +1252,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 onClick={() => setActiveTab('menu')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'menu'
-                    ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
+                    ? 'selection-glow bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
                 }`}
               >
@@ -1249,7 +1264,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 onClick={() => setActiveTab('stats')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'stats'
-                    ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
+                    ? 'selection-glow bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
                 }`}
               >
@@ -1261,7 +1276,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 onClick={() => setActiveTab('team')}
                 className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center space-x-2.5 cursor-pointer ${
                   activeTab === 'team'
-                    ? 'bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
+                    ? 'selection-glow bg-[#fff2eb] text-stone-900 shadow-sm font-extrabold border border-[#ffd7c2]'
                     : 'text-stone-600 hover:text-stone-900 hover:bg-stone-100'
                 }`}
               >
@@ -1679,7 +1694,17 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Categoría</label>
                       <select
                         value={catalogForm.categoryId}
-                        onChange={(event) => setCatalogForm((prev) => ({ ...prev, categoryId: event.target.value }))}
+                        onChange={(event) => {
+                          const categoryId = event.target.value;
+                          const category = categories.find((item) => item.id === categoryId);
+                          setCatalogForm((prev) => ({
+                            ...prev,
+                            categoryId,
+                            ingredients: category?.showIngredients === false ? '' : prev.ingredients,
+                            removableIngredients: category?.showRemovableIngredients === false ? '' : prev.removableIngredients,
+                            additionalIngredients: category?.showAdditionalIngredients === false ? '' : prev.additionalIngredients,
+                          }));
+                        }}
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                       >
                         <option value="" disabled>Selecciona una categoría</option>
@@ -1703,7 +1728,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       />
                     </div>
 
-                    <div>
+                    {selectedCatalogCategory?.showIngredients !== false && <div>
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Ingredientes</label>
                       <input
                         value={catalogForm.ingredients}
@@ -1711,9 +1736,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                         placeholder="Lechuga, tomate, queso"
                       />
-                    </div>
+                    </div>}
 
-                    <div>
+                    {selectedCatalogCategory?.showRemovableIngredients !== false && <div>
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Ingredientes que se pueden quitar</label>
                       <input
                         value={catalogForm.removableIngredients}
@@ -1721,9 +1746,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                         placeholder="Queso, cebolla, aguacate"
                       />
-                    </div>
+                    </div>}
 
-                    <div>
+                    {selectedCatalogCategory?.showAdditionalIngredients !== false && <div>
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Ingredientes adicionales (nombre: precio)</label>
                       <input
                         value={catalogForm.additionalIngredients}
@@ -1731,7 +1756,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                         className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
                         placeholder="Bacon: 1.20, Huevo: 0.80, Salsa extra: 0.50"
                       />
-                    </div>
+                    </div>}
 
                     <div>
                       <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Subir una imagen del producto</label>
@@ -2240,7 +2265,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
               </div>
 
-              {manualCustomizerProduct.removableIngredients && manualCustomizerProduct.removableIngredients.length > 0 && (
+              {categories.find((category) => category.id === manualCustomizerProduct.categoryId)?.showRemovableIngredients !== false && manualCustomizerProduct.removableIngredients && manualCustomizerProduct.removableIngredients.length > 0 && (
                 <div className="space-y-2">
                   <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">¿Deseas quitar algún ingrediente?</label>
                   <div className="flex flex-wrap gap-2">
@@ -2252,7 +2277,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                           key={ing}
                           onClick={() => toggleManualRemovable(ing)}
                           className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition flex items-center gap-1.5 ${
-                            isRemoved ? 'border-red-400 bg-red-50 text-red-700' : 'border-stone-200 bg-stone-50 text-stone-700'
+                            isRemoved ? 'selection-glow border-red-400 bg-red-50 text-red-700' : 'border-stone-200 bg-stone-50 text-stone-700'
                           }`}
                         >
                           {isRemoved && <X className="w-3.5 h-3.5 text-red-500" />}
@@ -2264,7 +2289,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
               )}
 
-              {buildEffectiveOptionGroups(manualCustomizerProduct).map((grp) => {
+              {buildEffectiveOptionGroups(
+                manualCustomizerProduct,
+                categories.find((category) => category.id === manualCustomizerProduct.categoryId),
+              ).map((grp) => {
                 const isMulti = grp.maxChoices > 1;
                 const isExtras = grp.id === 'synthetic-additional-ingredients';
                 const isMeatDoneness = grp.id === 'synthetic-meat-doneness';
@@ -2292,7 +2320,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                             key={opt.id}
                             onClick={() => selectManualOption(grp.name, opt.name, opt.priceCents, isMulti)}
                             className={`p-3 rounded-xl border text-xs font-medium flex items-center justify-between transition ${
-                              isSelected ? 'border-[#FF4E00] bg-orange-50/50 text-[#A32300]' : 'border-stone-200 text-stone-700 hover:bg-stone-50'
+                              isSelected ? 'selection-glow border-[#FF4E00] bg-orange-50/50 text-[#A32300]' : 'border-stone-200 text-stone-700 hover:bg-stone-50'
                             }`}
                           >
                             <div className="flex items-center gap-2">

@@ -155,6 +155,9 @@ const sqliteSchema = `
     slug TEXT UNIQUE NOT NULL,
     icon_name TEXT,
     image_url MEDIUMTEXT,
+    show_ingredients INTEGER NOT NULL DEFAULT 1,
+    show_removable_ingredients INTEGER NOT NULL DEFAULT 1,
+    show_additional_ingredients INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
@@ -342,6 +345,9 @@ const mysqlSchema = `
     slug VARCHAR(120) NOT NULL,
     icon_name VARCHAR(80) NULL,
     image_url MEDIUMTEXT NULL,
+    show_ingredients TINYINT(1) NOT NULL DEFAULT 1,
+    show_removable_ingredients TINYINT(1) NOT NULL DEFAULT 1,
+    show_additional_ingredients TINYINT(1) NOT NULL DEFAULT 1,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
@@ -603,6 +609,12 @@ async function ensureMysqlForeignKey(
 }
 
 async function ensureMySqlSchemaShape(pool) {
+  await ensureMysqlColumns(pool, "categories", [
+    ["show_ingredients", "TINYINT(1) NOT NULL DEFAULT 1"],
+    ["show_removable_ingredients", "TINYINT(1) NOT NULL DEFAULT 1"],
+    ["show_additional_ingredients", "TINYINT(1) NOT NULL DEFAULT 1"],
+  ]);
+
   await ensureMysqlColumns(pool, "app_users", [
     ["business_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
@@ -762,6 +774,9 @@ function ensureSqliteSchemaShape() {
     "TEXT REFERENCES app_users(id) ON DELETE SET NULL",
   );
   ensureColumn("businesses", "updated_at", "TEXT");
+  ensureColumn("categories", "show_ingredients", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn("categories", "show_removable_ingredients", "INTEGER NOT NULL DEFAULT 1");
+  ensureColumn("categories", "show_additional_ingredients", "INTEGER NOT NULL DEFAULT 1");
 
   ensureColumn("app_users", "business_id", "TEXT");
   ensureColumn("app_users", "is_online", "INTEGER NOT NULL DEFAULT 0");
@@ -2622,6 +2637,18 @@ function validateCategory(body) {
   const slug = normalizeCategorySlug(body.slug || name);
   const iconName = cleanString(body.iconName ?? body.icon_name);
   const imageUrl = cleanString(body.imageUrl ?? body.image_url);
+  const showIngredients = asBooleanFlag(
+    body.showIngredients ?? body.show_ingredients,
+    1,
+  );
+  const showRemovableIngredients = asBooleanFlag(
+    body.showRemovableIngredients ?? body.show_removable_ingredients,
+    1,
+  );
+  const showAdditionalIngredients = asBooleanFlag(
+    body.showAdditionalIngredients ?? body.show_additional_ingredients,
+    1,
+  );
 
   if (name.length < 2) {
     errors.name = "El nombre debe tener al menos 2 caracteres.";
@@ -2647,7 +2674,18 @@ function validateCategory(body) {
     }
   }
 
-  return { errors, values: { name, slug, iconName, imageUrl } };
+  return {
+    errors,
+    values: {
+      name,
+      slug,
+      iconName,
+      imageUrl,
+      showIngredients,
+      showRemovableIngredients,
+      showAdditionalIngredients,
+    },
+  };
 }
 
 function validateSchedule(schedule) {
@@ -4695,7 +4733,15 @@ app.post("/api/categories", requireRole("SUPERADMIN"), async (req, res) => {
   const validation = validateCategory(body);
   assertValid(validation.errors);
 
-  const { name, slug, iconName, imageUrl } = validation.values;
+  const {
+    name,
+    slug,
+    iconName,
+    imageUrl,
+    showIngredients,
+    showRemovableIngredients,
+    showAdditionalIngredients,
+  } = validation.values;
   const duplicate = await countRows(
     "SELECT COUNT(*) AS c FROM categories WHERE slug = ?",
     [slug],
@@ -4718,15 +4764,39 @@ app.post("/api/categories", requireRole("SUPERADMIN"), async (req, res) => {
   });
   if (mysqlPool) {
     await mysqlPool.execute(
-      "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
-      [id, name, slug, iconName || null, storedImageUrl || null],
+      `INSERT INTO categories
+        (id, name, slug, icon_name, image_url, show_ingredients,
+         show_removable_ingredients, show_additional_ingredients)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        name,
+        slug,
+        iconName || null,
+        storedImageUrl || null,
+        showIngredients,
+        showRemovableIngredients,
+        showAdditionalIngredients,
+      ],
     );
   } else {
     getSqliteDb()
       .prepare(
-        "INSERT INTO categories (id, name, slug, icon_name, image_url) VALUES (?, ?, ?, ?, ?)",
+        `INSERT INTO categories
+          (id, name, slug, icon_name, image_url, show_ingredients,
+           show_removable_ingredients, show_additional_ingredients)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, name, slug, iconName || null, storedImageUrl || null);
+      .run(
+        id,
+        name,
+        slug,
+        iconName || null,
+        storedImageUrl || null,
+        showIngredients,
+        showRemovableIngredients,
+        showAdditionalIngredients,
+      );
   }
 
   const created = await getCategoryById(id);
@@ -4752,10 +4822,30 @@ app.put("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
       body.imageUrl !== undefined || body.image_url !== undefined
         ? body.imageUrl ?? body.image_url
         : current.image_url,
+    showIngredients:
+      body.showIngredients !== undefined || body.show_ingredients !== undefined
+        ? body.showIngredients ?? body.show_ingredients
+        : current.show_ingredients,
+    showRemovableIngredients:
+      body.showRemovableIngredients !== undefined || body.show_removable_ingredients !== undefined
+        ? body.showRemovableIngredients ?? body.show_removable_ingredients
+        : current.show_removable_ingredients,
+    showAdditionalIngredients:
+      body.showAdditionalIngredients !== undefined || body.show_additional_ingredients !== undefined
+        ? body.showAdditionalIngredients ?? body.show_additional_ingredients
+        : current.show_additional_ingredients,
   });
   assertValid(validation.errors);
 
-  const { name, slug, iconName, imageUrl } = validation.values;
+  const {
+    name,
+    slug,
+    iconName,
+    imageUrl,
+    showIngredients,
+    showRemovableIngredients,
+    showAdditionalIngredients,
+  } = validation.values;
   const duplicate = await countRows(
     "SELECT COUNT(*) AS c FROM categories WHERE slug = ? AND id <> ?",
     [slug, id],
@@ -4780,19 +4870,41 @@ app.put("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) => {
     await mysqlPool.execute(
       `UPDATE categories
           SET name = ?, slug = ?, icon_name = ?, image_url = ?,
+              show_ingredients = ?, show_removable_ingredients = ?,
+              show_additional_ingredients = ?,
               updated_at = CURRENT_TIMESTAMP(3)
         WHERE id = ?`,
-      [name, slug, iconName || null, storedImageUrl || null, id],
+      [
+        name,
+        slug,
+        iconName || null,
+        storedImageUrl || null,
+        showIngredients,
+        showRemovableIngredients,
+        showAdditionalIngredients,
+        id,
+      ],
     );
   } else {
     getSqliteDb()
       .prepare(
         `UPDATE categories
             SET name = ?, slug = ?, icon_name = ?, image_url = ?,
+                show_ingredients = ?, show_removable_ingredients = ?,
+                show_additional_ingredients = ?,
                 updated_at = CURRENT_TIMESTAMP
           WHERE id = ?`,
       )
-      .run(name, slug, iconName || null, storedImageUrl || null, id);
+      .run(
+        name,
+        slug,
+        iconName || null,
+        storedImageUrl || null,
+        showIngredients,
+        showRemovableIngredients,
+        showAdditionalIngredients,
+        id,
+      );
   }
 
   const updated = await getCategoryById(id);

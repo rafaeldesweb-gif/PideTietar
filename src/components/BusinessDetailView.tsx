@@ -108,9 +108,9 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
           <div className="flex space-x-4 border-b border-stone-200 dark:border-stone-800 pt-2">
             <button
               onClick={() => setActiveTab('catalog')}
-              className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer ${
+              className={`rounded-xl px-3 pb-3 text-sm font-bold border-b-2 transition cursor-pointer ${
                 activeTab === 'catalog'
-                  ? 'border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
+                  ? 'selection-glow border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
                   : 'border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
               }`}
             >
@@ -118,9 +118,9 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
             </button>
             <button
               onClick={() => setActiveTab('info')}
-              className={`pb-3 text-sm font-bold border-b-2 transition cursor-pointer ${
+              className={`rounded-xl px-3 pb-3 text-sm font-bold border-b-2 transition cursor-pointer ${
                 activeTab === 'info'
-                  ? 'border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
+                  ? 'selection-glow border-[#FF4E00] text-[#A32300] dark:text-[#FF4E00]'
                   : 'border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200'
               }`}
             >

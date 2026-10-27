@@ -31,6 +31,9 @@ CREATE TABLE categories (
   slug VARCHAR(120) NOT NULL UNIQUE,
   icon_name VARCHAR(80),
   image_url TEXT,
+  show_ingredients BOOLEAN NOT NULL DEFAULT TRUE,
+  show_removable_ingredients BOOLEAN NOT NULL DEFAULT TRUE,
+  show_additional_ingredients BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ NULL

@@ -66,6 +66,9 @@ export interface BusinessCategory {
   slug: string;
   iconName: string;
   imageUrl?: string;
+  showIngredients: boolean;
+  showRemovableIngredients: boolean;
+  showAdditionalIngredients: boolean;
 }
 
 export interface BusinessHours {

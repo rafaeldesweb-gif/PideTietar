@@ -97,7 +97,7 @@ export const CourierDashboard: React.FC = () => {
           onClick={() => setActiveTab('assigned')}
           className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition sm:text-sm ${
             activeTab === 'assigned'
-              ? 'bg-[#FF4E00] text-white'
+              ? 'selection-glow bg-[#FF4E00] text-white'
               : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-stone-800'
           }`}
         >
@@ -107,7 +107,7 @@ export const CourierDashboard: React.FC = () => {
           onClick={() => setActiveTab('completed')}
           className={`shrink-0 rounded-xl px-3 py-2 text-xs font-bold transition sm:text-sm ${
             activeTab === 'completed'
-              ? 'bg-[#FF4E00] text-white'
+              ? 'selection-glow bg-[#FF4E00] text-white'
               : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-stone-800'
           }`}
         >

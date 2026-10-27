@@ -68,8 +68,9 @@ export const Header: React.FC<HeaderProps> = ({
                         setLocalityMenuOpen(false);
                       }}
                       className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-stone-100 dark:hover:bg-stone-800 ${
-                        selectedLocality?.id === loc.id ? 'bg-[#FF4E00]/5 font-semibold text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
+                        selectedLocality?.id === loc.id ? 'selection-glow bg-[#FF4E00]/5 font-semibold text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
                       }`}
+                      aria-selected={selectedLocality?.id === loc.id}
                     >
                       <span>{loc.name}</span>
                       <span className="text-[10px] text-stone-400">{loc.postalCode}</span>

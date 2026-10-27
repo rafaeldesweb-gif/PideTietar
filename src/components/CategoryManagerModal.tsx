@@ -35,6 +35,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
     slug: '',
     iconName: 'Utensils',
     imageUrl: DEFAULT_CATEGORY_IMAGE,
+    showIngredients: true,
+    showRemovableIngredients: true,
+    showAdditionalIngredients: true,
   });
   // Texto pegado para URL de imagen de categoría.
   const [categoryImageUrlText, setCategoryImageUrlText] = useState('');
@@ -56,6 +59,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       slug: '',
       iconName: 'Utensils',
       imageUrl: DEFAULT_CATEGORY_IMAGE,
+      showIngredients: true,
+      showRemovableIngredients: true,
+      showAdditionalIngredients: true,
     });
   };
 
@@ -81,6 +87,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
         slug: nextSlug,
         iconName: categoryForm.iconName,
         imageUrl: categoryForm.imageUrl,
+        showIngredients: categoryForm.showIngredients,
+        showRemovableIngredients: categoryForm.showRemovableIngredients,
+        showAdditionalIngredients: categoryForm.showAdditionalIngredients,
       });
       if (!ok) return;
       showNotification('Categoría actualizada.', 'success');
@@ -90,6 +99,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
         slug: nextSlug,
         iconName: categoryForm.iconName,
         imageUrl: categoryForm.imageUrl,
+        showIngredients: categoryForm.showIngredients,
+        showRemovableIngredients: categoryForm.showRemovableIngredients,
+        showAdditionalIngredients: categoryForm.showAdditionalIngredients,
       });
       if (!created) return;
       showNotification('Categoría añadida.', 'success');
@@ -106,6 +118,9 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
       slug: category.slug,
       iconName: category.iconName || 'Utensils',
       imageUrl: category.imageUrl || DEFAULT_CATEGORY_IMAGE,
+      showIngredients: category.showIngredients !== false,
+      showRemovableIngredients: category.showRemovableIngredients !== false,
+      showAdditionalIngredients: category.showAdditionalIngredients !== false,
     });
   };
 
@@ -272,6 +287,38 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] mt-1 text-xs"
                 />
               </div>
+
+              <fieldset className="space-y-2 rounded-2xl border border-[#eadcc7] bg-white/70 p-3">
+                <legend className="px-1 text-[11px] font-bold uppercase tracking-wider text-stone-600">
+                  Campos de personalización de los productos
+                </legend>
+                <p className="text-[11px] leading-relaxed text-stone-500">
+                  Decide qué información y opciones podrán tener los productos de esta categoría.
+                </p>
+                {([
+                  ['showIngredients', 'Ingredientes', 'Muestra los ingredientes en la ficha de compra.'],
+                  ['showRemovableIngredients', 'Ingredientes que se pueden quitar', 'Permite al cliente retirar ingredientes.'],
+                  ['showAdditionalIngredients', 'Ingredientes adicionales', 'Permite añadir extras con precio.'],
+                ] as const).map(([field, label, description]) => (
+                  <label key={field} className="flex cursor-pointer items-start gap-2 rounded-xl px-2 py-1.5 hover:bg-[#fff7f2]">
+                    <input
+                      type="checkbox"
+                      checked={categoryForm[field]}
+                      onChange={(event) =>
+                        setCategoryForm((previous) => ({
+                          ...previous,
+                          [field]: event.target.checked,
+                        }))
+                      }
+                      className="mt-0.5 h-4 w-4 accent-[#FF4E00]"
+                    />
+                    <span>
+                      <span className="block text-xs font-semibold text-stone-800">{label}</span>
+                      <span className="block text-[11px] text-stone-500">{description}</span>
+                    </span>
+                  </label>
+                ))}
+              </fieldset>
 
               <div className="flex items-center gap-2 pt-2">
                 <button

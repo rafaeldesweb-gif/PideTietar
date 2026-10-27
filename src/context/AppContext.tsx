@@ -309,12 +309,22 @@ const normalizeProduct = (item: any): Product => ({
   ratingCount: Number(item.ratingCount ?? 0),
 });
 
+const normalizeFlag = (value: any, fallback = true): boolean => {
+  if (value === undefined || value === null) return fallback;
+  if (value === true || value === 1 || value === '1' || value === 'true') return true;
+  if (value === false || value === 0 || value === '0' || value === 'false') return false;
+  return fallback;
+};
+
 const normalizeCategory = (item: any): BusinessCategory => ({
   id: item.id || `cat-${Date.now()}`,
   name: item.name || 'Categoría',
   slug: item.slug || '',
   iconName: item.iconName ?? item.icon_name ?? 'Utensils',
   imageUrl: item.imageUrl ?? item.image_url ?? '',
+  showIngredients: normalizeFlag(item.showIngredients ?? item.show_ingredients),
+  showRemovableIngredients: normalizeFlag(item.showRemovableIngredients ?? item.show_removable_ingredients),
+  showAdditionalIngredients: normalizeFlag(item.showAdditionalIngredients ?? item.show_additional_ingredients),
 });
 
 const toIsoDate = (value: any): string | null => {
@@ -1164,6 +1174,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           slug: data.slug || '',
           icon_name: data.iconName || 'Utensils',
           image_url: data.imageUrl || '',
+          show_ingredients: data.showIngredients ?? true,
+          show_removable_ingredients: data.showRemovableIngredients ?? true,
+          show_additional_ingredients: data.showAdditionalIngredients ?? true,
         }),
       });
       const payload = (response as any)?.category ?? response;
@@ -1197,6 +1210,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           slug: data.slug || '',
           icon_name: data.iconName || 'Utensils',
           image_url: data.imageUrl || '',
+          show_ingredients: data.showIngredients ?? true,
+          show_removable_ingredients: data.showRemovableIngredients ?? true,
+          show_additional_ingredients: data.showAdditionalIngredients ?? true,
         }),
       });
       const payload = (response as any)?.category ?? response;

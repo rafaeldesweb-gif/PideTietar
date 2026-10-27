@@ -23,17 +23,18 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
   businessId,
   onClose
 }) => {
-  const { addToCart, clearCart } = useApp();
+  const { addToCart, clearCart, categories } = useApp();
+  const category = categories.find((item) => item.id === product.categoryId);
 
   const [quantity, setQuantity] = useState(1);
   const [removedIngredients, setRemovedIngredients] = useState<string[]>([]);
   const [selectedOptions, setSelectedOptions] = useState<CartItemOptionSelected[]>(() =>
-    getDefaultSelectedOptions(product)
+    getDefaultSelectedOptions(product, category)
   );
   const [customerNote, setCustomerNote] = useState('');
   const [conflictPromptOpen, setConflictPromptOpen] = useState(false);
 
-  const effectiveOptionGroups = buildEffectiveOptionGroups(product);
+  const effectiveOptionGroups = buildEffectiveOptionGroups(product, category);
 
   // Toggle removable ingredient
   const toggleRemovable = (ing: string) => {
@@ -152,7 +153,7 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
                 {product.description?.trim() || 'Sin descripción disponible.'}
               </p>
             </div>
-            {Array.isArray(product.ingredients) && product.ingredients.length > 0 && (
+            {category?.showIngredients !== false && Array.isArray(product.ingredients) && product.ingredients.length > 0 && (
               <p className="text-xs text-stone-500 dark:text-stone-400 mt-1.5">
                 <span className="font-semibold text-stone-600 dark:text-stone-300">Ingredientes:</span>{' '}
                 {product.ingredients.join(', ')}
@@ -164,7 +165,7 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
           </div>
 
           {/* Removable Ingredients */}
-          {product.removableIngredients && product.removableIngredients.length > 0 && (
+          {category?.showRemovableIngredients !== false && product.removableIngredients && product.removableIngredients.length > 0 && (
             <div className="space-y-2">
               <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">
                 ¿Deseas quitar algún ingrediente?
@@ -178,7 +179,7 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
                       onClick={() => toggleRemovable(ing)}
                       className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition flex items-center space-x-1.5 cursor-pointer ${
                         isRemoved 
-                          ? 'border-red-400 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
+                          ? 'selection-glow border-red-400 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
                           : 'border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-700 dark:text-stone-300'
                       }`}
                     >
@@ -232,7 +233,7 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
                         onClick={() => selectOption(grp.name, opt.name, opt.priceCents, isMulti)}
                         className={`p-3 rounded-xl border text-xs font-medium flex items-center justify-between transition cursor-pointer ${
                           isSelected
-                            ? 'border-[#FF4E00] bg-orange-50/50 dark:bg-orange-950/20 text-[#A32300] dark:text-[#FF4E00]'
+                            ? 'selection-glow border-[#FF4E00] bg-orange-50/50 dark:bg-orange-950/20 text-[#A32300] dark:text-[#FF4E00]'
                             : 'border-stone-200 dark:border-stone-700 text-stone-700 dark:text-stone-300 hover:bg-stone-50 dark:hover:bg-stone-800'
                         }`}
                       >

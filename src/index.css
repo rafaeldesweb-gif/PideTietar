@@ -203,6 +203,19 @@ button {
   cursor: pointer;
 }
 
+/* Borde de selección inspirado en la referencia: línea amarillo-blanca y halo luminoso. */
+.selection-glow {
+  border: 2px solid #fff6a3 !important;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 88%),
+    0 0 0 1px rgb(255 229 71 / 92%),
+    0 0 4px 1px rgb(255 253 210 / 96%),
+    0 0 10px 2px rgb(255 224 48 / 92%),
+    0 0 20px 5px rgb(255 181 0 / 70%),
+    0 0 32px 9px rgb(83 21 122 / 28%);
+  transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

@@ -222,10 +222,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
             <button
               onClick={() => setSelectedCategory(null)}
               className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+              aria-pressed={selectedCategory === null}
             >
               <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
                 selectedCategory === null
-                  ? 'scale-105 ring-3 ring-[#F5BB00] shadow-md shadow-[#F5BB00]/30'
+                  ? 'selection-glow scale-105 shadow-md shadow-[#F5BB00]/30'
                   : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
               }`}>
                 <div className="flex h-full w-full items-center justify-center rounded-full bg-[#F5BB00] font-black text-stone-950 shadow-inner">
@@ -246,10 +247,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   key={cat.id}
                   onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
                   className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+                  aria-pressed={isSelected}
                 >
                   <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
                     isSelected
-                      ? 'scale-105 ring-3 ring-[#FF4E00] shadow-md shadow-[#FF4E00]/30'
+                      ? 'selection-glow scale-105 shadow-md shadow-[#FF4E00]/30'
                       : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
                   }`}>
                     <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner">
