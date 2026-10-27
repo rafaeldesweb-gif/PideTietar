@@ -85,7 +85,6 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
                   <Star className="w-4 h-4 fill-amber-500" />
                   <span>{business.rating}</span>
                 </div>
-                <div className="text-[10px] text-stone-400 font-medium">{business.reviewCount} opiniones</div>
               </div>
               <div className="w-px h-8 bg-stone-200 dark:bg-stone-700" />
               <div className="text-center px-2">

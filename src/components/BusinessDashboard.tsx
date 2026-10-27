@@ -39,7 +39,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { Order, OrderStatus, Product, CartItemOptionSelected, BusinessHours, User } from '../types';
+import { Business, Order, OrderStatus, Product, CartItemOptionSelected, BusinessHours, User } from '../types';
 import { ProjectLogo } from './ProjectLogo';
 import { CategoryManagerModal } from './CategoryManagerModal';
 import { SensitiveInput } from './SensitiveInput';
@@ -104,7 +104,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   } = useApp();
 
   const [selectedBusinessId, setSelectedBusinessId] = useState<string | null>(
-    initialBusinessId || currentUser?.businessId || businesses[0]?.id || null,
+    initialBusinessId || (
+      currentUser?.role === 'SUPERADMIN'
+        ? null
+        : currentUser?.businessId || businesses[0]?.id || null
+    ),
   );
 
   useEffect(() => {
@@ -114,7 +118,18 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   }, [initialBusinessId]);
 
   const [ordersZoneFilter, setOrdersZoneFilter] = useState<string>('all');
-  const [ordersBusinessFilter, setOrdersBusinessFilter] = useState<string>('all');
+  const [ordersBusinessFilter, setOrdersBusinessFilter] = useState<string>(
+    currentUser?.role === 'SUPERADMIN' && initialBusinessId ? initialBusinessId : 'all',
+  );
+  useEffect(() => {
+    if (currentUser?.role !== 'SUPERADMIN') return;
+    if (initialBusinessId) {
+      setSelectedBusinessId(initialBusinessId);
+      setOrdersBusinessFilter(initialBusinessId);
+    } else if (!selectedBusinessId) {
+      setOrdersBusinessFilter('all');
+    }
+  }, [currentUser?.role, initialBusinessId, selectedBusinessId]);
   const [activeTab, setActiveTab] = useState<'orders' | 'menu' | 'stats' | 'team'>('orders');
   const [selectedTicket, setSelectedTicket] = useState<Order | null>(null);
   const [clearedOrderIds, setClearedOrderIds] = useState<Set<string>>(() => {
@@ -310,8 +325,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
   const business =
     businesses.find((b) => b.id === selectedBusinessId) ||
-    businesses.find((b) => b.id === currentUser?.businessId) ||
-    businesses[0];
+    (currentUser?.role === 'SUPERADMIN'
+      ? undefined
+      : businesses.find((b) => b.id === currentUser?.businessId) || businesses[0]) as Business;
 
   const refreshCouriers = async () => {
     if (!business?.id) return;
@@ -399,7 +415,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
   // En el control de pedidos global no hay un negocio seleccionado: la
   // cabecera no debe mostrar el nombre ni el estado del primer negocio.
-  const hideBusinessHeader = !!isSuperAdmin && activeTab === 'orders' && ordersBusinessFilter === 'all';
+  const hideBusinessHeader = !!isSuperAdmin && activeTab === 'orders' && !business;
 
   if (!currentUser || !canManageOrders) {
     return (
@@ -417,7 +433,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     );
   }
 
-  if (!business) {
+  if (!business && !(isSuperAdmin && activeTab === 'orders')) {
     return <div className="p-6 text-stone-700">No hay negocio disponible.</div>;
   }
 
@@ -440,7 +456,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       })
     : orders.filter((o) => o.businessId === business.id))
     .filter(o => isCurrentLogicalDay(o.createdAt));
-  const restaurantProducts = products.filter((p) => p.businessId === business.id);
+  const restaurantProducts = business
+    ? products.filter((p) => p.businessId === business.id)
+    : [];
   const zoneBusinessesForFilter =
     ordersZoneFilter === 'all'
       ? businesses
@@ -589,6 +607,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     }
     if (manualSelectedItems.length === 0) {
       showNotification('Debes seleccionar al menos un plato para la comanda.', 'error');
+      return;
+    }
+    if (!business) {
+      showNotification('Selecciona un negocio antes de crear el pedido.', 'error');
       return;
     }
 
@@ -1338,7 +1360,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4">
-                  {canManageOrders && (
+                  {canManageOrders && (!isSuperAdmin || Boolean(business)) && (
                     <button type="button" onClick={() => setNewOrderModal(true)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#FF4E00] px-4 py-2 text-sm font-bold text-white">
                       <Plus className="h-4 w-4 shrink-0" />
                       Nuevo pedido
@@ -1367,6 +1389,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       onChange={(event) => {
                         setOrdersZoneFilter(event.target.value);
                         setOrdersBusinessFilter('all');
+                        if (isSuperAdmin) setSelectedBusinessId(null);
                       }}
                       className="w-full rounded-xl border border-stone-200 bg-[#fffaf4] px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                     >
@@ -1383,9 +1406,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       onChange={(event) => {
                         const nextBusinessId = event.target.value;
                         setOrdersBusinessFilter(nextBusinessId);
-                        if (nextBusinessId !== 'all') {
-                          setSelectedBusinessId(nextBusinessId);
-                        }
+                        setSelectedBusinessId(nextBusinessId === 'all' ? null : nextBusinessId);
                       }}
                       className="w-full rounded-xl border border-stone-200 bg-[#fffaf4] px-3 py-2 text-sm text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                     >
@@ -1395,6 +1416,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       ))}
                     </select>
                   </div>
+                </div>
+              )}
+
+              {isSuperAdmin && !business && (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Selecciona un negocio en «Filtrar por negocio» para crear un nuevo pedido. La carta y la comanda usarán únicamente los productos de ese negocio.
                 </div>
               )}
 
@@ -2086,7 +2113,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-xs">
           <div className="bg-[#171412] border border-stone-700 rounded-[28px] w-full max-w-3xl shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between px-5 py-4 border-b border-stone-700/80">
-              <h3 className="text-2xl font-black text-stone-50">Nuevo pedido</h3>
+              <h3 className="text-2xl font-black text-stone-50">
+                Nuevo pedido{business ? ` · ${business.name}` : ''}
+              </h3>
               <button onClick={() => setNewOrderModal(false)} className="text-stone-300 hover:text-white transition">
                 <X className="w-5 h-5" />
               </button>

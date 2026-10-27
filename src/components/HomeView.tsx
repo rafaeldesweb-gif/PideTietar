@@ -100,7 +100,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
     if (bannerHovered || bannerFocused) return;
     const timer = setInterval(() => {
       setActiveSlide((prev) => (prev + 1) % bannerSlides.length);
-    }, 5500);
+    }, 2000);
     return () => clearInterval(timer);
   }, [bannerSlides.length, activeSlide, bannerHovered, bannerFocused]);
 
@@ -217,7 +217,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
 
           <div
             ref={categoryScrollRef}
-            className="flex items-start gap-2 overflow-x-auto pb-3 pt-1 [scrollbar-width:none] scroll-smooth snap-x snap-mandatory px-6 sm:gap-3"
+            className="flex items-start gap-2 overflow-x-auto pb-5 pt-5 [scrollbar-width:none] scroll-smooth snap-x snap-mandatory px-6 sm:gap-3"
           >
             <button
               onClick={() => setSelectedCategory(null)}
