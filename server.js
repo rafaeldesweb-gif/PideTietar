@@ -11,8 +11,8 @@ import nodemailer from "nodemailer";
 import {
   getSupabaseMediaBucket,
   getSupabaseMediaClient,
-  mediaFileExtension,
   parseDataUrl,
+  replaceMediaAsset,
 } from "./server/supabaseMedia.js";
 
 dotenv.config();
@@ -2210,6 +2210,16 @@ function readSessionToken(token) {
 
 async function loadUserForSession(userId) {
   if (String(userId) === "superadmin-rafaadmin") {
+    // Las sesiones antiguas de emergencia usan un ID virtual. Cuando existe
+    // la cuenta sembrada, se debe leer y editar su fila real.
+    try {
+      const storedUser = await getUserByIdentifier(
+        process.env.SUPERADMIN_USERNAME || "RafaAdmin",
+      );
+      if (storedUser?.role === "SUPERADMIN") return storedUser;
+    } catch {
+      // Se mantiene el acceso de emergencia si la base no responde.
+    }
     return getSuperAdminSessionUser();
   }
 
@@ -2460,37 +2470,15 @@ async function saveSupabaseMediaAsset({
   }
 
   const bucket = getSupabaseMediaBucket();
-  const extension = mediaFileExtension(parsed.contentType);
-  const storagePath = `${normalizedType.toLowerCase()}/${normalizedId}/${cryptoRandomId()}.${extension}`;
-  const upload = await supabase.storage.from(bucket).upload(storagePath, parsed.buffer, {
+  return replaceMediaAsset(supabase, bucket, {
+    entityType: normalizedType,
+    entityId: normalizedId,
+    fieldName: normalizedField,
+    buffer: parsed.buffer,
     contentType: parsed.contentType,
-    cacheControl: "31536000",
-    upsert: false,
+    originalName: cleanString(originalName),
+    createdBy: cleanString(createdBy),
   });
-  if (upload.error) {
-    throw httpError(502, "MEDIA_UPLOAD_FAILED", upload.error.message || "No se pudo subir el archivo multimedia.");
-  }
-
-  const publicUrl = supabase.storage.from(bucket).getPublicUrl(storagePath).data.publicUrl;
-  const relation = await supabase.from("media_assets").insert({
-    entity_type: normalizedType,
-    entity_id: normalizedId,
-    field_name: normalizedField,
-    storage_bucket: bucket,
-    storage_path: storagePath,
-    public_url: publicUrl,
-    mime_type: parsed.contentType,
-    byte_size: parsed.buffer.length,
-    original_name: cleanString(originalName) || null,
-    created_by: cleanString(createdBy) || null,
-  }).select("*").single();
-
-  if (relation.error) {
-    await supabase.storage.from(bucket).remove([storagePath]);
-    throw httpError(502, "MEDIA_RELATION_FAILED", relation.error.message || "No se pudo guardar la relación multimedia.");
-  }
-
-  return relation.data;
 }
 
 async function normalizeStoredMediaValue(options) {
@@ -3391,15 +3379,7 @@ app.post("/api/auth/login", async (req, res) => {
     String(identifier).toLowerCase() === "rafaadmin" &&
     cleanPassword === (process.env.SUPERADMIN_PASSWORD || "13021999")
   ) {
-    const user = {
-      id: "superadmin-rafaadmin",
-      username: "RafaAdmin",
-      full_name: "RafaAdmin",
-      email: "rafaeldesweb@gmail.com",
-      role: "SUPERADMIN",
-      status: "ACTIVE",
-      created_at: new Date().toISOString(),
-    };
+    const user = await loadUserForSession("superadmin-rafaadmin");
     return res.json({
       success: true,
       user: sanitizeUser(user),
@@ -3909,18 +3889,23 @@ app.post("/api/users", requireAuth, async (req, res) => {
 });
 
 app.put("/api/users/:id", requireAuth, async (req, res) => {
-  const { id } = req.params;
+  const requestedId = req.params.id;
   const body = req.body || {};
   const sessionUser = req.user;
   const sessionRole = String(sessionUser.role || "").toUpperCase();
   const isSuperAdmin = sessionRole === "SUPERADMIN";
   const isBusinessAdmin = sessionRole === "BUSINESS_ADMIN";
-  const isSelf = String(sessionUser.id) === String(id);
-  const targetUser = await loadUserForSession(id);
+  const targetUser = await loadUserForSession(requestedId);
 
   if (!targetUser) {
     throw httpError(404, "USER_NOT_FOUND", "El usuario indicado no existe.");
   }
+
+  const id = targetUser.id;
+  if (String(id) === "superadmin-rafaadmin") {
+    throw httpError(503, "PROFILE_UNAVAILABLE", "La cuenta de emergencia no tiene un perfil guardado en la base de datos. No se han guardado cambios.");
+  }
+  const isSelf = String(sessionUser.id) === String(id);
 
   const targetRole = String(targetUser.role || "").toUpperCase();
   const sessionBusinessId = String(
@@ -4096,20 +4081,13 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
       values.push(dni || null);
     }
   }
+  let avatarToUpload;
   if (body.avatarUrl !== undefined || body.avatar_url !== undefined) {
     const avatarUrl = cleanString(body.avatarUrl ?? body.avatar_url) || null;
     if (avatarUrl && !isValidImageUrl(avatarUrl)) {
       errors.avatarUrl = "La imagen debe ser una URL http(s) o un archivo cargado.";
     } else if (avatarUrl && avatarUrl.startsWith("data:")) {
-      const storedAvatarUrl = await normalizeStoredMediaValue({
-        entityType: "USER",
-        entityId: id,
-        fieldName: "avatar_url",
-        value: avatarUrl,
-        createdBy: sessionUser.id,
-      });
-      updates.push("avatar_url = ?");
-      values.push(storedAvatarUrl || null);
+      avatarToUpload = avatarUrl;
     } else {
       updates.push("avatar_url = ?");
       values.push(avatarUrl);
@@ -4230,6 +4208,15 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
 
   assertValid(errors);
 
+  if (avatarToUpload) {
+    const storedAvatarUrl = await normalizeStoredMediaValue({
+      entityType: "USER", entityId: id, fieldName: "avatar_url",
+      value: avatarToUpload, createdBy: sessionUser.id,
+    });
+    updates.push("avatar_url = ?");
+    values.push(storedAvatarUrl);
+  }
+
   if (!updates.length) {
     return res
       .status(400)
@@ -4240,6 +4227,9 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
   // El dueño del negocio no debe recibir el IBAN del repartidor ni siquiera
   // en la respuesta de la confirmación.
   const buildResponseUser = (row) => {
+    if (!row) {
+      throw httpError(404, "USER_NOT_FOUND", "No se encontró el usuario al comprobar los cambios guardados.");
+    }
     const user = sanitizeUser(row);
     if (user && isBusinessAdmin && !isSelf) user.accountNumber = "";
     return user;

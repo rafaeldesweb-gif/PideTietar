@@ -305,7 +305,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     try {
       const media = await processMediaFile(file);
       setProfileAvatarUrl(media.dataUrl);
-      showNotification('Foto de perfil cargada desde archivo.', 'success');
+      showNotification('Foto preparada. Pulsa «Guardar cambios» para guardarla.', 'info');
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : 'No se pudo procesar el archivo.',
@@ -327,7 +327,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       const media = await processMediaUrl(url);
       setProfileAvatarUrl(media.dataUrl);
       setUrlText('');
-      showNotification('Foto de perfil cargada desde URL.', 'success');
+      showNotification('Foto preparada. Pulsa «Guardar cambios» para guardarla.', 'info');
     } catch (error) {
       showNotification(
         error instanceof Error ? error.message : 'No se pudo procesar la dirección web.',
