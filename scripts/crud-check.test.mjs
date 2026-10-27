@@ -54,6 +54,24 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send(`/businesses/${business.id}`, 'PUT', { schedule: [{ dayOfWeek: 1, openTime: '25:00', closeTime: '23:00' }] }, 400);
     await send(`/categories/${category.id}`, 'DELETE', undefined, 409);
   });
+  await t.test('horarios: días cerrados sin horas, segundos y cierre a medianoche', async () => {
+    const schedule = [
+      { dayOfWeek: 1, isOpen: false, openTime: '', closeTime: '' },
+      { dayOfWeek: 5, isOpen: true, openTime: '19:00:00', closeTime: '00:00:00' },
+    ];
+    await send(`/businesses/${business.id}`, 'PUT', { schedule }, 200, owner.token);
+    const saved = (await api('/businesses')).data.find((item) => item.id === business.id);
+    const monday = saved.schedule.find((item) => item.day_of_week === 1);
+    const friday = saved.schedule.find((item) => item.day_of_week === 5);
+    assert.equal(Number(monday.is_open), 0);
+    assert.equal(friday.open_time, '19:00');
+    assert.equal(friday.close_time, '00:00');
+    for (const openTime of ['', '25:00', '19:00:99']) {
+      await send(`/businesses/${business.id}`, 'PUT', {
+        schedule: [{ dayOfWeek: 5, isOpen: true, openTime, closeTime: '00:00' }],
+      }, 400, owner.token);
+    }
+  });
   await t.test('clientes: registro, login y validación de dirección', async () => {
     await send('/auth/register', 'POST', { email: 'sin-direccion@example.com', password }, 400, undefined);
     const registered = await send('/auth/register', 'POST', { username: 'cliente_prueba', fullName: 'Cliente de pruebas', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id }, 201, undefined);
@@ -133,6 +151,9 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send(`/orders/${orderId}`, 'PUT', { status: 'DELIVERED', deliveryPin: '0000' }, 400, owner.token);
     await send(`/orders/${orderId}`, 'PUT', { status: 'DELIVERED', deliveryPin: '4321' }, 200, owner.token);
     await send(`/orders/${orderId}`, 'PUT', { reviewScore: 5 }, 200, client.token);
+    const ratedProduct = (await api('/products')).data.find((item) => item.id === product.id);
+    assert.equal(Number(ratedProduct.rating), 5);
+    assert.equal(Number(ratedProduct.ratingCount), 1);
     await send(`/businesses/${business.id}`, 'DELETE', undefined, 409);
   });
   await t.test('pedidos: impedir sobrescribir un pedido existente por POST', async () => {

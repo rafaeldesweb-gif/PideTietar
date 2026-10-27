@@ -107,6 +107,7 @@ export interface Business {
   logoUrl: string;
   isShiftOpen: boolean; // Active operational shift
   deliveryModes: ('OWN_COURIER' | 'PLATFORM_COURIER' | 'PICKUP')[];
+  hasOnlineCourier?: boolean;
   deliveryRadiusKm: number;
   status: 'APPROVED' | 'PENDING' | 'SUSPENDED';
   schedule: BusinessHours[];

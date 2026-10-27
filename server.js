@@ -134,6 +134,7 @@ const sqliteSchema = `
     email_verification_expires_at TEXT,
     courier_confirmation TEXT DEFAULT 'PENDING',
     courier_business_ids TEXT DEFAULT '[]',
+    is_online INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -316,6 +317,7 @@ const mysqlSchema = `
     email_verification_expires_at DATETIME(3) NULL,
     courier_confirmation VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     courier_business_ids JSON NULL,
+    is_online TINYINT(1) NOT NULL DEFAULT 0,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_app_users_email (email),
@@ -616,6 +618,7 @@ async function ensureMySqlSchemaShape(pool) {
     ["email_verification_expires_at", "DATETIME(3) NULL"],
     ["courier_confirmation", "VARCHAR(20) NOT NULL DEFAULT 'PENDING'"],
     ["courier_business_ids", "JSON NULL"],
+    ["is_online", "TINYINT(1) NOT NULL DEFAULT 0"],
   ]);
 
   await ensureMysqlColumns(pool, "businesses", [
@@ -761,6 +764,7 @@ function ensureSqliteSchemaShape() {
   ensureColumn("businesses", "updated_at", "TEXT");
 
   ensureColumn("app_users", "business_id", "TEXT");
+  ensureColumn("app_users", "is_online", "INTEGER NOT NULL DEFAULT 0");
   // Confirmación del alta de repartidores: PENDING (sin aprobar),
   // BUSINESS_EMAIL (aprobado por el negocio) o SUPERADMIN (aprobado por la
   // plataforma). Es lo que desbloquea el panel del repartidor.
@@ -1324,7 +1328,7 @@ function sanitizeUser(row) {
           // plataforma cubre todo el valle y el panel no filtra por esta lista.
           businessIds: parseCourierBusinessIds(row),
           localityIds: [],
-          isOnline: true,
+          isOnline: Boolean(row.is_online),
           confirmation: courierConfirmation,
         }
       : undefined,
@@ -1578,19 +1582,54 @@ async function listBusinesses() {
       .all();
   }
 
-  return attachBusinessSchedules(rows, await readBusinessHours());
+  let couriers = [];
+  if (mysqlPool) {
+    const [result] = await mysqlPool.execute(
+      "SELECT * FROM app_users WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER') AND status = 'ACTIVE' AND is_online = 1 AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN') AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = app_users.id AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'))",
+    );
+    couriers = result;
+  } else {
+    couriers = getSqliteDb().prepare(
+      "SELECT * FROM app_users WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER') AND status = 'ACTIVE' AND is_online = 1 AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN') AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = app_users.id AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'))",
+    ).all();
+  }
+  const onlineBusinessIds = new Set();
+  let platformCourierOnline = false;
+  for (const courier of couriers) {
+    if (courier.role === "PLATFORM_COURIER") platformCourierOnline = true;
+    else for (const businessId of parseCourierBusinessIds(courier)) onlineBusinessIds.add(businessId);
+  }
+  const scheduled = attachBusinessSchedules(rows, await readBusinessHours());
+  return scheduled.map((business) => ({
+    ...business,
+    has_online_courier:
+      parseModeList(business.delivery_modes ?? business.deliveryModes, []).some((mode) => ["OWN_COURIER", "PLATFORM_COURIER"].includes(mode)) &&
+      (platformCourierOnline || onlineBusinessIds.has(String(business.id))),
+  }));
 }
 
 async function listProducts() {
+  // Cada pedido entregado aporta una valoración a cada producto que contiene,
+  // sin duplicarla por unidades ni por líneas con opciones distintas.
+  const sql = `SELECT p.*, COALESCE(stats.rating, 0) AS rating,
+      COALESCE(stats.rating_count, 0) AS ratingCount
+    FROM products p
+    LEFT JOIN (
+      SELECT purchased.product_id, AVG(o.review_score) AS rating,
+        COUNT(*) AS rating_count
+      FROM (SELECT DISTINCT order_id, product_id FROM order_items) purchased
+      JOIN orders o ON o.id = purchased.order_id
+      WHERE o.status = 'DELIVERED' AND o.review_score BETWEEN 1 AND 5
+      GROUP BY purchased.product_id
+    ) stats ON stats.product_id = p.id
+    ORDER BY p.created_at DESC`;
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT * FROM products ORDER BY created_at DESC",
-    );
+    const [rows] = await mysqlPool.execute(sql);
     return rows;
   }
 
   const db = getSqliteDb();
-  return db.prepare("SELECT * FROM products ORDER BY created_at DESC").all();
+  return db.prepare(sql).all();
 }
 
 async function getProductById(id) {
@@ -2629,8 +2668,16 @@ function validateSchedule(schedule) {
   schedule.forEach((slot, index) => {
     const prefix = `schedule[${index}]`;
     const dayOfWeek = asInteger(slot?.dayOfWeek ?? slot?.day_of_week);
-    const openTime = cleanString(slot?.openTime ?? slot?.open_time);
-    const closeTime = cleanString(slot?.closeTime ?? slot?.close_time);
+    const isOpen = asBooleanFlag(slot?.isOpen ?? slot?.is_open, 1);
+    // Los TIME de MySQL pueden llegar con segundos. Los días cerrados no
+    // necesitan horas; se conservan valores válidos para las columnas NOT NULL.
+    const normalizeTime = (input, fallback) => {
+      const time = cleanString(input);
+      if (!time && !isOpen) return fallback;
+      return /^([01]\d|2[0-3]):[0-5]\d:00$/.test(time) ? time.slice(0, 5) : time;
+    };
+    const openTime = normalizeTime(slot?.openTime ?? slot?.open_time, "12:00");
+    const closeTime = normalizeTime(slot?.closeTime ?? slot?.close_time, "23:00");
 
     if (dayOfWeek === null || dayOfWeek < 0 || dayOfWeek > 6) {
       errors.push(`${prefix}: el día de la semana debe estar entre 0 (domingo) y 6 (sábado).`);
@@ -2654,7 +2701,7 @@ function validateSchedule(schedule) {
       day_of_week: dayOfWeek,
       open_time: openTime,
       close_time: closeTime,
-      is_open: asBooleanFlag(slot?.isOpen ?? slot?.is_open, 1),
+      is_open: isOpen,
     });
   });
 
@@ -3984,6 +4031,17 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
   const updates = [];
   const values = [];
   const errors = {};
+
+  if (body.isOnline !== undefined) {
+    if (!isSelf || !["BUSINESS_COURIER", "PLATFORM_COURIER"].includes(targetRole)) {
+      throw httpError(403, "FORBIDDEN", "Sólo el propio repartidor puede cambiar su disponibilidad.");
+    }
+    if (typeof body.isOnline !== "boolean") {
+      throw validationError("La disponibilidad debe ser verdadera o falsa.", { isOnline: "Valor no válido." });
+    }
+    updates.push("is_online = ?");
+    values.push(Number(body.isOnline));
+  }
 
   if (body.username !== undefined) {
     const username = cleanString(body.username);

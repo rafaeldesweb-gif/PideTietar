@@ -23,13 +23,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
   const [activeTab, setActiveTab] = useState<'catalog' | 'info'>('catalog');
 
   const bizProducts = products.filter(p => p.businessId === business.id);
-  const courierActiveForBusiness =
-    currentUser?.role === 'PLATFORM_COURIER' || currentUser?.role === 'BUSINESS_COURIER'
-      ? Boolean(
-          currentUser.courierProfile?.isOnline &&
-          currentUser.courierProfile.businessIds.includes(business.id)
-        )
-      : false;
+  const courierActiveForBusiness = Boolean(business.hasOnlineCourier);
 
   return (
     <div className="space-y-6 pb-16">
@@ -48,6 +42,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
         <div className="relative h-56 sm:h-72 w-full overflow-hidden">
           <MediaView
             src={business.bannerUrl}
+            fit="cover"
             alt={business.name}
             className="w-full h-full"
           />
@@ -66,10 +61,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
             )}
 
             {courierActiveForBusiness && (
-              <span className="inline-flex items-center space-x-1.5 bg-[#FF4E00] text-white text-xs font-bold px-3 py-1 rounded-full shadow-md border border-white/30">
-                <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-                <span>Repartidor activo en este negocio</span>
-              </span>
+              <Bike className="h-5 w-5 text-white drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
             )}
           </div>
         </div>
@@ -184,6 +176,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
                   <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 bg-stone-100 dark:bg-stone-800">
                   <LazyMediaView
                       src={product.imageUrl}
+                      fit="cover"
                       alt={product.name}
                       className="w-full h-full group-hover:scale-105 transition duration-300"
                       lazy

@@ -17,7 +17,7 @@ interface AppContextType {
   logout: () => void;
   updateCurrentUserProfile: (data: Partial<User>) => Promise<boolean>;
   setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
-  toggleCourierAvailability: (online?: boolean) => void;
+  toggleCourierAvailability: (online?: boolean) => Promise<void>;
   verifyEmailWithGmailCode: (code: string) => Promise<boolean>;
   sendGmailVerificationCode: () => Promise<boolean>;
   verificationSent: boolean;
@@ -214,12 +214,16 @@ const normalizeSchedule = (schedule: any): BusinessHours[] => {
   if (!Array.isArray(schedule) || !schedule.length) return DEFAULT_SCHEDULE;
 
   const dayOrder = (day: number) => (day === 0 ? 7 : day);
+  const normalizeTime = (value: unknown, fallback: string): string => {
+    const time = String(value ?? fallback).trim();
+    return /^([01]\d|2[0-3]):[0-5]\d:00$/.test(time) ? time.slice(0, 5) : time;
+  };
 
   return schedule
     .map((slot: any): BusinessHours => ({
       dayOfWeek: Number(slot?.dayOfWeek ?? slot?.day_of_week ?? 0),
-      openTime: String(slot?.openTime ?? slot?.open_time ?? '12:00'),
-      closeTime: String(slot?.closeTime ?? slot?.close_time ?? '23:00'),
+      openTime: normalizeTime(slot?.openTime ?? slot?.open_time, '12:00'),
+      closeTime: normalizeTime(slot?.closeTime ?? slot?.close_time, '23:00'),
       isOpen: Boolean(slot?.isOpen ?? slot?.is_open ?? true),
     }))
     .sort((a, b) => dayOrder(a.dayOfWeek) - dayOrder(b.dayOfWeek));
@@ -256,6 +260,7 @@ const normalizeBusiness = (item: any): Business => {
     // no tiene selector de modos de entrega y el backend rechaza una lista
     // vacía, así que se normaliza a recogida en tienda para poder guardarlo.
     deliveryModes: deliveryModes.length ? deliveryModes : ['PICKUP'],
+    hasOnlineCourier: Boolean(item.hasOnlineCourier ?? item.has_online_courier),
     deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
     status: item.status || 'APPROVED',
     schedule: normalizeSchedule(item.schedule),
@@ -772,19 +777,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(prev => prev ? { ...prev, courierProfile: profile } : prev);
   };
 
-  const toggleCourierAvailability = (online = true) => {
-    setCurrentUser(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        courierProfile: {
-          businessIds: prev.courierProfile?.businessIds || [],
-          localityIds: prev.courierProfile?.localityIds || [],
-          isOnline: online,
-          confirmation: prev.courierProfile?.confirmation || 'PENDING'
-        }
-      };
-    });
+  const toggleCourierAvailability = async (online = true) => {
+    if (!currentUser || !['PLATFORM_COURIER', 'BUSINESS_COURIER'].includes(currentUser.role)) return;
+    try {
+      const response = await apiFetch(`/users/${encodeURIComponent(currentUser.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ isOnline: online }),
+      });
+      const courierProfile = (response as any)?.user?.courierProfile;
+      if (!courierProfile) throw new Error('No se pudo actualizar tu disponibilidad.');
+      setCurrentUser((previous) => previous ? { ...previous, courierProfile } : previous);
+      await refreshBusinesses();
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'No se pudo actualizar tu disponibilidad.', 'error');
+      return;
+    }
     showNotification(online ? 'Repartidor activo y disponible para entregas.' : 'Repartidor marcado como fuera de línea.', 'info');
   };
 
@@ -1250,6 +1257,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return null;
     }
   };
+
+  // La disponibilidad del repartidor se comparte en las fichas públicas.
+  // Refresca los negocios periódicamente y al volver a la pestaña.
+  useEffect(() => {
+    const refresh = () => { void refreshBusinesses(); };
+    const intervalId = window.setInterval(refresh, 20000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refresh);
+    };
+  }, []);
 
   // El registro de negocios es una operación de plataforma: sólo el superadmin
   // puede hacerla y el backend crea en la misma transacción el negocio, su

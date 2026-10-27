@@ -5,7 +5,8 @@ import {
   Sparkles, CheckCircle2, ChevronRight, AlertCircle, 
   Filter, Utensils, Flame, ChevronLeft
 } from 'lucide-react';
-import { getTopRatedProductsByBusiness, getTopRatedProductsForLocality } from '../data/mockData';
+import { getTopRatedProductsForLocality } from '../data/mockData';
+import { BANNER_PERIOD_MS, getBannerRating, selectBannerProducts } from '../utils/bannerProducts';
 import { Business, Product } from '../types';
 import { MediaView } from './MediaView';
 import { LazyMediaView } from './LazyMediaView';
@@ -20,6 +21,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
     businesses, 
     products, 
     categories,
+    localities,
     selectedLocality, 
     userSubscription,
     currentUser
@@ -28,6 +30,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [filterOpenOnly, setFilterOpenOnly] = useState(false);
   const [activeSlide, setActiveSlide] = useState(0);
+  const [bannerHovered, setBannerHovered] = useState(false);
+  const [bannerFocused, setBannerFocused] = useState(false);
+  const [bannerTime, setBannerTime] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBannerTime(Date.now()),
+      BANNER_PERIOD_MS - (Date.now() % BANNER_PERIOD_MS));
+    return () => window.clearTimeout(timer);
+  }, [bannerTime]);
   const categoryScrollRef = useRef<HTMLDivElement>(null);
 
   const scrollCategories = (direction: 'left' | 'right') => {
@@ -55,11 +65,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
     ? businesses.filter((biz) => biz.localityId === activeLocalityId)
     : [];
 
-  const bannerSourceProducts = activeLocalityId
-    ? getTopRatedProductsByBusiness(localityProducts, activeLocalityId, 10)
-    : [];
+  const bannerSourceProducts = selectBannerProducts(
+    products.filter((product) => businesses.some((business) => business.id === product.businessId)),
+    bannerTime,
+  );
 
-  const bannerSlides = bannerSourceProducts.map((product, index) => {
+  const bannerSlides = bannerSourceProducts.map((product) => {
     const business = businesses.find((biz) => biz.id === product.businessId);
     const category = categories.find((cat) => cat.id === product.categoryId);
 
@@ -67,11 +78,11 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
       id: `slide-${product.id}`,
       tag: (category?.name || 'DESTACADO').toUpperCase(),
       title: product.name,
-      discount: `${(product.rating ?? 4.5).toFixed(1)}★`,
-      description: product.description,
+      product,
+      business,
+      discount: `${getBannerRating(product).toFixed(1)}★`,
       image: product.imageUrl,
-      ctaText: business ? `Pedir de ${business.name}` : 'Pedir ahora',
-      bgColor: ['from-[#1A0600] via-[#330c00] to-[#FF4E00]', 'from-[#180e03] via-[#2d1b06] to-[#A32300]', 'from-[#0b1712] via-[#10291e] to-[#046A38]'][index % 3]
+      deliveryAvailable: Boolean(business?.hasOnlineCourier),
     };
   });
   const activeBanner = bannerSlides[activeSlide] || bannerSlides[0];
@@ -86,11 +97,12 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
       setActiveSlide(0);
     }
 
+    if (bannerHovered || bannerFocused) return;
     const timer = setInterval(() => {
       setActiveSlide((prev) => (prev + 1) % bannerSlides.length);
     }, 5500);
     return () => clearInterval(timer);
-  }, [bannerSlides.length, activeSlide]);
+  }, [bannerSlides.length, activeSlide, bannerHovered, bannerFocused]);
 
   // Filter businesses by locality and optional search / category
   const filteredBusinesses = activeLocalityId
@@ -114,65 +126,52 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
       
       {/* 1. HERO PROMOCIONAL: sólo se pinta con productos reales */}
       {activeBanner ? (
-        <section className="relative overflow-hidden rounded-3xl bg-[#140600] text-white shadow-2xl border border-stone-800">
-          <div className="relative min-h-[300px] sm:min-h-[360px] overflow-hidden">
-            <MediaView
-              src={activeBanner.image}
-              alt={activeBanner.title}
-              className="absolute inset-0 h-full w-full opacity-80 saturate-125 contrast-110"
-              fit="cover"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#1a0802]/90 via-[#1a0802]/75 to-[#1a0802]/20" />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#1a0802]/80 via-transparent to-transparent" />
-
-            <div className="relative z-10 h-full min-h-[300px] sm:min-h-[360px] p-4 sm:p-6 lg:p-8">
-              <div className="absolute left-4 top-4 z-20 sm:left-6 sm:top-6 lg:left-8 lg:top-8">
-                <div className="inline-flex items-center space-x-2 rounded-full border border-[#FF4E00]/50 bg-[#1F0C06]/60 px-3 py-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-[#F5BB00] backdrop-blur-sm">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>{activeBanner.tag}</span>
-                </div>
-              </div>
-
-              <div className="absolute bottom-5 left-4 max-w-[78%] sm:bottom-7 sm:left-6 sm:max-w-[60%] lg:bottom-8 lg:left-8 lg:max-w-[58%]">
-                <div className="space-y-2 sm:space-y-3">
-                  <h1 className="text-3xl font-black font-serif leading-[0.95] tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.7)] sm:text-4xl lg:text-5xl">
-                    {activeBanner.title}
-                  </h1>
-                  <div className="text-2xl font-black tracking-tight text-[#FF4E00] drop-shadow-[0_4px_14px_rgba(0,0,0,0.6)] sm:text-3xl lg:text-4xl">
-                    {activeBanner.discount}
-                  </div>
-                  <p className="max-w-md text-[11px] leading-relaxed text-stone-200/95 sm:text-sm">
-                    {activeBanner.description}
-                  </p>
-                </div>
-              </div>
-
-              <div className="pointer-events-none absolute right-4 top-4 h-36 w-36 sm:right-6 sm:top-6 sm:h-52 sm:w-52 lg:right-8 lg:top-8 lg:h-64 lg:w-64">
-                <div className="relative h-full w-full">
-                  <MediaView
-                    src={activeBanner.image}
-                    alt={activeBanner.title}
-                    className="h-full w-full rounded-full border-4 border-[#FF4E00]/30 shadow-[0_0_40px_rgba(255,78,0,0.28)]"
-                    fit="cover"
-                  />
-                </div>
-              </div>
+        <section
+          className="product-banner"
+          onMouseEnter={() => setBannerHovered(true)}
+          onMouseLeave={() => setBannerHovered(false)}
+          onFocusCapture={() => setBannerFocused(true)}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setBannerFocused(false);
+          }}
+        >
+          <MediaView
+            src={activeBanner.image}
+            alt=""
+            className="product-banner__background"
+            fit="cover"
+          />
+          <div className="product-banner__shade" />
+          <div key={activeBanner.id} className="product-banner__content" aria-label="Datos del producto destacado">
+            <span className="product-banner__category">
+              <Sparkles size={12} aria-hidden="true" />
+              {activeBanner.tag}
+            </span>
+            <div className="product-banner__copy">
+              <h1 className="product-banner__title">
+                {activeBanner.title}
+                {activeBanner.business && <span>{activeBanner.business.name}</span>}
+              </h1>
+              <p className="product-banner__rating" aria-label={`Valoración: ${getBannerRating(activeBanner.product).toFixed(1)} estrellas`}>
+                {activeBanner.discount}
+              </p>
+              <p className="product-banner__description">{activeBanner.product.description}</p>
             </div>
-
-            <div className="absolute bottom-4 left-1/2 z-20 flex -translate-x-1/2 items-center space-x-2">
-              {bannerSlides.map((slide, idx) => (
-                <button
-                  key={slide.id}
-                  onClick={() => setActiveSlide(idx)}
-                  className={`transition-all duration-300 rounded-full cursor-pointer ${
-                    activeSlide === idx
-                      ? 'h-2 w-6 bg-[#FF4E00]'
-                      : 'h-2 w-2 bg-white/40 hover:bg-white/70'
-                  }`}
-                  aria-label={`Ir a diapositiva ${idx + 1}`}
-                />
-              ))}
+            <div className="product-banner__dish" aria-hidden="true">
+              <MediaView src={activeBanner.image} alt="" className="product-banner__dish-media" fit="cover" />
             </div>
+          </div>
+          <div className="product-banner__pagination" aria-label="Diapositivas del banner">
+            {bannerSlides.map((slide, idx) => (
+              <button
+                type="button"
+                key={slide.id}
+                onClick={() => setActiveSlide(idx)}
+                className={`product-banner__dot${activeSlide === idx ? ' product-banner__dot--active' : ''}`}
+                aria-label={`Ir a diapositiva ${idx + 1}`}
+                aria-current={activeSlide === idx ? 'true' : undefined}
+              />
+            ))}
           </div>
         </section>
       ) : businesses.length === 0 ? (
@@ -315,6 +314,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
                     <LazyMediaView
                       src={prod.imageUrl}
+                      fit="cover"
                       alt={prod.name}
                       className="w-full h-full transition duration-300"
                       lazy
@@ -411,6 +411,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                 <div className="relative h-48 overflow-hidden">
                   <LazyMediaView
                     src={biz.bannerUrl}
+                    fit="cover"
                     alt={biz.name}
                     className="w-full h-full group-hover:scale-105 transition duration-500"
                     lazy
@@ -461,7 +462,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                     </div>
 
                     <div className="flex items-center space-x-1">
-                      <Bike className="w-3.5 h-3.5 text-stone-400" />
+                      {biz.hasOnlineCourier && <Bike className="w-3.5 h-3.5 text-emerald-600" aria-label="Repartidor en línea" role="img" />}
                       <span>
                         {userSubscription === 'PRO_MONTHLY' ? (
                           <span className="text-emerald-600 font-bold">0€ con Pro</span>

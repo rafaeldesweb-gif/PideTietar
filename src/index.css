@@ -18,6 +18,152 @@
 
 * { box-sizing: border-box; }
 
+/* Banner de producto: medidas de la referencia en escritorio, con ajuste móvil. */
+.product-banner {
+  position: relative;
+  isolation: isolate;
+  height: 300px;
+  overflow: hidden;
+  border: 1px solid #302723;
+  border-radius: 20px;
+  background: #1a0903;
+  color: #fff;
+  container-type: inline-size;
+}
+
+.product-banner .product-banner__background {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.product-banner__shade {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(0deg, rgb(23 7 0 / 94%), transparent 85%),
+    linear-gradient(90deg, rgb(20 5 0 / 90%), rgb(20 5 0 / 58%) 60%, rgb(20 5 0 / 70%));
+}
+
+.product-banner__content { position: absolute; inset: 0; }
+
+.product-banner__category {
+  position: absolute;
+  top: 26px;
+  left: 27px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 280px);
+  padding: 4px 10px;
+  border: 1px solid #8a3600;
+  border-radius: 999px;
+  color: #f5e09e;
+  font: 800 9px/14px "Inter", "Segoe UI", sans-serif;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+}
+
+.product-banner__copy {
+  position: absolute;
+  right: 260px;
+  bottom: 28px;
+  left: 27px;
+}
+
+.product-banner__title {
+  margin: 0 0 12px;
+  color: #fff;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(28px, 4.2cqi, 42px);
+  font-weight: 700;
+  line-height: .92;
+  letter-spacing: -1px;
+  overflow-wrap: anywhere;
+}
+
+.product-banner__title span {
+  display: block;
+  margin-top: 8px;
+  color: #f6c594;
+}
+
+.product-banner__rating {
+  margin: 0 0 5px;
+  color: #f5bb00;
+  font: 900 32px/1.2 "Inter", "Segoe UI", sans-serif;
+  letter-spacing: -1px;
+}
+
+.product-banner__description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: #fff;
+  font: 400 12px/18px "Inter", "Segoe UI", sans-serif;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.product-banner__dish {
+  position: absolute;
+  top: 27px;
+  right: 27px;
+  width: 210px;
+  height: 210px;
+  overflow: hidden;
+  padding: 17px;
+  border: 3px solid #773000;
+  border-radius: 50%;
+  background: #282828;
+  box-shadow: 0 12px 35px rgb(255 78 0 / 12%);
+}
+
+.product-banner .product-banner__dish-media {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: #151515;
+}
+
+.product-banner__pagination {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transform: translateX(-50%);
+}
+
+.product-banner__dot {
+  position: relative;
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #807770;
+  transition: width 200ms, background-color 200ms;
+}
+
+/* Área de pulsación amplia sin cambiar los puntos de la referencia. */
+.product-banner__dot::before { content: ""; position: absolute; inset: -9px -3px; }
+.product-banner__dot--active { width: 20px; background: #ff4e00; }
+.product-banner__dot:focus-visible { outline: 2px solid #f5bb00; outline-offset: 5px; }
+
+@media (max-width: 687px) {
+  .product-banner { height: 340px; }
+}
+
+@container (max-width: 639px) {
+  .product-banner__category { top: 20px; left: 20px; max-width: calc(100% - 155px); }
+  .product-banner__dish { top: 20px; right: 18px; width: 112px; height: 112px; padding: 8px; border-width: 2px; }
+  .product-banner__copy { left: 20px; right: 20px; bottom: 32px; }
+  .product-banner__title { display: -webkit-box; max-width: 100%; overflow: hidden; font-size: clamp(26px, 6cqi, 36px); line-height: 1; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+  .product-banner__rating { font-size: 28px; }
+}
+
 html {
   width: 100%;
   min-height: 100%;

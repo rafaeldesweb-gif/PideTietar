@@ -98,6 +98,7 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
         <div className="relative h-48 sm:h-56 w-full shrink-0">
         <MediaView
           src={product.imageUrl}
+          fit="cover"
           alt={product.name}
           className="w-full h-full"
         />
