@@ -300,7 +300,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
             </form>
           </div>
 
-          <div className="bg-white border border-[#eadcc7] rounded-2xl shadow-sm overflow-hidden">
+          <div className="@container min-w-0 bg-white border border-[#eadcc7] rounded-2xl shadow-sm overflow-hidden">
             <div className="p-4 border-b border-[#f0e2d5] flex items-center justify-between">
               <span className="text-xs font-bold uppercase tracking-[0.16em] text-stone-500">
                 Categorías actuales
@@ -319,26 +319,28 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                 categories.map((category) => (
                   <div
                     key={category.id}
-                    className="p-3 flex items-start gap-3 hover:bg-[#fff7f2] transition"
+                    className="grid grid-cols-[3.5rem_minmax(0,1fr)] @min-[360px]:grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-3 p-3 hover:bg-[#fff7f2] transition"
                   >
+                    <div className="h-14 w-14 overflow-hidden rounded-xl">
                     <MediaView
                       src={category.imageUrl || DEFAULT_CATEGORY_IMAGE}
                       alt={category.name}
                       className="w-14 h-14 rounded-xl border border-[#e9dac8]"
                     />
+                    </div>
                     <div className="min-w-0 flex-1">
-                      <div className="font-bold text-stone-900 text-sm truncate">
+                      <div className="font-bold text-stone-900 text-sm leading-snug break-words">
                         {category.name}
                       </div>
-                      <div className="text-[11px] text-stone-500 uppercase tracking-wider">
+                      <div className="mt-1 text-[11px] text-stone-500 uppercase tracking-wider break-all">
                         {category.slug}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="col-start-2 @min-[360px]:col-start-3 @min-[360px]:row-start-1 flex items-center justify-self-end gap-2">
                       <button
                         type="button"
                         onClick={() => startEditCategory(category)}
-                        className="p-2 rounded-lg bg-stone-800 text-stone-300 hover:text-white transition"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 rounded-lg bg-stone-800 text-stone-300 hover:text-white transition"
                         aria-label={`Editar ${category.name}`}
                       >
                         <Edit3 className="w-4 h-4" />
@@ -346,7 +348,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => removeCategory(category)}
-                        className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition"
+                        className="inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition"
                         aria-label={`Eliminar ${category.name}`}
                       >
                         <Trash2 className="w-4 h-4" />

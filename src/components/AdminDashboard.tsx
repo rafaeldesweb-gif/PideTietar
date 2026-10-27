@@ -1241,12 +1241,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               />
             </div>
             <FieldError message={businessFormErrors.bannerUrl} />
-            <MediaView
-              src={newBusinessForm.bannerUrl || undefined}
-              alt="Vista previa del banner"
-              className="mt-2 h-20 w-full rounded-xl"
-              showLoading
-            />
+            {/* La altura debe limitar el contenedor de MediaView para que no cubra el horario. */}
+            <div className="mt-2 h-20 w-full overflow-hidden rounded-xl">
+              <MediaView
+                src={newBusinessForm.bannerUrl || undefined}
+                alt="Vista previa del banner"
+                className="h-full w-full rounded-xl"
+                showLoading
+              />
+            </div>
           </div>
 
           <div className="col-span-full pt-2">

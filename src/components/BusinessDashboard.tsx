@@ -1197,6 +1197,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
             {currentUser && (
               <div className="p-2.5 rounded-xl bg-white border border-stone-200 flex items-center space-x-2.5 shadow-sm">
+                <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full">
                 <MediaView
                   src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'}
                   alt="user"
@@ -1204,6 +1205,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   style={{ borderRadius: '9999px' }}
                   fit="cover"
                 />
+                </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-bold text-stone-900 truncate">{currentUser.name}</div>
                   <div className="inline-flex items-center space-x-1 text-[9px] font-bold text-emerald-500">
@@ -1305,7 +1307,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
           </div>
         </aside>
 
-        <main className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#f5f3f0]">
+        <main className="min-w-0 flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#f5f3f0]">
           {activeTab === 'orders' && (
             <div className="space-y-6 animate-in fade-in duration-200">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -1543,8 +1545,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr] gap-6">
-                <div className="bg-white rounded-2xl border border-[#eadcc7] overflow-hidden shadow-sm">
-                  <div className="p-4 border-b border-[#f0e2d5] flex items-center justify-between text-xs text-stone-600">
+                <div className="@container min-w-0 bg-white rounded-2xl border border-[#eadcc7] overflow-hidden shadow-sm">
+                  <div className="p-4 border-b border-[#f0e2d5] flex flex-wrap items-center justify-between gap-2 text-xs text-stone-600">
                     <span>Listado de Platos de {business.name}</span>
                     <span>{restaurantProducts.length} productos registrados</span>
                   </div>
@@ -1554,48 +1556,54 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       <div className="p-6 text-center text-sm text-stone-600">Aún no hay productos en el catálogo de este negocio.</div>
                     ) : (
                       restaurantProducts.map((prod) => (
-                        <div key={prod.id} className="p-4 flex items-center justify-between gap-4 hover:bg-[#fff7f2] transition">
-                          <div className="flex items-center space-x-3.5 min-w-0 flex-1">
+                        <div key={prod.id} className="p-4 flex flex-col @min-[480px]:flex-row @min-[480px]:items-center justify-between gap-3 hover:bg-[#fff7f2] transition">
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            <div className="h-12 w-12 shrink-0 overflow-hidden rounded-xl">
                             <MediaView
                       src={prod.imageUrl}
                       alt={prod.name}
                       className="w-12 h-12 rounded-xl border border-[#e9dac8]"
                     />
-                            <div className="min-w-0">
+                            </div>
+                            <div className="min-w-0 flex-1">
                               <div className="font-bold text-stone-900 text-sm truncate">{prod.name}</div>
                               <div className="text-xs text-stone-600 line-clamp-1 max-w-md">{prod.description}</div>
                               <div className="font-mono font-bold text-xs text-[#FF4E00] mt-0.5">{(prod.priceCents / 100).toFixed(2)}€</div>
                             </div>
                           </div>
 
-                          <div className="flex items-center space-x-2">
+                          <div className="flex shrink-0 items-center justify-center gap-2">
                             <button
                               type="button"
                               onClick={() => startEditProduct(prod)}
-                              className="p-2 rounded-lg bg-stone-800 text-stone-300 hover:text-white transition cursor-pointer"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 rounded-lg bg-stone-800 text-stone-300 hover:text-white transition cursor-pointer"
                               aria-label="Editar producto"
                             >
-                              <Edit3 className="w-4 h-4" />
+                              <Edit3 className="w-4 h-4 shrink-0" />
                             </button>
                             <button
                               type="button"
                               onClick={() => deleteProductFromBusiness(prod.id)}
-                              className="p-2 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition cursor-pointer"
+                              className="inline-flex h-11 w-11 shrink-0 items-center justify-center p-0 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 transition cursor-pointer"
                               aria-label="Eliminar producto"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4 shrink-0" />
                             </button>
-                            <div className="flex items-center space-x-3 pl-2 border-l border-stone-200">
-                              <span className={`text-xs font-bold ${prod.isAvailable ? 'text-emerald-600' : 'text-stone-500'}`}>
+                            <div className="flex items-center gap-2 pl-2 border-l border-stone-200">
+                              <span className={`whitespace-nowrap text-xs font-bold ${prod.isAvailable ? 'text-emerald-600' : 'text-stone-500'}`}>
                                 {prod.isAvailable ? 'En Carta' : 'Agotado'}
                               </span>
                               <button
+                                type="button"
+                                role="switch"
+                                aria-checked={prod.isAvailable}
+                                aria-label={`Disponibilidad de ${prod.name}`}
                                 onClick={() => toggleProductAvailability(prod.id)}
-                                className={`w-12 h-6 rounded-full transition-colors p-1 flex items-center cursor-pointer ${
-                                  prod.isAvailable ? 'bg-emerald-600 justify-end' : 'bg-stone-800 justify-start'
-                                }`}
+                                className="inline-flex h-11 w-12 shrink-0 items-center justify-center p-0 cursor-pointer"
                               >
-                                <span className="w-4 h-4 rounded-full bg-white shadow-md block"></span>
+                                <span className={`flex h-6 w-12 items-center rounded-full p-1 transition-colors ${prod.isAvailable ? 'bg-emerald-600 justify-end' : 'bg-stone-800 justify-start'}`}>
+                                  <span className="w-4 h-4 shrink-0 rounded-full bg-white shadow-md block"></span>
+                                </span>
                               </button>
                             </div>
                           </div>
