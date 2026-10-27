@@ -1028,6 +1028,7 @@ function ensureOrdersBusinessForeignKey() {
 }
 
 async function ensureMySqlConnection() {
+  if (mysqlPool) return mysqlPool;
   if (!mysqlConfig.host || !mysqlConfig.user || !mysqlConfig.database) {
     return null;
   }
@@ -1053,7 +1054,9 @@ async function ensureMySqlConnection() {
     return mysqlPool;
   } catch (error) {
     console.warn("MySQL not available, falling back to SQLite:", error.message);
+    const failedPool = mysqlPool;
     mysqlPool = null;
+    await failedPool?.end().catch(() => {});
     databaseMode = "sqlite";
     return null;
   }
@@ -1644,6 +1647,16 @@ async function getCategoryById(id) {
 
 // Los productos tienen una FK real a categories en MySQL. Validar antes de
 // insertar evita que el cliente reciba un error de clave ajena indescifrable.
+function validateProductInput(body) {
+  const errors = {};
+  if (body.name !== undefined && (!cleanString(body.name) || cleanString(body.name).length > 180)) errors.name = "El nombre del producto debe tener entre 1 y 180 caracteres.";
+  const price = body.priceCents ?? body.price_cents;
+  if (price !== undefined && (!Number.isSafeInteger(Number(price)) || Number(price) < 0)) errors.price_cents = "El precio debe ser un número entero de céntimos mayor o igual que cero.";
+  const tax = body.taxPercentage ?? body.tax_percentage;
+  if (tax !== undefined && (!Number.isFinite(Number(tax)) || Number(tax) < 0 || Number(tax) > 100)) errors.tax_percentage = "El impuesto debe estar entre 0 y 100.";
+  assertValid(errors);
+}
+
 async function resolveProductCategoryId(categoryIdRaw) {
   const categoryId = String(categoryIdRaw ?? "").trim();
   if (!categoryId) {
@@ -2418,6 +2431,7 @@ const ALLOWED_MEDIA_CONTENT_TYPES = new Set([
   "video/webm",
 ]);
 const MAX_MEDIA_BYTES = 6 * 1024 * 1024;
+const ORDER_STATUSES = new Set(["PENDING_PAYMENT", "PAID", "NEW", "ACCEPTED", "PREPARING", "READY", "ASSIGNED", "PICKED_UP", "DELIVERED", "CANCELLED", "REJECTED", "REFUNDED"]);
 
 function normalizeMediaEntityType(value) {
   const entityType = cleanString(value).toUpperCase();
@@ -3188,11 +3202,13 @@ async function upsertOwnerAccount(tx, owner, businessId) {
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/api/health", async (_req, res) => {
-  const pool = await ensureMySqlConnection();
+  // Consultar salud no debe cambiar de motor ni crear un pool nuevo.
+  const pool = mysqlPool;
+  if (pool) await pool.query("SELECT 1 AS ok");
   res.json({
     status: "ok",
     mode: pool ? "mysql" : "sqlite",
-    database: pool ? process.env.MYSQL_DATABASE || "mysql" : DB_PATH,
+    database: pool ? mysqlConfig.database : DB_PATH,
     timestamp: new Date().toISOString(),
     superadmin: {
       username: process.env.SUPERADMIN_USERNAME || "RafaAdmin",
@@ -3202,7 +3218,7 @@ app.get("/api/health", async (_req, res) => {
 });
 
 app.get("/api/debug/database", requireSuperAdmin, async (_req, res) => {
-  const pool = await ensureMySqlConnection();
+  const pool = mysqlPool;
   if (pool) {
     const [rows] = await pool.query("SHOW TABLES");
     return res.json({
@@ -3254,6 +3270,14 @@ app.post("/api/auth/register", async (req, res) => {
       errors: { address: "La dirección es obligatoria." },
     });
   }
+
+  const errors = {};
+  if (!EMAIL_REGEX.test(cleanString(email))) errors.email = "El correo electrónico no es válido.";
+  const localityId = cleanString(req.body.localityId ?? req.body.locality_id);
+  if (!localityId || !(await countRows("SELECT COUNT(*) AS c FROM localities WHERE id = ?", [localityId]))) {
+    errors.localityId = "Selecciona una localidad válida.";
+  }
+  assertValid(errors);
 
   const existing = await findUserByUsernameOrEmail(username, email);
   if (existing) {
@@ -3549,6 +3573,7 @@ app.get("/api/localities", async (_req, res) => {
 
 app.post("/api/localities", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
+  if (!cleanString(body.name)) throw validationError("El nombre de la localidad es obligatorio.", { name: "Escribe el nombre de la localidad." });
   const id = body.id || cryptoRandomId();
   const payload = {
     id,
@@ -3591,6 +3616,8 @@ app.post("/api/localities", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (
 app.put("/api/localities/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
+  if (!(await countRows("SELECT COUNT(*) AS c FROM localities WHERE id = ?", [id]))) throw httpError(404, "NOT_FOUND", "La localidad no existe.");
+  if (body.name !== undefined && !cleanString(body.name)) throw validationError("El nombre de la localidad es obligatorio.", { name: "Escribe el nombre de la localidad." });
   const fields = [];
   const values = [];
 
@@ -4754,6 +4781,7 @@ app.get("/api/products", async (_req, res) => {
 
 app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const body = req.body || {};
+  validateProductInput(body);
   const requestedBusinessId = body.business_id || body.businessId || getSessionBusinessId(req.user);
   if (!requestedBusinessId) {
     throw validationError("El producto debe pertenecer a un negocio.", {
@@ -4858,6 +4886,7 @@ app.post("/api/products", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (re
 app.put("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), async (req, res) => {
   const { id } = req.params;
   const body = req.body || {};
+  validateProductInput(body);
   const existing = await getProductById(id);
   if (!existing) throw httpError(404, "NOT_FOUND", "El producto no existe.");
   assertBusinessResourceAccess(
@@ -4986,6 +5015,7 @@ app.get("/api/orders", requireAuth, async (req, res) => {
 app.post("/api/orders", requireRole(), async (req, res) => {
   const body = req.body || {};
   const role = String(req.user.role || "").toUpperCase();
+  if (!["CLIENT", "BUSINESS_ADMIN", "SUPERADMIN"].includes(role)) throw httpError(403, "FORBIDDEN", "Tu rol no puede crear pedidos.");
   if (role === "CLIENT") {
     const requestedCustomerId = body.customerId ?? body.customer_id;
     if (requestedCustomerId && String(requestedCustomerId) !== String(req.user.id)) {
@@ -4993,6 +5023,17 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     }
   }
   const orderId = body.id || cryptoRandomId();
+  if (await countRows("SELECT COUNT(*) AS c FROM orders WHERE id = ?", [orderId])) throw httpError(409, "ORDER_EXISTS", "El pedido ya existe. No se ha modificado.");
+  const businessId = body.businessId ?? body.business_id;
+  if (role !== "CLIENT") assertBusinessResourceAccess(req.user, businessId, "Solo puedes crear pedidos para tu negocio.");
+  const inputErrors = {};
+  for (const [key, raw] of Object.entries(body)) {
+    if ((key.endsWith("Cents") || key.endsWith("_cents")) && (!Number.isSafeInteger(Number(raw)) || Number(raw) < 0)) inputErrors[key] = "Los importes deben ser céntimos enteros mayores o iguales que cero.";
+  }
+  if (!businessId || !(await countRows("SELECT COUNT(*) AS c FROM businesses WHERE id = ?", [businessId]))) inputErrors.business_id = "Selecciona un negocio válido.";
+  if (role === "CLIENT" && body.status && !["NEW", "PAID"].includes(body.status)) inputErrors.status = "El cliente solo puede crear pedidos nuevos.";
+  if (body.status && !ORDER_STATUSES.has(body.status)) inputErrors.status = "El estado del pedido no es válido.";
+  assertValid(inputErrors);
   // El cuerpo puede llegar en camelCase (frontend) o en snake_case (clientes
   // antiguos). Se aceptan ambos para no romper pedidos ya guardados.
   const pick = (camel, snake) =>
@@ -5095,19 +5136,22 @@ app.post("/api/orders", requireRole(), async (req, res) => {
         ? body.order_items
         : null;
 
+  if (!itemsInput?.length) throw validationError("El pedido necesita al menos un producto.", { items: "Añade productos al pedido." });
+  for (const [index, item] of itemsInput.entries()) {
+    const productId = cleanString(item?.productId ?? item?.product_id);
+    if (!productId) throw validationError("Falta un producto del pedido.", { items: `Selecciona el producto de la línea ${index + 1}.` });
+    const product = await getProductById(productId);
+    if (!product || String(product.business_id) !== String(businessId)) throw validationError("Los productos deben pertenecer al negocio del pedido.", { items: `El producto de la línea ${index + 1} no es válido para este negocio.` });
+    const quantity = Number(item?.quantity);
+    if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 100) throw validationError("La cantidad no es válida.", { items: "Cada cantidad debe ser un entero entre 1 y 100." });
+    for (const amount of [item?.unitPriceCents ?? item?.unit_price_cents, item?.totalCents ?? item?.total_cents]) {
+      if (!Number.isSafeInteger(Number(amount)) || Number(amount) < 0) throw validationError("Los precios de las líneas no son válidos.", { items: "Los importes deben ser céntimos enteros mayores o iguales que cero." });
+    }
+  }
+
   const columns = Object.keys(orderRecord);
   const placeholders = columns.map(() => "?").join(", ");
-  const updateClause = columns
-    .filter((column) => column !== "id")
-    .map((column) =>
-      mysqlPool
-        ? `${column} = VALUES(${column})`
-        : `${column} = excluded.${column}`,
-    )
-    .join(", ");
-  const upsertOrderSql = mysqlPool
-    ? `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders}) ON DUPLICATE KEY UPDATE ${updateClause}`
-    : `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateClause}`;
+  const insertOrderSql = `INSERT INTO orders (${columns.join(", ")}) VALUES (${placeholders})`;
 
   const itemColumns = [
     "id",
@@ -5127,7 +5171,7 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   await withTransaction(async (tx) => {
     await txQuery(
       tx,
-      upsertOrderSql,
+      insertOrderSql,
       columns.map((column) => orderRecord[column]),
     );
 
@@ -5190,7 +5234,7 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       );
     } else if (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") {
       const assignedBusinesses = parseCourierBusinessIds(req.user);
-      const canAccess =
+      const canAccess = role === "PLATFORM_COURIER" ||
         assignedBusinesses.includes(orderBusinessId) ||
         String(existing.courier_id || "") === String(req.user.id || "");
       if (!canAccess) {
@@ -5235,6 +5279,7 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
         "review_requested",
         "review_score",
         "reviewed_at",
+        "reviewRequested", "reviewScore", "reviewedAt",
       ]);
       const forbiddenField = Object.keys(body).find(
         (field) => !clientAllowedFields.has(field),
@@ -5272,11 +5317,12 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
     let nextStatus = existing.status || "NEW";
     if (has("status", "status")) {
       nextStatus = String(read("status", "status") || "NEW");
+      if (!ORDER_STATUSES.has(nextStatus)) throw validationError("El estado del pedido no es válido.", { status: "Selecciona un estado válido." });
       set("status", nextStatus);
     }
 
     if (
-      (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") &&
+      has("status", "status") && role !== "SUPERADMIN" && existing.delivery_type !== "PICKUP" &&
       nextStatus === "DELIVERED" &&
       existing.delivery_pin
     ) {
@@ -5384,7 +5430,8 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       set("courier_phone", read("courierPhone", "courier_phone") || null);
     if (has("deliveryPin", "delivery_pin")) {
       const pin = read("deliveryPin", "delivery_pin");
-      set("delivery_pin", pin === null || pin === undefined ? null : String(pin));
+      if (role === "SUPERADMIN") set("delivery_pin", pin === null || pin === undefined ? null : String(pin));
+      else if (nextStatus !== "DELIVERED") throw httpError(403, "FORBIDDEN", "El PIN solo se envía para verificar la entrega y no se puede modificar.");
     }
     if (has("calendarEventId", "calendar_event_id"))
       set(
@@ -5403,6 +5450,8 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       );
     if (has("reviewScore", "review_score")) {
       const score = read("reviewScore", "review_score");
+      if (role === "CLIENT" && existing.status !== "DELIVERED") throw validationError("Solo puedes valorar un pedido entregado.", { reviewScore: "El pedido todavía no se ha entregado." });
+      if (score !== null && score !== undefined && (!Number.isInteger(Number(score)) || Number(score) < 1 || Number(score) > 5)) throw validationError("La valoración no es válida.", { reviewScore: "La valoración debe ser un entero entre 1 y 5." });
       set(
         "review_score",
         score === null || score === undefined
@@ -5464,6 +5513,11 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       `UPDATE orders SET ${fields.map((field) => `${field} = ?`).join(", ")} WHERE id = ?`,
       [...values, id],
     );
+
+    if (updates.has("review_score")) {
+      const [summary] = await txQuery(tx, "SELECT AVG(review_score) AS rating, COUNT(*) AS total FROM orders WHERE business_id = ? AND review_score IS NOT NULL AND status = 'DELIVERED'", [existing.business_id]);
+      await txQuery(tx, "UPDATE businesses SET rating = ?, review_count = ? WHERE id = ?", [Number(summary.rating || 0), Number(summary.total || 0), existing.business_id]);
+    }
 
     return { success: true };
   });

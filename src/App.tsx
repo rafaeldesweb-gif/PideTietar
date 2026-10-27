@@ -211,9 +211,9 @@ export default function App() {
           </div>
 
           <div className="flex items-center space-x-4">
-            <span>Verificación Gmail activa</span>
-            <span>Google Calendar Sync</span>
-            <span>Stripe & PayPal Verified</span>
+            <span>Verificación por correo</span>
+            <span>Integración con Google Calendar</span>
+            <span>Pagos en modo de prueba</span>
             <button
               onClick={() => {
                 setPageError('Simulación intencionada de error del servidor para validar la página de error personalizada.');

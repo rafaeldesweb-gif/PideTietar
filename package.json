@@ -14,7 +14,11 @@
     "server": "node server.js",
     "start": "node server.js",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "test:api": "node --test scripts/crud-check.test.mjs scripts/profile-check.test.mjs scripts/media-replacement.test.mjs",
+    "test:forms": "node --test --test-concurrency=1 scripts/forms-ui-check.test.mjs scripts/profile-ui-check.test.mjs",
+    "test:preproduction": "npm run lint && npm test && npm run test:api && npm run test:forms && npm run build"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",

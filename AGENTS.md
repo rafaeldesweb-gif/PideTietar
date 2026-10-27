@@ -8,7 +8,10 @@ App de pedidos para el Valle del Tiétar: frontend React 19 + Vite 8 y backend E
 - `npm run build` → `vite build`. Orden habitual: `npm run lint` → `npm run build`.
 - `npm run dev` → **solo** el frontend (Vite, puerto 3000). El backend es otro proceso: `npm run server` (puerto 4000). `npm start` es equivalente a `npm run server` y sirve `dist/` si existe. Vite proxea `/api` → `http://localhost:4000`.
 - `npm run preview` → sirve el build de Vite en el 4173 y hereda el proxy `/api` → 4000 (`server.proxy`), pero no arranca el backend.
-- Tests: `node --import tsx --test "src/**/*.test.ts"`. Son tests de `node:test` sobre utilidades del frontend; **no hay script npm, tests de backend ni de componentes**. `node --test` a secas falla porque los imports TS no llevan extensión.
+- `npm test` ejecuta `node --import tsx --test "src/**/*.test.ts"` sobre las utilidades del frontend. `node --test` a secas sobre esos TS falla porque los imports no llevan extensión.
+- `npm run test:api` prueba CRUD, permisos, validaciones, perfiles y sustitución de medios. Usa servidores con SQLite temporal y transporte simulado para Supabase, sin modificar servicios reales.
+- `npm run test:forms` prueba los formularios React contra una API con SQLite temporal y la regresión de perfil. Usa Edge instalado en Windows o Chromium de Playwright en otros sistemas. Incluye 28 combinaciones de panel y viewport.
+- `npm run test:preproduction` ejecuta lint, utilidades, API, formularios y build. El informe de cobertura y los bloqueos externos está en `reports/preproduccion-2026-10-27.md`; pasar las pruebas no certifica los pagos reales ni Hostinger.
 - Smoke test de API: `curl http://localhost:4000/api/health` (devuelve `mode: "mysql" | "sqlite"`).
 - `npm run test:responsive` → Playwright/Chromium sobre 10 viewports; arranca Vite en el 3000 si no responde. Solo comprueba desbordamiento horizontal de la portada. Requiere `npx playwright install chromium`.
 - `npm run clean` → solo borra `dist/`. No toca el código ni la base de datos.

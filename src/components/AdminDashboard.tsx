@@ -690,9 +690,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   return (
-    <div className="space-y-8 pb-16">
+    <div className="w-full min-w-0 space-y-8 pb-16">
       {/* Header */}
-      <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-xs flex items-center justify-between">
+      <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 shadow-xs flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center space-x-2">
             <ShieldCheck className="w-5 h-5 text-blue-600" />
@@ -748,8 +748,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         </h2>
         
         {/* Add Zone */}
-        <form onSubmit={handleAddZone} className="bg-stone-50 dark:bg-stone-800/50 p-4 rounded-2xl border border-stone-100 flex items-end space-x-4">
-          <div className="flex-1">
+        <form onSubmit={handleAddZone} className="bg-stone-50 dark:bg-stone-800/50 p-4 rounded-2xl border border-stone-100 flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div className="w-full min-w-0 flex-1">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Nombre Localidad</label>
             <input 
               type="text" 
@@ -760,7 +760,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               placeholder="Ej. Cenicientos"
             />
           </div>
-          <div className="w-32">
+          <div className="w-full sm:w-32">
             <label className="block text-xs font-semibold text-stone-500 mb-1">C. Postal</label>
             <input 
               type="text" 
@@ -1088,7 +1088,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
       {/* BUSINESSES SECTION */}
       <div className="bg-white dark:bg-stone-900 rounded-3xl p-6 border border-stone-200 dark:border-stone-800 space-y-6 shadow-xs">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-bold font-serif text-stone-900 dark:text-stone-100">
               Gestión de Comercios y Negocios

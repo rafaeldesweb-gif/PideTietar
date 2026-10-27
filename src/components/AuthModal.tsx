@@ -170,6 +170,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           email: normalizedUser,
           password: undefined,
           phone: phoneNumber || undefined,
+          address: data?.user?.address || addressInput.trim(),
           avatarUrl: data?.user?.avatarUrl || '',
           isEmailVerified: Boolean(data?.user?.isEmailVerified),
         };
@@ -223,13 +224,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         isEmailVerified: true,
       };
 
-      loginAs(user.role || 'CLIENT', normalizedUser, {
+      loginAs(user.role || 'CLIENT', user.email || '', {
         id: user.id,
         username: user.username,
         name: user.name || finalName,
         email: user.email || normalizedUser,
         password: undefined,
         phone: user.phone || undefined,
+        address: user.address || '',
+        dni: user.dni || '',
         accountNumber: user.accountNumber || undefined,
         avatarUrl: user.avatarUrl || '',
         isEmailVerified: Boolean(user.isEmailVerified),
@@ -346,8 +349,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       showNotification('El nombre es obligatorio.', 'error');
       return;
     }
-    if (!cleanEmail) {
-      showNotification('El correo es obligatorio.', 'error');
+    if (!/^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(cleanEmail)) {
+      showNotification('Introduce un correo electrónico válido en el perfil.', 'error');
       return;
     }
     if (cleanPassword && cleanPassword.length < 8) {

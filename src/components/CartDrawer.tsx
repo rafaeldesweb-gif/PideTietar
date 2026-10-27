@@ -39,7 +39,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
    
   const ledger = calculateOrderLedger(
     cart ? cart.items : [],
-    currentBusiness?.deliveryFeeCents || 200,
+    currentBusiness?.deliveryFeeCents ?? 200,
     deliveryType,
     tipCents,
     hasFreeDelivery
@@ -98,7 +98,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
       deliveryType,
       paymentMethod,
       tipCents,
-      syncCalendar
+      syncCalendar,
+      customerPhone: cleanedPhone,
     });
     setIsSubmitting(false);
 

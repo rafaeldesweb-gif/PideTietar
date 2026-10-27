@@ -576,7 +576,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setManualSelectedItems((prev) => prev.filter((line) => line.lineId !== lineId));
   };
 
-  const handleCreateManualOrder = (event: React.FormEvent) => {
+  const handleCreateManualOrder = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!currentUser || !canManageOrders) {
       showNotification('Debes iniciar sesión como administrador para crear una comanda.', 'error');
@@ -614,7 +614,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     const deliveryLocality =
       selectedLocality || localities.find((loc) => loc.id === business.localityId) || null;
 
-    createManualOrder({
+    const savedOrder = await createManualOrder({
       businessId: business.id,
       businessName: business.name,
       customerName: (manualCustomerName.trim() || 'Comensal Sala') + (manualTableNumber.trim() ? ` [Mesa ${manualTableNumber.trim()}]` : ''),
@@ -648,6 +648,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       paymentMethod: 'CASH_ON_DELIVERY',
       paymentStatus: 'PAID',
     });
+
+    if (!savedOrder) return;
 
     setManualCustomerName('');
     setManualPhone('');
@@ -684,7 +686,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     setEditingProductId(null);
   };
 
-  const handleCatalogSubmit = (event: React.FormEvent) => {
+  const handleCatalogSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const trimmedName = catalogForm.name.trim();
     const trimmedDescription = catalogForm.description.trim();
@@ -734,13 +736,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       allergens: catalogForm.allergens.split(',').map((item) => item.trim()).filter(Boolean),
     };
 
-    if (editingProductId) {
-      updateProductInBusiness(editingProductId, payload);
-    } else {
-      addProductToBusiness(business.id, payload);
-    }
-
-    resetCatalogForm();
+    const saved = editingProductId
+      ? await updateProductInBusiness(editingProductId, payload)
+      : await addProductToBusiness(business.id, payload);
+    if (saved) resetCatalogForm();
   };
 
   const startEditProduct = (prod: Product) => {
@@ -1013,7 +1012,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         bannerUrl: newBusinessForm.bannerUrl,
         logoUrl: newBusinessForm.logoUrl,
         minOrderCents: 0,
-        deliveryFeeCents: Number(newBusinessForm.deliveryFeeCents) * 100 || 250,
+        deliveryFeeCents: Math.round(Number(newBusinessForm.deliveryFeeCents) * 100),
         estimatedTimeMin: Number(newBusinessForm.estimatedTimeMin) || 20,
         estimatedTimeMax: Number(newBusinessForm.estimatedTimeMax) || 40,
         schedule: newBusinessForm.schedule,
@@ -1324,6 +1323,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+                  {canManageOrders && (
+                    <button type="button" onClick={() => setNewOrderModal(true)} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[#FF4E00] px-4 py-2 text-sm font-bold text-white">
+                      <Plus className="h-4 w-4 shrink-0" />
+                      Nuevo pedido
+                    </button>
+                  )}
                   <div className="px-4 py-2.5 rounded-2xl bg-white border border-stone-200 min-w-[100px] text-center shadow-sm">
                     <div className="text-[10px] font-bold text-stone-500 uppercase tracking-wider">PEDIDOS HOY</div>
                     <div className="text-xl sm:text-2xl font-black text-stone-900 font-mono mt-0.5">{businessOrders.length}</div>
@@ -2428,7 +2433,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
               <button type="button" onClick={() => setSettingsModal(false)} className="rounded-xl bg-stone-100 text-stone-700 px-4 py-2 font-semibold">Cerrar</button>
               <button
                 type="button"
-                onClick={() => {
+                onClick={async () => {
                   if (!currentUser) return;
                   // Sólo se envía la contraseña si el usuario escribe una nueva
                   // en el campo. Antes el spread de currentUser arrastraba la
@@ -2437,7 +2442,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   const newPassword = userSettingsForm.password.trim();
                   const { password: _ignoredPassword, ...restUser } = currentUser;
                   void _ignoredPassword;
-                  updateCurrentUserProfile({
+                  const saved = await updateCurrentUserProfile({
                     ...restUser,
                     name: userSettingsForm.name.trim() || currentUser.name,
                     email: userSettingsForm.email.trim() || currentUser.email,
@@ -2445,7 +2450,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     avatarUrl: userSettingsForm.avatarUrl.trim() || currentUser.avatarUrl,
                     ...(newPassword ? { password: newPassword } : {}),
                   });
-                  setSettingsModal(false);
+                  if (saved) setSettingsModal(false);
                 }}
                 className="rounded-xl bg-[#FF4E00] text-white px-4 py-2 font-semibold hover:bg-[#E64600]"
               >

@@ -108,7 +108,8 @@ test('el perfil se guarda con sesiones nuevas y con el ID antiguo del superadmin
   });
 
   await t.test('un cliente edita su perfil, pero no el del administrador', async () => {
-    const registered = await api('/auth/register', { method: 'POST', body: { username: 'cliente_prueba', fullName: 'Cliente', email: 'cliente@example.com', password, address: 'Calle de prueba 1' } });
+    const zone = await api('/localities', { method: 'POST', token, body: { name: 'Zona de pruebas', postalCode: '05400' } });
+    const registered = await api('/auth/register', { method: 'POST', body: { username: 'cliente_prueba', fullName: 'Cliente', email: 'cliente@example.com', password, address: 'Calle de prueba 1', localityId: zone.data.locality.id } });
     assert.equal(registered.status, 201);
     const clientToken = registered.data.token;
     const clientId = registered.data.user.id;

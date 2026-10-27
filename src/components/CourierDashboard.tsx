@@ -39,16 +39,16 @@ export const CourierDashboard: React.FC = () => {
          canServeBusiness(o.businessId)
   );
 
-  const handleVerifyPin = (orderId: string) => {
+  const handleVerifyPin = async (orderId: string) => {
     const pin = inputPins[orderId] || '';
     if (pin.length < 4) {
       showNotification('Introduce el PIN de 4 dígitos proporcionado por el cliente', 'error');
       return;
     }
 
-    const success = verifyDeliveryPin(orderId, pin);
+    const success = await verifyDeliveryPin(orderId, pin);
     if (success) {
-      showNotification('¡PIN correcto! Entrega validada y liquidada al instante.', 'success');
+      showNotification('¡PIN correcto! Entrega guardada correctamente.', 'success');
       setInputPins(prev => ({ ...prev, [orderId]: '' }));
     } else {
       showNotification('PIN incorrecto. Solicita al cliente el código de su app o confirmación de Gmail.', 'error');

@@ -88,12 +88,12 @@ interface AppContextType {
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
-  addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Product;
-  updateProductInBusiness: (productId: string, product: Partial<Product>) => Product | null;
+  addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Promise<Product | null>;
+  updateProductInBusiness: (productId: string, product: Partial<Product>) => Promise<Product | null>;
   deleteProductFromBusiness: (productId: string) => void;
   updateBusinessShift: (businessId: string, isOpen: boolean) => void;
   toggleProductAvailability: (productId: string) => void;
-  createManualOrder: (orderData: Partial<Order>) => Order;
+  createManualOrder: (orderData: Partial<Order>) => Promise<Order | null>;
 
   // Cart
   cart: Cart | null;
@@ -114,9 +114,10 @@ interface AppContextType {
     paymentMethod: 'STRIPE' | 'PAYPAL' | 'CASH_ON_DELIVERY';
     tipCents: number;
     syncCalendar: boolean;
+    customerPhone?: string;
   }) => Promise<{ success: boolean; order?: Order; error?: string }>;
-  updateOrderStatus: (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string) => void;
-  verifyDeliveryPin: (orderId: string, pin: string) => boolean;
+  updateOrderStatus: (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string) => Promise<boolean>;
+  verifyDeliveryPin: (orderId: string, pin: string) => Promise<boolean>;
   submitBusinessReview: (businessId: string, orderId: string, score: number) => void;
 
   // Subscriptions
@@ -521,6 +522,7 @@ const apiFetch = async (path: string, options?: RequestInit) => {
       const payload = await response.json();
       message = payload?.message || payload?.error || message;
       errors = payload?.errors;
+      message = Object.values(errors || {}).find(Boolean) || message;
       code = payload?.code;
     } catch {
       // ignore parse errors
@@ -790,7 +792,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // direcciones, suscripciones ni perfiles de ejemplo: si el servidor no los
   // envía, quedan vacíos.
   const loginAs = (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => {
-    const targetEmail = customEmail || extraData?.email || '';
+    // El identificador de acceso puede ser un username: prevalece el correo real.
+    const targetEmail = extraData?.email ?? customEmail ?? '';
     const fallbackCourierProfile: NonNullable<User['courierProfile']> = {
       businessIds: [],
       localityIds: [],
@@ -955,8 +958,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showNotification('Perfil actualizado correctamente.', 'success');
       return true;
     } catch (error) {
+      const fieldErrors = (error as { errors?: Record<string, string> })?.errors;
       const message =
-        error instanceof Error ? error.message : 'No se pudo actualizar el perfil.';
+        Object.values(fieldErrors || {}).find(Boolean) ||
+        (error instanceof Error ? error.message : 'No se pudo actualizar el perfil.');
       showNotification(message, 'error');
       return false;
     }
@@ -1619,7 +1624,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
   };
 
-  const addProductToBusiness = (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Product => {
+  const addProductToBusiness = async (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Promise<Product | null> => {
     const newProduct: Product = {
       ...product,
       id: `prod-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1630,7 +1635,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     setProducts((prev: Product[]) => [newProduct, ...prev]);
-    void apiFetch('/products', {
+    return apiFetch('/products', {
       method: 'POST',
       body: JSON.stringify({
         ...newProduct,
@@ -1647,6 +1652,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     })
       .then(() => {
         showNotification(`Producto añadido a la carta: ${newProduct.name}`, 'success');
+        return newProduct;
       })
       .catch((error) => {
         // Se quita de la lista para no mostrar un producto que no se guardó.
@@ -1655,11 +1661,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           error instanceof Error ? error.message : 'No se pudo guardar el producto en el servidor.',
           'error',
         );
+        return null;
       });
-    return newProduct;
   };
 
-  const updateProductInBusiness = (productId: string, product: Partial<Product>): Product | null => {
+  const updateProductInBusiness = async (productId: string, product: Partial<Product>): Promise<Product | null> => {
     const currentProduct = products.find((p: Product) => p.id === productId);
     if (!currentProduct) return null;
 
@@ -1668,7 +1674,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Antes sólo se cambiaba el estado local: al recargar la app la edición
     // desaparecía. Ahora se guarda también en el servidor.
-    void apiFetch(`/products/${encodeURIComponent(productId)}`, {
+    return apiFetch(`/products/${encodeURIComponent(productId)}`, {
       method: 'PUT',
       body: JSON.stringify({
         name: updatedProduct.name,
@@ -1686,15 +1692,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         additional_ingredients: updatedProduct.additionalIngredients,
       }),
     })
-      .then(() => showNotification(`Producto actualizado: ${updatedProduct.name}`, 'success'))
-      .catch((error) => showNotification(
+      .then(() => { showNotification(`Producto actualizado: ${updatedProduct.name}`, 'success'); return updatedProduct; })
+      .catch((error) => {
+        setProducts((prev) => prev.map((item) => item.id === productId ? currentProduct : item));
+        showNotification(
         error instanceof Error
           ? error.message
           : 'La edición se mostró en pantalla pero no se guardó en el servidor.',
         'error',
-      ));
-
-    return updatedProduct;
+      );
+        return null;
+      });
   };
 
   const deleteProductFromBusiness = (productId: string) => {
@@ -1809,6 +1817,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     paymentMethod: 'STRIPE' | 'PAYPAL' | 'CASH_ON_DELIVERY';
     tipCents: number;
     syncCalendar: boolean;
+    customerPhone?: string;
   }): Promise<{ success: boolean; order?: Order; error?: string }> => {
     if (!currentUser) return { success: false, error: 'Debes iniciar sesión para pedir' };
     if (!cart || cart.items.length === 0) return { success: false, error: 'La cesta está vacía' };
@@ -1822,7 +1831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Cada ticket de pedido solo puede pertenecer a un único negocio.' };
     }
 
-    const cleanedPhone = (currentUser.phone || '').trim();
+    const cleanedPhone = (data.customerPhone ?? currentUser.phone ?? '').trim();
     if (!cleanedPhone) {
       return { success: false, error: 'Necesitamos un teléfono para confirmar el pedido.' };
     }
@@ -1972,7 +1981,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, order: newOrder };
   };
 
-  const updateOrderStatus = (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string) => {
+  const updateOrderStatus = async (orderId: string, newStatus: Order['status'], note?: string, deliveryPin?: string): Promise<boolean> => {
     const previousOrder = orders.find(ord => ord.id === orderId);
     const changedAt = new Date().toISOString();
     const historyEntry: Order['statusHistory'][number] = {
@@ -2009,7 +2018,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (nextHistory) payload.status_history = nextHistory;
     if (newStatus === 'DELIVERED') payload.review_requested = true;
 
-    void apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
+    return apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     })
@@ -2019,6 +2028,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         } else {
           showNotification(`Estado de pedido actualizado a: ${newStatus}`, 'success');
         }
+        return true;
       })
       .catch((error) => {
         // Se restaura el pedido anterior para no mostrar un cambio que no se
@@ -2032,14 +2042,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             : 'No se pudo guardar el estado del pedido en el servidor.',
           'error',
         );
+        return false;
       });
   };
 
-  const submitBusinessReview = (businessId: string, orderId: string, score: number) => {
+  const submitBusinessReview = async (businessId: string, orderId: string, score: number) => {
     const safeScore = Math.min(5, Math.max(1, Number(score) || 5));
     const targetBusiness = businesses.find((business) => business.id === businessId);
 
     if (!targetBusiness) {
+      return;
+    }
+
+    const reviewedAt = new Date().toISOString();
+    try {
+      await apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ review_requested: false, review_score: safeScore, reviewed_at: reviewedAt }),
+      });
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'No se pudo guardar la valoración.', 'error');
       return;
     }
 
@@ -2058,7 +2080,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ),
     );
 
-    const reviewedAt = new Date().toISOString();
     setOrders((previous) =>
       previous.map((order) =>
         order.id === orderId
@@ -2071,19 +2092,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           : order,
       ),
     );
-
-    // La valoración también se guarda para que no vuelva a pedirse al recargar.
-    void apiFetch(`/orders/${encodeURIComponent(orderId)}`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        review_requested: false,
-        review_score: safeScore,
-        reviewed_at: reviewedAt,
-      }),
-    }).catch(() => {
-      // La valoración ya se ve en pantalla; si falla el guardado se reintentará
-      // en la siguiente valoración o al recargar la lista de pedidos.
-    });
 
     showNotification(`Gracias por valorar a ${targetBusiness.name} con ${safeScore} estrellas.`, 'success');
   };
@@ -2120,7 +2128,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
   };
 
-  const createManualOrder = (orderData: Partial<Order>): Order => {
+  const createManualOrder = async (orderData: Partial<Order>): Promise<Order | null> => {
     const orderNum = 'PT-' + Math.floor(1000 + Math.random() * 9000);
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -2169,12 +2177,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Antes la comanda sólo vivía en el navegador y desaparecía al recargar.
     // Ahora se guarda completa (cabecera + líneas + historial) en el servidor.
-    void apiFetch('/orders', {
+    return apiFetch('/orders', {
       method: 'POST',
       body: JSON.stringify(newOrder),
     })
       .then(() => {
         showNotification(`Nueva comanda #${newOrder.orderNumber} creada en cocina`, 'success');
+        return newOrder;
       })
       .catch((error) => {
         // Se retira la comanda para no mostrar un alta que no se guardó.
@@ -2183,16 +2192,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           error instanceof Error ? error.message : 'No se pudo guardar la comanda en el servidor.',
           'error',
         );
+        return null;
       });
-    return newOrder;
   };
 
-  const verifyDeliveryPin = (orderId: string, pin: string): boolean => {
+  const verifyDeliveryPin = async (orderId: string, pin: string): Promise<boolean> => {
     const target = orders.find(o => o.id === orderId);
     if (!target) return false;
     if (target.deliveryPin.trim() === pin.trim()) {
-      updateOrderStatus(orderId, 'DELIVERED', 'Entrega verificada mediante PIN de cliente');
-      return true;
+      return updateOrderStatus(orderId, 'DELIVERED', 'Entrega verificada mediante PIN de cliente', pin.trim());
     }
     return false;
   };
