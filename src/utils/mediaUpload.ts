@@ -107,90 +107,90 @@ const scaleToDataUrl = async (
   return canvas.toDataURL(mimeType, quality);
 };
 
-// Recodifica un vídeo a WebM con los primeros 2 segundos (o menos) para que
-// quepa en el límite de la petición JSON y se reproduzca en bucle.
-const recodeVideoToWebM = async (
-  file: File,
-): Promise<string> => {
-  const original = await readAsDataUrl(file);
+// Conserva los MP4 cortos y ligeros; el resto se recorta y recodifica a MP4.
+// No usamos WebM como alternativa: el almacenamiento admite MP4 para los vídeos.
+const processMp4 = async (file: File): Promise<string> => {
+  const original = await readAsDataUrl(new Blob([file], { type: 'video/mp4' }));
   const video = await loadVideo(original);
-
-  if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
-    // Recortamos a los primeros 2 segundos.
-    video.currentTime = 0;
-  }
-
-  if (!('MediaRecorder' in window) || !window.MediaRecorder) {
-    // Fallback: aceptamos el MP4 original si dura <= 2 s y es liviano.
-    if (video.duration > MAX_VIDEO_DURATION_SECONDS) {
-      throw new Error(
-        'El vídeo supera los 2 segundos. Elige uno más corto o recórtalo.',
-      );
+  video.muted = true;
+  video.playsInline = true;
+  let stream: MediaStream | undefined;
+  try {
+    if (!Number.isFinite(video.duration) || video.duration <= 0) {
+      throw new Error('No se pudo determinar la duración del vídeo.');
     }
-    if (original.length > MAX_DATA_URL_LENGTH) {
-      throw new Error(
-        'El vídeo pesa demasiado. Elige uno más corto o de menor resolución.',
-      );
+    if (video.duration <= MAX_VIDEO_DURATION_SECONDS && original.length <= MAX_DATA_URL_LENGTH) {
+      return original;
     }
-    return original;
-  }
+    const mimeType = typeof MediaRecorder !== 'undefined'
+      ? ['video/mp4;codecs=avc1.42E01E', 'video/mp4'].find(type => MediaRecorder.isTypeSupported(type))
+      : undefined;
+    if (!mimeType) {
+      throw new Error('Este navegador no puede convertir el vídeo a MP4. Usa un MP4 de hasta 2 segundos y menos de 500 KB.');
+    }
 
-  const maxDuration = Math.min(video.duration, MAX_VIDEO_DURATION_SECONDS);
-  const canvas = document.createElement('canvas');
-  canvas.width = VIDEO_MAX_WIDTH;
-  canvas.height = Math.max(
-    1,
-    Math.round((VIDEO_MAX_WIDTH * video.videoHeight) / Math.max(1, video.videoWidth)),
-  );
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('El navegador no puede procesar el vídeo.');
-
-  const stream = canvas.captureStream(30);
-  // H.264 para máxima compatibilidad en navegadores.
-  const mediaRecorder = new MediaRecorder(stream, {
-    mimeType: 'video/webm; codecs=avc1.42E01E',
-    bitsPerSecond: VIDEO_BITRATE_KBPS * 1000,
-  });
-
-  const chunks: BlobPart[] = [];
-  mediaRecorder.ondataavailable = (event) => {
-    if (event.data && event.data.size) chunks.push(event.data);
-  };
-
-  await new Promise<void>((resolve, reject) => {
-    mediaRecorder.onstop = () => resolve();
-    mediaRecorder.onerror = () => reject(new Error('No se pudo codificar el vídeo.'));
-
-    mediaRecorder.start();
-    let played = false;
-    video.onseeked = () => {
-      if (!played) {
-        played = true;
-        // Dibujamos frames mientras avanzamos el tiempo hasta maxDuration.
-        const interval = setInterval(() => {
-          if (video.currentTime >= maxDuration - 0.05) {
-            clearInterval(interval);
-            mediaRecorder.stop();
-          } else {
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            video.currentTime += 0.033; // ~30 fps
-          }
-        }, 33);
-      }
+    const canvas = document.createElement('canvas');
+    const ratio = Math.min(1, VIDEO_MAX_WIDTH / Math.max(video.videoWidth, video.videoHeight));
+    // H.264 necesita dimensiones pares.
+    canvas.width = Math.max(2, Math.round(video.videoWidth * ratio / 2) * 2);
+    canvas.height = Math.max(2, Math.round(video.videoHeight * ratio / 2) * 2);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('El navegador no puede procesar el vídeo.');
+    stream = canvas.captureStream(30);
+    const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: VIDEO_BITRATE_KBPS * 1000 });
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = event => {
+      if (event.data.size) chunks.push(event.data);
     };
-    video.currentTime = 0;
-  });
-
-  const blob = new Blob(chunks, { type: 'video/webm' });
-  const dataUrl = await readAsDataUrl(blob);
-
-  if (dataUrl.length > MAX_DATA_URL_LENGTH) {
-    throw new Error(
-      'El vídeo sigue pesando demasiado aunque se recodifique. Prueba con otro.',
-    );
+    await new Promise<void>((resolve, reject) => {
+      let frame = 0;
+      const cleanup = () => {
+        cancelAnimationFrame(frame);
+        clearTimeout(timeout);
+        video.pause();
+        video.onended = null;
+        video.onerror = null;
+      };
+      const fail = () => {
+        cleanup();
+        recorder.onstop = null;
+        if (recorder.state !== 'inactive') recorder.stop();
+        reject(new Error('No se pudo convertir el vídeo a MP4. Prueba con un vídeo más corto.'));
+      };
+      const stop = () => { if (recorder.state !== 'inactive') recorder.stop(); };
+      const timeout = window.setTimeout(fail, 15000);
+      recorder.onstop = () => { cleanup(); resolve(); };
+      recorder.onerror = fail;
+      video.onerror = fail;
+      video.onended = stop;
+      const draw = () => {
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        if (video.currentTime >= MAX_VIDEO_DURATION_SECONDS) stop();
+        else frame = requestAnimationFrame(draw);
+      };
+      // Reproducción real: no dependemos de onseeked al asignar currentTime = 0.
+      try {
+        recorder.start();
+        void video.play().then(() => {
+          if (recorder.state === 'inactive') return;
+          draw();
+        }, fail);
+      } catch {
+        fail();
+      }
+    });
+    if (!chunks.length) throw new Error('No se pudo generar el vídeo MP4.');
+    const dataUrl = await readAsDataUrl(new Blob(chunks, { type: 'video/mp4' }));
+    if (dataUrl.length > MAX_DATA_URL_LENGTH) {
+      throw new Error('El vídeo sigue pesando demasiado aunque se recodifique. Prueba con otro.');
+    }
+    return dataUrl;
+  } finally {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    stream?.getTracks().forEach(track => track.stop());
   }
-
-  return dataUrl;
 };
 
 // Procesa un archivo de entrada (File).
@@ -202,12 +202,12 @@ export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
   }
 
   if (isVideoExtension(file)) {
-    const dataUrl = await recodeVideoToWebM(file);
+    const dataUrl = await processMp4(file);
     return {
       type: 'video',
       dataUrl,
       originalName: file.name,
-      mimeType: 'video/webm',
+      mimeType: 'video/mp4',
     };
   }
 
@@ -270,22 +270,14 @@ export const processMediaUrl = async (url: string): Promise<ProcessedMedia> => {
         throw new Error(`No se pudo descargar el archivo (${response.status}).`);
       }
       const blob = await response.blob();
-      const dataUrl = await readAsDataUrl(blob);
-
-      if (isVideo) {
-        // Si es un vídeo remoto, intentamos recodificarlo si es posible.
-        // Para simplificar, si cabe en el límite lo usamos tal cual.
-        if (dataUrl.length > MAX_DATA_URL_LENGTH) {
-          throw new Error('El vídeo remoto pesa demasiado. Sube un archivo más ligero.');
+      if (isVideo || blob.type.startsWith('video/')) {
+        if (blob.type && !['video/mp4', 'application/octet-stream'].includes(blob.type.split(';')[0])) {
+          throw new Error('Solo se aceptan vídeos MP4.');
         }
-        return {
-          type: 'video',
-          dataUrl,
-          originalName: trimmed.split('/').pop() || 'video',
-          mimeType: 'video/webm',
-        };
+        return processMediaFile(new File([blob], 'video.mp4', { type: 'video/mp4' }));
       }
 
+      const dataUrl = await readAsDataUrl(blob);
       // Si es una imagen remota, la reescala para optimizarla.
       if (dataUrl.length <= MAX_DATA_URL_LENGTH) {
         return {
@@ -321,6 +313,12 @@ export const processMediaUrl = async (url: string): Promise<ProcessedMedia> => {
     }
   }
 
+  if (isVideo) {
+    if (!/^data:video\/mp4[;,]/i.test(trimmed)) throw new Error('Solo se aceptan vídeos MP4.');
+    const blob = await (await fetch(trimmed)).blob();
+    return processMediaFile(new File([blob], 'video.mp4', { type: 'video/mp4' }));
+  }
+
   // Para data URLs, validamos que el tamaño sea aceptable.
   if (trimmed.length > MAX_DATA_URL_LENGTH) {
     throw new Error('El archivo proporcionado pesa demasiado.');
@@ -330,7 +328,7 @@ export const processMediaUrl = async (url: string): Promise<ProcessedMedia> => {
     type: isVideo ? 'video' : 'image',
     dataUrl: trimmed,
     originalName: isVideo ? 'video' : 'imagen',
-    mimeType: isVideo ? 'video/webm' : 'image/jpeg',
+    mimeType: trimmed.slice(5, trimmed.indexOf(';') === -1 ? trimmed.indexOf(',') : trimmed.indexOf(';')),
   };
 };
 
@@ -347,8 +345,7 @@ export const isVideoUrl = (url: string): boolean => {
   if (!url || typeof url !== 'string') return false;
   return (
     url.startsWith('data:video/') ||
-    url.toLowerCase().endsWith('.mp4') ||
-    url.toLowerCase().endsWith('.webm')
+    /\.(mp4|webm)(?:[?#]|$)/i.test(url)
   );
 };
 
