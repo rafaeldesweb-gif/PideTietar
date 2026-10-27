@@ -15,8 +15,7 @@ interface CategoryManagerModalProps {
   onClose: () => void;
 }
 
-const DEFAULT_CATEGORY_IMAGE =
-  'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80';
+const DEFAULT_CATEGORY_IMAGE = '/Logo.png';
 
 export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   open,
@@ -272,12 +271,6 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                   onBlur={() => handleCategoryUrlPaste(categoryImageUrlText, setCategoryImageUrlText)}
                   className="w-full rounded-xl bg-white border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] mt-1 text-xs"
                 />
-                <MediaView
-                  src={categoryForm.imageUrl || undefined}
-                  alt={categoryForm.name}
-                  className="mt-2 w-14 h-14 rounded-xl border border-[#e9dac8]"
-                  showLoading
-                />
               </div>
 
               <div className="flex items-center gap-2 pt-2">
@@ -324,6 +317,7 @@ export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
                     <div className="h-14 w-14 overflow-hidden rounded-xl">
                     <MediaView
                       src={category.imageUrl || DEFAULT_CATEGORY_IMAGE}
+                      defaultSrc={DEFAULT_CATEGORY_IMAGE}
                       alt={category.name}
                       className="w-14 h-14 rounded-xl border border-[#e9dac8]"
                     />

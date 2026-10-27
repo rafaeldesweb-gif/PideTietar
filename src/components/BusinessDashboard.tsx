@@ -182,7 +182,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     removableIngredients: '',
     additionalIngredients: '',
     priceCents: '0',
-    imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+    imageUrl: '/Logo.png',
     categoryId: '',
     isAvailable: true,
     allergens: '',
@@ -678,7 +678,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       removableIngredients: '',
       additionalIngredients: '',
       priceCents: '0',
-      imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      imageUrl: '/Logo.png',
       categoryId: defaultCategoryIdForBusiness(),
       isAvailable: true,
       allergens: '',
@@ -729,7 +729,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         .map(parseExtraIngredient)
         .filter(Boolean) as Array<{ name: string; priceCents: number }>,
       priceCents: Math.round(normalizedPrice * 100),
-      imageUrl: catalogForm.imageUrl || 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+      imageUrl: catalogForm.imageUrl || '/Logo.png',
       categoryId: catalogForm.categoryId,
       taxPercentage: 10,
       isAvailable: catalogForm.isAvailable,
@@ -1753,6 +1753,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       </div>
                       <MediaView
                         src={catalogForm.imageUrl || undefined}
+                        defaultSrc="/Logo.png"
                         alt={catalogForm.name}
                         className="mt-2 w-full h-24 rounded-xl border border-[#e6d7c5]"
                         showLoading
@@ -1818,7 +1819,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                             removableIngredients: '',
                             additionalIngredients: '',
                             priceCents: '0',
-                            imageUrl: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80',
+                            imageUrl: '/Logo.png',
                             categoryId: categories.some((category) => category.id === biz.category)
                               ? biz.category
                               : categories[0]?.id || '',
