@@ -1603,7 +1603,7 @@ async function listBusinesses() {
   return scheduled.map((business) => ({
     ...business,
     has_online_courier:
-      parseModeList(business.delivery_modes ?? business.deliveryModes, []).some((mode) => ["OWN_COURIER", "PLATFORM_COURIER"].includes(mode)) &&
+      parseStoredList(business.delivery_modes ?? business.deliveryModes).some((mode) => ["OWN_COURIER", "PLATFORM_COURIER"].includes(mode)) &&
       (platformCourierOnline || onlineBusinessIds.has(String(business.id))),
   }));
 }
