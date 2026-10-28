@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getSessionToken, useApp } from './context/AppContext';
+import { useApp } from './context/AppContext';
 import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
 import { BusinessDetailView } from './components/BusinessDetailView';
@@ -10,10 +10,19 @@ import { BusinessDashboard } from './components/BusinessDashboard';
 import { CourierDashboard } from './components/CourierDashboard';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
+import { AvatarEditorModal } from './components/AvatarEditorModal';
+import { ResetPasswordView } from './components/ResetPasswordView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
+
+/** Token del enlace de recuperación si la URL trae #restablecer-clave?token=… */
+const readResetTokenFromHash = (): string | null => {
+  const hash = decodeURIComponent(window.location.hash || '');
+  const match = hash.match(/#restablecer-clave\?(?:[^#]*&)?token=([0-9a-fA-F]+)/);
+  return match ? match[1] : null;
+};
 
 export default function App() {
   const { 
@@ -23,7 +32,6 @@ export default function App() {
     pageError, 
     setPageError,
     currentUser,
-    sessionChecked,
     businesses
   } = useApp();
 
@@ -36,18 +44,24 @@ export default function App() {
 
   // Modals state
   const [cartOpen, setCartOpen] = useState(false);
-  // Si hay token guardado no se abre el modal de login de primeras: la app
-  // restaura la sesión con GET /auth/me y sólo pide acceso si no hay usuario.
-  const [authModalOpen, setAuthModalOpen] = useState(() => !getSessionToken());
-
-  // Una vez comprobada la sesión, si finalmente no hay usuario (sin token,
-  // token caducado...), se abre el modal de acceso.
-  useEffect(() => {
-    if (sessionChecked && !currentUser) {
-      setAuthModalOpen(true);
-    }
-  }, [sessionChecked, currentUser]);
+  // El modal de acceso no abre de primeras: la portada es navegable sin sesión.
+  // Se abre sólo bajo demanda (botón "Entrar") o al intentar finalizar una
+  // compra anónima desde el carrito.
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [customizerProduct, setCustomizerProduct] = useState<Product | null>(null);
+  const [resetToken, setResetToken] = useState<string | null>(() => readResetTokenFromHash());
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+
+  // El avatar de la cabecera: el administrador de negocio edita sólo la foto
+  // (sus datos completos están en "DATOS DEL NEGOCIO"); el resto de roles
+  // conserva el modal de perfil completo.
+  const handleAvatarButton = () => {
+    if (currentUser?.role === 'BUSINESS_ADMIN') {
+      setAvatarModalOpen(true);
+      return;
+    }
+    setAuthModalOpen(true);
+  };
   const [customizerBizId, setCustomizerBizId] = useState<string | null>(null);
   const canAccessCourierDashboard = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER') && currentUser.isEmailVerified && (currentUser.courierProfile?.confirmation === 'SUPERADMIN' || currentUser.courierProfile?.confirmation === 'BUSINESS_EMAIL');
   const canAccessBusinessDashboard = !!currentUser && (currentUser.role === 'BUSINESS_ADMIN' || currentUser.role === 'SUPERADMIN');
@@ -97,6 +111,7 @@ export default function App() {
         }}
         openCart={() => setCartOpen(true)}
         openAuthModal={() => setAuthModalOpen(true)}
+        onAvatarClick={handleAvatarButton}
       />
 
       {/* Main App Container */}
@@ -193,6 +208,7 @@ export default function App() {
         onOrderSuccess={(orderId) => {
           setCurrentView('orders');
         }}
+        openAuthModal={() => setAuthModalOpen(true)}
       />
 
       {/* Auth & Gmail Verification Modal */}
@@ -200,6 +216,28 @@ export default function App() {
         isOpen={authModalOpen}
         onClose={() => setAuthModalOpen(false)}
       />
+
+      {/* Editor de avatar desde la cabecera */}
+      <AvatarEditorModal
+        isOpen={avatarModalOpen}
+        onClose={() => setAvatarModalOpen(false)}
+      />
+
+      {/* Enlace de recuperación de contraseña desde el superadmin */}
+      {resetToken && (
+        <ResetPasswordView
+          token={resetToken}
+          onClose={() => {
+            setResetToken(null);
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }}
+          onSuccess={() => {
+            setResetToken(null);
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+            setAuthModalOpen(true);
+          }}
+        />
+      )}
 
       {/* Footer */}
       <footer className="border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-8 transition-colors mt-auto">

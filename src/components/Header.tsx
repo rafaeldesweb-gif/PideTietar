@@ -12,13 +12,20 @@ interface HeaderProps {
   setCurrentView: (v: string) => void;
   openCart: () => void;
   openAuthModal: () => void;
+  /** Acción propia para el avatar (App decide perfil completo o sólo avatar). */
+  onAvatarClick?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   setCurrentView,
   openCart,
   openAuthModal,
+  onAvatarClick,
 }) => {
+  const handleAvatarPress = () => {
+    if (onAvatarClick) onAvatarClick();
+    else openAuthModal();
+  };
   const { 
     currentUser, 
     logout, 
@@ -148,9 +155,9 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <button
                   id="user-profile-btn"
-                  onClick={openAuthModal}
+                  onClick={handleAvatarPress}
                   className="hidden items-center gap-2 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] sm:flex"
-                  aria-label="Ver perfil"
+                  aria-label="Editar mi avatar"
                 >
                   <MediaView
                     src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
@@ -218,7 +225,7 @@ export const Header: React.FC<HeaderProps> = ({
             {currentUser ? (
               <>
                 <button
-                  onClick={() => { openAuthModal(); setMobileNavOpen(false); }}
+                  onClick={() => { handleAvatarPress(); setMobileNavOpen(false); }}
                   className="w-full py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200"
                 >
                   Mi perfil

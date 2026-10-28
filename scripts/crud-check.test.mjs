@@ -105,6 +105,28 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send('/auth/login', 'POST', { email: client.user.email, password }, 401, undefined);
     assert.equal((await login(client.user.email, `${password}-nueva`)).user.id, client.user.id);
   });
+  await t.test('recuperación: enlace de superadmin, uso único y cambio efectivo', async () => {
+    const registered = await send('/auth/register', 'POST', { username: 'recuperable', fullName: 'Cuenta a recuperar', email: 'recuperable@example.com', password, address: 'Calle de recuperación 4', localityId: zone.id }, 201, undefined);
+    const targetId = registered.data.user.id;
+    // Sólo el superadmin puede pedir el enlace: un cliente recibe 403.
+    await send(`/users/${targetId}/request-password-reset`, 'POST', undefined, 403, client.token);
+    // `send` con auth undefined reutiliza el token del admin: esta otra
+    // comprobación sin sesión carga directo con `api`, que no añade token.
+    await api(`/users/${targetId}/request-password-reset`, { method: 'POST', status: 401 });
+    // Sin SMTP el enlace vuelve en la respuesta (para copiarlo a mano).
+    const link = await send(`/users/${targetId}/request-password-reset`, 'POST', undefined, 200);
+    const token = String(link.data.resetUrl || '').split('token=')[1] || '';
+    assert.match(token, /^[0-9a-f]{64}$/);
+    const fresh = `Recuperada-${password}`;
+    await send('/auth/reset-password', 'POST', { token: `${token}x`, newPassword: fresh }, 400, undefined);
+    await send('/auth/reset-password', 'POST', { token, newPassword: 'corta' }, 400, undefined);
+    await send('/auth/reset-password', 'POST', { newPassword: fresh }, 400, undefined);
+    await send('/auth/reset-password', 'POST', { token, newPassword: fresh }, 200, undefined);
+    // El token es de un solo uso: reutilizarlo vuelve a dar error.
+    await send('/auth/reset-password', 'POST', { token, newPassword: fresh }, 400, undefined);
+    await send('/auth/login', 'POST', { email: 'recuperable@example.com', password }, 401, undefined);
+    assert.equal((await login('recuperable@example.com', fresh)).user.id, targetId);
+  });
   await t.test('repartidores: alta, consulta, edición y confirmación por su dueño', async () => {
     const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z' }, 201, owner.token);
     courier = created.data.user;

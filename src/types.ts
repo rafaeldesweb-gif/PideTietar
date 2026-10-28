@@ -117,6 +117,8 @@ export interface Business {
   featuredProducts?: Product[];
   managerName?: string;
   managerDni?: string;
+  /** ID de la cuenta del propietario en app_users (vacío en negocios antiguos). */
+  ownerUserId?: string;
 }
 
 export interface Allergen {

@@ -10,9 +10,11 @@ interface CartDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   onOrderSuccess: (orderId: string) => void;
+  /** Abre el modal de Acceso/Registro cuando un anónimo intenta pedir. */
+  openAuthModal?: () => void;
 }
 
-export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrderSuccess }) => {
+export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrderSuccess, openAuthModal }) => {
   const { 
     cart, 
     clearCart, 
@@ -68,6 +70,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
   const handleCheckout = async () => {
     if (!currentUser) {
       showNotification('Inicia sesión o regístrate para finalizar tu compra.', 'info');
+      openAuthModal?.();
       return;
     }
     if (!currentBusiness) return;

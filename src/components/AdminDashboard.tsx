@@ -85,6 +85,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     listCouriers,
     setCourierConfirmation,
     updateCourierDetails,
+    requestPasswordResetLink,
     showNotification
   } = useApp();
 
@@ -131,6 +132,32 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
   // Errores campo a campo devueltos por el servidor (clave camelCase del form).
   const [businessFormErrors, setBusinessFormErrors] = useState<FieldErrors>({});
+  // Recuperación de contraseña del propietario: bloquea el botón de su fila
+  // mientras el servidor genera el enlace y guarda el enlace devuelto cuando
+  // no hay SMTP configurado (se copia a mano).
+  const [resetLinkBusyId, setResetLinkBusyId] = useState<string | null>(null);
+  const [resetLinkModal, setResetLinkModal] = useState<{
+    businessName: string;
+    email: string;
+    url: string;
+  } | null>(null);
+
+  const handleRequestOwnerPasswordReset = async (biz: Business) => {
+    if (!biz.ownerUserId) {
+      showNotification(`${biz.name} no tiene una cuenta de propietario asociada: edítale la clave a mano.`, 'error');
+      return;
+    }
+    setResetLinkBusyId(biz.id);
+    const result = await requestPasswordResetLink(biz.ownerUserId);
+    setResetLinkBusyId(null);
+    if (result.ok && !result.sent && result.resetUrl) {
+      setResetLinkModal({
+        businessName: biz.name,
+        email: biz.email,
+        url: result.resetUrl,
+      });
+    }
+  };
   // Si el catálogo llega después del primer render o la categoría elegida se
   // elimina, preselecciona la primera disponible para no enviar un formulario
   // con una categoría que ya no existe.
@@ -1402,6 +1429,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       >
                         {biz.isShiftOpen ? 'Forzar Cierre' : 'Abrir Turno'}
                       </button>
+                      <button
+                        onClick={() => handleRequestOwnerPasswordReset(biz)}
+                        disabled={resetLinkBusyId === biz.id}
+                        className="text-xs text-[#A32300] hover:underline font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Envía al correo del propietario un enlace para fijar una contraseña nueva"
+                      >
+                        {resetLinkBusyId === biz.id ? 'Enviando…' : 'Recuperar Clave'}
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1419,6 +1454,55 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           </table>
         </div>
       </div>
+
+      {resetLinkModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-stone-900">
+            <div className="flex items-start justify-between gap-3 border-b border-stone-100 p-5 dark:border-stone-800">
+              <div>
+                <h2 className="font-serif text-base font-bold text-stone-900 dark:text-stone-100">
+                  Enlace de recuperación preparado
+                </h2>
+                <p className="mt-1 text-xs text-stone-500">
+                  {resetLinkModal.businessName} · {resetLinkModal.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetLinkModal(null)}
+                className="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 dark:hover:bg-stone-800"
+                title="Cerrar"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 p-5">
+              <p className="text-xs text-stone-500 dark:text-stone-400">
+                No hay SMTP configurado, así que el correo no se ha enviado. Copia este enlace de uso único (válido 60 minutos) y pásaselo al propietario por el canal que prefieras:
+              </p>
+              <textarea
+                readOnly
+                value={resetLinkModal.url}
+                onClick={(event) => (event.target as HTMLTextAreaElement).select()}
+                rows={3}
+                className="w-full rounded-xl border border-stone-200 bg-stone-50 p-3 font-mono text-[11px] break-all text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(resetLinkModal.url);
+                    showNotification('Enlace copiado al portapapeles.', 'success');
+                  }}
+                  className="rounded-xl bg-stone-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-stone-700"
+                >
+                  Copiar enlace
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingCourier && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">

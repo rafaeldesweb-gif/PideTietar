@@ -88,6 +88,9 @@ interface AppContextType {
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
+  requestPasswordResetLink: (
+    userId: string,
+  ) => Promise<{ ok: boolean; sent: boolean; resetUrl?: string; message?: string }>;
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Promise<Product | null>;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Promise<Product | null>;
   deleteProductFromBusiness: (productId: string) => void;
@@ -267,6 +270,7 @@ const normalizeBusiness = (item: any): Business => {
     featuredProducts: item.featuredProducts || [],
     managerName: item.managerName || item.manager_name || '',
     managerDni: item.managerDni || item.manager_dni || '',
+    ownerUserId: item.ownerUserId ?? item.owner_user_id ?? '',
   };
 };
 
@@ -1636,6 +1640,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Envia al correo del usuario elegido (p. ej. el dueño de un negocio) un
+  // enlace de uso único para fijar una nueva contraseña. Sin SMTP configurado
+  // el backend devuelve el enlace en la respuesta para poder copiarlo a mano.
+  const requestPasswordResetLink = async (
+    userId: string,
+  ): Promise<{ ok: boolean; sent: boolean; resetUrl?: string; message?: string }> => {
+    try {
+      const data = (await apiFetch(
+        `/users/${encodeURIComponent(userId)}/request-password-reset`,
+        { method: 'POST' },
+      )) as { sent?: boolean; resetUrl?: string; message?: string } | null;
+      const message = data?.message || 'Enlace de recuperación generado.';
+      if (data?.sent) showNotification(message, 'success');
+      return { ok: true, sent: Boolean(data?.sent), resetUrl: data?.resetUrl, message };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'No se pudo generar el enlace de recuperación';
+      showNotification(message, 'error');
+      return { ok: false, sent: false, message };
+    }
+  };
+
   const updateBusinessShift = (businessId: string, isOpen: boolean) => {
     const previous = businesses.find(b => b.id === businessId)?.isShiftOpen;
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
@@ -2275,6 +2300,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       listCouriers,
       setCourierConfirmation,
       updateCourierDetails,
+      requestPasswordResetLink,
       addProductToBusiness,
       updateProductInBusiness,
       deleteProductFromBusiness,

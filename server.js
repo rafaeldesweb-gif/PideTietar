@@ -4,7 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 import { DatabaseSync } from "node:sqlite";
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
@@ -70,6 +70,9 @@ let databaseMode = "sqlite";
 
 const emailVerificationTtlMs =
   Number(process.env.EMAIL_VERIFICATION_TTL_MINUTES || 15) * 60 * 1000;
+// Vigencia del enlace de recuperación de contraseña desde el superadmin.
+const passwordResetTtlMs =
+  Number(process.env.PASSWORD_RESET_TTL_MINUTES || 60) * 60 * 1000;
 const INSECURE_DEFAULT_PASSWORD = "PideTietar123";
 const MIN_PASSWORD_LENGTH = 8;
 
@@ -132,6 +135,8 @@ const sqliteSchema = `
     password_changed_at TEXT,
     email_verification_code TEXT,
     email_verification_expires_at TEXT,
+    password_reset_hash TEXT,
+    password_reset_expires_at TEXT,
     courier_confirmation TEXT DEFAULT 'PENDING',
     courier_business_ids TEXT DEFAULT '[]',
     is_online INTEGER NOT NULL DEFAULT 0,
@@ -318,6 +323,8 @@ const mysqlSchema = `
     password_changed_at DATETIME(3) NULL,
     email_verification_code VARCHAR(12) NULL,
     email_verification_expires_at DATETIME(3) NULL,
+    password_reset_hash VARCHAR(64) NULL,
+    password_reset_expires_at DATETIME(3) NULL,
     courier_confirmation VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     courier_business_ids JSON NULL,
     is_online TINYINT(1) NOT NULL DEFAULT 0,
@@ -628,6 +635,8 @@ async function ensureMySqlSchemaShape(pool) {
     ["password_changed_at", "DATETIME(3) NULL"],
     ["email_verification_code", "VARCHAR(12) NULL"],
     ["email_verification_expires_at", "DATETIME(3) NULL"],
+    ["password_reset_hash", "VARCHAR(64) NULL"],
+    ["password_reset_expires_at", "DATETIME(3) NULL"],
     ["courier_confirmation", "VARCHAR(20) NOT NULL DEFAULT 'PENDING'"],
     ["courier_business_ids", "JSON NULL"],
     ["is_online", "TINYINT(1) NOT NULL DEFAULT 0"],
@@ -867,6 +876,12 @@ function ensureSqliteSchemaShape() {
     db.exec(
       "ALTER TABLE app_users ADD COLUMN email_verification_expires_at TEXT",
     );
+  }
+  if (!userColumns.has("password_reset_hash")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN password_reset_hash TEXT");
+  }
+  if (!userColumns.has("password_reset_expires_at")) {
+    db.exec("ALTER TABLE app_users ADD COLUMN password_reset_expires_at TEXT");
   }
 
   ensureTable(
@@ -1507,6 +1522,113 @@ async function clearUserVerificationCode(userId) {
   db.prepare(
     "UPDATE app_users SET email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
   ).run(new Date().toISOString(), userId);
+}
+
+// Recuperación de contraseña: el token nunca se guarda en claro (sólo su
+// SHA-256) y el enlace llega por correo al usuario elegido por el superadmin.
+function sha256Hex(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+async function setPasswordResetToken(userId, tokenHash, expiresAt) {
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "UPDATE app_users SET password_reset_hash = ?, password_reset_expires_at = ? WHERE id = ?",
+      [tokenHash, expiresAt, userId],
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    "UPDATE app_users SET password_reset_hash = ?, password_reset_expires_at = ? WHERE id = ?",
+  ).run(tokenHash, expiresAt, userId);
+}
+
+async function clearPasswordResetToken(userId) {
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      "UPDATE app_users SET password_reset_hash = NULL, password_reset_expires_at = NULL WHERE id = ?",
+      [userId],
+    );
+    return;
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    "UPDATE app_users SET password_reset_hash = NULL, password_reset_expires_at = NULL WHERE id = ?",
+  ).run(userId);
+}
+
+async function getUserByPasswordResetToken(tokenHash) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM app_users WHERE password_reset_hash = ? LIMIT 1",
+      [tokenHash],
+    );
+    return rows[0] || null;
+  }
+
+  const db = getSqliteDb();
+  return (
+    db
+      .prepare(
+        "SELECT * FROM app_users WHERE password_reset_hash = ? LIMIT 1",
+      )
+      .get(tokenHash) || null
+  );
+}
+
+async function sendPasswordResetEmail({ email, fullName, resetUrl, minutes }) {
+  const from =
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es";
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
+  const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
+  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
+
+  if (!host || !user || !pass) {
+    return {
+      sent: false,
+      message: "SMTP no configurado; se devuelve el enlace para pruebas locales.",
+    };
+  }
+
+  const transporter = getSmtpTransporter();
+  if (!transporter) {
+    return {
+      sent: false,
+      message: "SMTP no configurado; se devuelve el enlace para pruebas locales.",
+    };
+  }
+
+  try {
+    await transporter.sendMail({
+      from,
+      to: email,
+      subject: "Recupera tu contraseña en PideTiétar",
+      text: `Hola ${fullName || "usuario"},\n\nEl superadministrador ha iniciado la recuperación de tu contraseña.\nAbre este enlace para fijar una nueva clave (válido durante ${minutes} minutos):\n\n${resetUrl}\n\nSi no has solicitado esto, ignora el mensaje y tu contraseña sigue siendo la misma.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; background: #fff; color: #1a1a1a; padding: 24px; border-radius: 12px; max-width: 560px; margin: 0 auto; border: 1px solid #f0f0f0;">
+          <h2 style="color: #ff4e00; margin-top: 0;">PideTiétar</h2>
+          <p>Hola <strong>${fullName || "usuario"}</strong>,</p>
+          <p>El superadministrador ha iniciado la recuperación de tu contraseña. Abre este enlace para fijar una nueva clave:</p>
+          <p style="margin: 20px 0; text-align: center;">
+            <a href="${resetUrl}" style="display: inline-block; background: #ff4e00; color: #fff; font-weight: 700; padding: 12px 24px; border-radius: 10px; text-decoration: none;">Restablecer contraseña</a>
+          </p>
+          <p style="word-break: break-all; color: #555;">O copia este enlace: <a href="${resetUrl}">${resetUrl}</a></p>
+          <p>Este enlace expira en ${minutes} minutos y sólo puede usarse una vez. Si no has solicitado esto, ignora el mensaje: tu contraseña sigue siendo la misma.</p>
+        </div>
+      `,
+    });
+
+    return { sent: true };
+  } catch (error) {
+    return {
+      sent: false,
+      message:
+        "No fue posible enviar el correo con el SMTP configurado; se devuelve el enlace para pruebas locales.",
+    };
+  }
 }
 
 async function getUserByIdentifier(identifier) {
@@ -3587,6 +3709,118 @@ app.post("/api/auth/change-password", async (req, res) => {
   return res.json({
     success: true,
     message: "Contraseña actualizada correctamente. Ya puedes iniciar sesión.",
+  });
+});
+
+// El superadmin envía a la cuenta elegida (p. ej. el dueño de un negocio) un
+// enlace de uso único para fijar una nueva contraseña sin conocer la actual.
+app.post("/api/users/:id/request-password-reset", requireSuperAdmin, async (req, res) => {
+  const targetUser = await loadUserForSession(req.params.id);
+
+  if (!targetUser) {
+    throw httpError(404, "USER_NOT_FOUND", "El usuario indicado no existe.");
+  }
+  if (String(targetUser.id) === "superadmin-rafaadmin") {
+    throw httpError(
+      409,
+      "RESET_UNAVAILABLE",
+      "La cuenta de emergencia no tiene fila en la base de datos: usa cambiar la clave en el desplegable de superadministración.",
+    );
+  }
+
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = sha256Hex(token);
+  const expiresAt = new Date(Date.now() + passwordResetTtlMs).toISOString();
+  await setPasswordResetToken(targetUser.id, tokenHash, expiresAt);
+
+  const appUrl = String(process.env.APP_URL || "http://localhost:3000").replace(
+    /\/+$/,
+    "",
+  );
+  const resetUrl = `${appUrl}/#restablecer-clave?token=${token}`;
+  const minutes = Math.round(passwordResetTtlMs / 60000);
+  const emailDelivery = await sendPasswordResetEmail({
+    email: targetUser.email,
+    fullName: targetUser.full_name || targetUser.username || "usuario",
+    resetUrl,
+    minutes,
+  });
+
+  res.json({
+    success: true,
+    sent: emailDelivery.sent,
+    message: emailDelivery.sent
+      ? `Enlace enviado al correo de ${targetUser.username || targetUser.email}.`
+      : emailDelivery.message,
+    resetUrl: emailDelivery.sent ? undefined : resetUrl,
+    expiresAt,
+  });
+});
+
+// Consumo del enlace: público porque el token aleatorio es la prueba de
+// identidad. El hash se borra al usarse, así que el enlace es de un solo uso.
+app.post("/api/auth/reset-password", async (req, res) => {
+  const { token, newPassword } = req.body || {};
+  const cleanToken = String(token || "").trim();
+  const cleanNewPassword = normalizePassword(newPassword);
+
+  if (!cleanToken || !cleanNewPassword) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Token y nueva contraseña son obligatorios.",
+    });
+  }
+  if (cleanNewPassword.length < MIN_PASSWORD_LENGTH) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: `La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres.`,
+    });
+  }
+
+  const user = await getUserByPasswordResetToken(sha256Hex(cleanToken));
+  const expiresAtRaw =
+    user?.password_reset_expires_at || user?.passwordResetExpiresAt;
+
+  if (!user || !expiresAtRaw || Date.now() > new Date(expiresAtRaw).getTime()) {
+    // Un token usado ya no tiene hash guardado y un caducado sí: ambos casos
+    // devuelven el mismo error sin revelar detalles del estado de la fila.
+    throw httpError(
+      400,
+      "INVALID_RESET_TOKEN",
+      "El enlace no es válido o ha caducado. Pide otro enlace al superadministrador.",
+    );
+  }
+
+  const newHash = bcrypt.hashSync(cleanNewPassword, 10);
+  const changedAt = new Date().toISOString();
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `UPDATE app_users
+          SET password_hash = ?,
+              password_change_required = 0,
+              password_changed_at = ?,
+              password_reset_hash = NULL,
+              password_reset_expires_at = NULL
+        WHERE id = ?`,
+      [newHash, changedAt, user.id],
+    );
+  } else {
+    const db = getSqliteDb();
+    db.prepare(
+      `UPDATE app_users
+          SET password_hash = ?,
+              password_change_required = 0,
+              password_changed_at = ?,
+              password_reset_hash = NULL,
+              password_reset_expires_at = NULL
+        WHERE id = ?`,
+    ).run(newHash, changedAt, user.id);
+  }
+
+  res.json({
+    success: true,
+    message: "Contraseña restablecida. Ya puedes iniciar sesión con la nueva.",
   });
 });
 

@@ -26,7 +26,6 @@ import {
   Printer,
   Save,
   Search,
-  Settings,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
@@ -145,10 +144,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     localStorage.setItem('pt_cleared_orders', JSON.stringify(Array.from(clearedOrderIds)));
   }, [clearedOrderIds]);
   const [newOrderModal, setNewOrderModal] = useState(false);
-  const [settingsModal, setSettingsModal] = useState(false);
   // Datos del comercio: los edita el propio usuario del negocio (y el
   // superadmin). Aquí es donde se guarda la cuenta bancaria (IBAN) que luego
-  // necesita la pasarela de pago para ingresar al negocio.
+  // necesita la pasarela de pago para ingresar al negocio. Es el formulario
+  // único del panel: también incluye la cuenta del responsable (antes
+  // vivía aparte en "Configuración del administrador").
   const [businessDataModal, setBusinessDataModal] = useState(false);
   const [businessDataForm, setBusinessDataForm] = useState({
     name: '',
@@ -295,7 +295,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         avatarUrl: currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80',
       });
     }
-  }, [currentUser, settingsModal]);
+  }, [currentUser, businessDataModal]);
 
   useEffect(() => {
     if (currentUser?.businessId) {
@@ -947,6 +947,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
   // Abre el formulario con los datos actuales del comercio para que el
   // propietario pueda actualizarlos (IBAN incluido) sin pasar por el superadmin.
+  // Es el único formulario del panel: además precarga los datos de la cuenta
+  // del responsable (antes vivía en "Configuración del administrador").
   const openBusinessDataModal = () => {
     setBusinessDataErrors({});
     setBusinessDataForm({
@@ -984,7 +986,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
 
     setBusinessDataSaving(true);
     try {
-      const saved = await updateBusiness(
+      const businessSaved = await updateBusiness(
         business.id,
         {
           name: businessDataForm.name.trim(),
@@ -1001,7 +1003,28 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         (errors) => setBusinessDataErrors(toBusinessFieldErrors(errors)),
       );
 
-      if (saved) setBusinessDataModal(false);
+      if (!businessSaved) return;
+
+      // El bloque "Cuenta del responsable" sólo se guarda cuando el usuario
+      // en sesión es el propietario de ESTE negocio. El superadmin que
+      // consulta otro comercio no debe sobrescribir el perfil ajeno.
+      if (currentUser && currentUser.role !== 'SUPERADMIN' && currentUser.businessId === business.id) {
+        // Sólo se envía la contraseña si el usuario escribe una nueva en el
+        // campo; el spread restante nunca arrastra la clave de la sesión.
+        const newPassword = userSettingsForm.password.trim();
+        const { password: _ignoredPassword, ...restUser } = currentUser;
+        void _ignoredPassword;
+        await updateCurrentUserProfile({
+          ...restUser,
+          name: userSettingsForm.name.trim() || currentUser.name,
+          email: userSettingsForm.email.trim() || currentUser.email,
+          phone: userSettingsForm.phone.trim() || currentUser.phone,
+          avatarUrl: userSettingsForm.avatarUrl.trim() || currentUser.avatarUrl,
+          ...(newPassword ? { password: newPassword } : {}),
+        });
+      }
+
+      setBusinessDataModal(false);
     } finally {
       setBusinessDataSaving(false);
     }
@@ -1148,14 +1171,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
             >
               <Power className="w-3 h-3" />
               <span className="hidden md:inline">{currentUser ? (business.isShiftOpen ? 'Servicio Abierto' : 'Servicio Cerrado') : 'Servicio Cerrado'}</span>
-            </button>
-
-            <button
-              onClick={() => setSettingsModal(true)}
-              className="inline-flex rounded-lg p-1.5 text-stone-600 transition hover:bg-stone-100 md:hidden"
-              aria-label="Abrir configuracion"
-            >
-              <Settings className="w-4 h-4" />
             </button>
 
             <button
@@ -1309,14 +1324,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
           </div>
 
           <div className="pt-4 border-t border-[#e6dac8] space-y-1">
-            <button
-              onClick={() => setSettingsModal(true)}
-              className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 transition flex items-center space-x-2"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>CONFIGURACIÓN</span>
-            </button>
-
             <button
               onClick={openBusinessDataModal}
               className="w-full text-left px-3.5 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 transition flex items-center space-x-2"
@@ -2406,119 +2413,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         </div>
       )}
 
-      {settingsModal && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg p-5 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-black text-stone-900">Configuración del administrador</h3>
-              <button onClick={() => setSettingsModal(false)} className="text-stone-500 hover:text-stone-900">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-4 text-sm">
-              <div className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3">
-                <MediaView
-                  src={userSettingsForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
-                  alt="Avatar del administrador"
-                  className="block w-14 h-14 rounded-full border-2 border-[#e7d5c7] bg-stone-100"
-                  style={{ borderRadius: '9999px' }}
-                  fit="cover"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] uppercase tracking-wider text-stone-500">Avatar</div>
-                  <div className="mt-1 block w-full">
-                    <input
-                      type="file"
-                      accept={MEDIA_ACCEPT}
-                      onChange={handleUserAvatarUpload}
-                      className="text-xs text-stone-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:px-2 file:py-1.5 file:text-white"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Pega aquí una URL de avatar…"
-                      value={userSettingsAvatarUrlText}
-                      onChange={(e) => setUserSettingsAvatarUrlText(e.target.value)}
-                      onBlur={() => handleUserAvatarUrlPaste(userSettingsAvatarUrlText, setUserSettingsAvatarUrlText)}
-                      className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs mt-1"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Nombre</label>
-                <input
-                  value={userSettingsForm.name}
-                  onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Email</label>
-                <input
-                  type="email"
-                  value={userSettingsForm.email}
-                  onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, email: event.target.value }))}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Contraseña</label>
-                <SensitiveInput
-                  type="password"
-                  value={userSettingsForm.password}
-                  onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, password: event.target.value }))}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
-                  placeholder="Nueva contraseña"
-                  toggleLabel="contraseña"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] uppercase tracking-wider text-stone-600 mb-1">Teléfono</label>
-                <input
-                  value={userSettingsForm.phone}
-                  onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, phone: event.target.value }))}
-                  className="w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-4">
-              <button type="button" onClick={() => setSettingsModal(false)} className="rounded-xl bg-stone-100 text-stone-700 px-4 py-2 font-semibold">Cerrar</button>
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!currentUser) return;
-                  // Sólo se envía la contraseña si el usuario escribe una nueva
-                  // en el campo. Antes el spread de currentUser arrastraba la
-                  // clave por defecto del usuario mock ("admin123") y la
-                  // sustituía por la real sin avisar.
-                  const newPassword = userSettingsForm.password.trim();
-                  const { password: _ignoredPassword, ...restUser } = currentUser;
-                  void _ignoredPassword;
-                  const saved = await updateCurrentUserProfile({
-                    ...restUser,
-                    name: userSettingsForm.name.trim() || currentUser.name,
-                    email: userSettingsForm.email.trim() || currentUser.email,
-                    phone: userSettingsForm.phone.trim() || currentUser.phone,
-                    avatarUrl: userSettingsForm.avatarUrl.trim() || currentUser.avatarUrl,
-                    ...(newPassword ? { password: newPassword } : {}),
-                  });
-                  if (saved) setSettingsModal(false);
-                }}
-                className="rounded-xl bg-[#FF4E00] text-white px-4 py-2 font-semibold hover:bg-[#E64600]"
-              >
-                Guardar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {businessDataModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl bg-white p-5 shadow-2xl">
@@ -2646,6 +2540,86 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   <FieldError message={businessDataErrors.managerDni} />
                 </div>
               </div>
+
+              {/* Cuenta del responsable: sólo se muestra y guarda cuando el
+                  usuario en sesión es el propietario de este negocio. El
+                  superadmin que consulta otro comercio no la ve. */}
+              {currentUser && currentUser.role !== 'SUPERADMIN' && currentUser.businessId === business.id && (
+                <>
+                  <div className="my-2 border-t border-stone-200" />
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-stone-500">
+                    Cuenta del responsable
+                  </p>
+                  <div className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3">
+                    <MediaView
+                      src={userSettingsForm.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
+                      alt="Avatar del responsable"
+                      className="block w-14 h-14 rounded-full border-2 border-[#e7d5c7] bg-stone-100"
+                      style={{ borderRadius: '9999px' }}
+                      fit="cover"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] uppercase tracking-wider text-stone-500">Avatar</div>
+                      <input
+                        type="file"
+                        accept={MEDIA_ACCEPT}
+                        onChange={handleUserAvatarUpload}
+                        className="mt-1 text-xs text-stone-600 file:mr-3 file:rounded-md file:border-0 file:bg-[#FF4E00] file:px-2 file:py-1.5 file:text-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Pega aquí una URL de avatar…"
+                        value={userSettingsAvatarUrlText}
+                        onChange={(e) => setUserSettingsAvatarUrlText(e.target.value)}
+                        onBlur={() => handleUserAvatarUrlPaste(userSettingsAvatarUrlText, setUserSettingsAvatarUrlText)}
+                        className="mt-1 w-full rounded-xl bg-[#fffaf4] border border-[#e6d7c5] px-3 py-2 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00] shadow-inner text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-stone-700">Nombre completo</label>
+                      <input
+                        value={userSettingsForm.name}
+                        onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, name: event.target.value }))}
+                        className="w-full rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-900 outline-none focus:border-[#FF4E00]"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-stone-700">Correo de la cuenta</label>
+                      <input
+                        type="email"
+                        value={userSettingsForm.email}
+                        onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, email: event.target.value }))}
+                        className="w-full rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-900 outline-none focus:border-[#FF4E00]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-stone-700">Teléfono de la cuenta</label>
+                      <input
+                        value={userSettingsForm.phone}
+                        onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, phone: event.target.value }))}
+                        className="w-full rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-900 outline-none focus:border-[#FF4E00]"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-bold text-stone-700">Nueva contraseña (opcional)</label>
+                      <SensitiveInput
+                        type="password"
+                        value={userSettingsForm.password}
+                        onChange={(event) => setUserSettingsForm((prev) => ({ ...prev, password: event.target.value }))}
+                        className="w-full rounded-xl border border-stone-200 px-4 py-2 text-sm text-stone-900 outline-none focus:border-[#FF4E00]"
+                        placeholder="Mínimo 8 caracteres"
+                        toggleLabel="contraseña"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="flex justify-end gap-2 pt-2">
                 <button
