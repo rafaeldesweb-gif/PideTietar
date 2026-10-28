@@ -1369,58 +1369,59 @@ function buildVerificationCode() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-function getSmtpTransporter() {
-  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
-  const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
-  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
-
-  if (!host || !user || !pass) {
-    return null;
-  }
-
-  const preferredPort = Number(
-    process.env.SMTP_PORT || process.env.EMAIL_PORT || 465,
+function smtpFromAddress() {
+  return (
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es"
   );
-  const preferredSecure =
-    String(
-      process.env.SMTP_SECURE || process.env.EMAIL_SECURE || "true",
-    ).toLowerCase() === "true";
-
-  const candidates = [
-    { port: preferredPort, secure: preferredSecure },
-    ...(preferredPort === 465
-      ? [{ port: 587, secure: false }]
-      : preferredPort === 587
-        ? [{ port: 465, secure: true }]
-        : []),
-  ];
-
-  const seen = new Set();
-  for (const candidate of candidates) {
-    const key = `${candidate.port}:${candidate.secure}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-
-    const transport = nodemailer.createTransport({
-      host,
-      port: candidate.port,
-      secure: candidate.secure,
-      auth: { user, pass },
-      requireTLS: !candidate.secure,
-      tls: { rejectUnauthorized: false },
-    });
-
-    if (transport) {
-      return transport;
-    }
-  }
-
-  return null;
 }
 
-async function sendVerificationEmail({ email, fullName, code }) {
-  const from =
-    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es";
+// Plantilla de marca para los correos de la plataforma (verificación y
+// recuperación). Todo el estilo va en línea: Gmail y Outlook eliminan las
+// etiquetas <style>. El logo se embebe con cid:pidetietar-logo (adjunto en
+// cada sendMail) para que se vea aunque el cliente bloquee imágenes remotas.
+const BRAND_EMAIL_LOGO_PATH = path.join(__dirname, "public", "Logo.png");
+const BRAND_EMAIL_LOGO_CID = "pidetietar-logo";
+
+function renderBrandEmail({ heading, bodyHtml, preheader = "" }) {
+  return `<!DOCTYPE html>
+<html lang="es">
+  <body style="margin:0; padding:0; background:#f5f3f0;">
+    <span style="display:none; max-height:0; overflow:hidden;">${preheader}</span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%; background:#f5f3f0; padding:32px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px; max-width:100%; border-collapse:collapse;">
+            <tr>
+              <td align="center" style="background:#1a0903; background-image:linear-gradient(135deg, #1a0903 0%, #3a1503 60%, #6b2400 100%); border-radius:20px 20px 0 0; padding:28px 24px;">
+                <img src="cid:${BRAND_EMAIL_LOGO_CID}" alt="PideTiétar" width="180" style="display:block; width:180px; max-width:100%; height:auto; border:0;" />
+                <div style="color:#f6c594; font-family:Arial, sans-serif; font-size:11px; letter-spacing:3px; text-transform:uppercase; margin-top:6px;">Valle del Tiétar · Ávila</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#ffffff; border-left:1px solid #efe6df; border-right:1px solid #efe6df; padding:32px 36px 28px; font-family:Georgia, 'Times New Roman', serif;">
+                <h2 style="margin:0 0 16px; font-size:26px; line-height:1.2; color:#1a0903;">${heading}</h2>
+                <div style="margin:0; font-family:Arial, sans-serif; font-size:14px; line-height:22px; color:#3f342e;">
+                  ${bodyHtml}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="background:#fffaf4; border:1px solid #efe6df; border-top:0; border-radius:0 0 20px 20px; padding:18px 36px; font-family:Arial, sans-serif; font-size:11px; line-height:18px; color:#8d7f73;">
+                PideTiétar · Pedidos entre vecinos y comercios del Valle del Tiétar.<br />
+                Si no esperabas este mensaje, puedes ignorarlo: tu cuenta y tu contraseña siguen igual.
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+// Envío común de los correos de marca: prueba la configuración SMTP
+// preferente y, si falla, los puertos alternativos (587/465).
+async function sendBrandEmail({ to, subject, text, heading, bodyHtml, preheader }) {
   const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
   const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
   const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
@@ -1428,9 +1429,7 @@ async function sendVerificationEmail({ email, fullName, code }) {
   if (!host || !user || !pass) {
     return {
       sent: false,
-      code,
-      message:
-        "SMTP no configurado; se devuelve el código para pruebas locales.",
+      message: "SMTP no configurado; se devuelve el contenido para pruebas locales.",
     };
   }
 
@@ -1463,33 +1462,54 @@ async function sendVerificationEmail({ email, fullName, code }) {
       });
 
       await transporter.sendMail({
-        from,
-        to: email,
-        subject: "Verifica tu cuenta en PideTiétar",
-        text: `Hola ${fullName || "usuario"},\n\nTu código de verificación es: ${code}\n\nEste código expira en 15 minutos.`,
-        html: `
-          <div style="font-family: Arial, sans-serif; background: #fff; color: #1a1a1a; padding: 24px; border-radius: 12px; max-width: 560px; margin: 0 auto; border: 1px solid #f0f0f0;">
-            <h2 style="color: #ff4e00; margin-top: 0;">PideTiétar</h2>
-            <p>Hola <strong>${fullName || "usuario"}</strong>,</p>
-            <p>Para verificar tu cuenta, usa este código:</p>
-            <div style="background: #fff5f0; border: 2px dashed #ff4e00; border-radius: 10px; padding: 18px; text-align: center; font-size: 32px; font-weight: 700; letter-spacing: 4px; margin: 20px 0; color: #a93200;">${code}</div>
-            <p>Este código expira en 15 minutos.</p>
-          </div>
-        `,
+        from: smtpFromAddress(),
+        to,
+        subject,
+        text,
+        html: renderBrandEmail({ heading, bodyHtml, preheader }),
+        attachments: fs.existsSync(BRAND_EMAIL_LOGO_PATH)
+          ? [
+              {
+                filename: "logo.png",
+                path: BRAND_EMAIL_LOGO_PATH,
+                cid: BRAND_EMAIL_LOGO_CID,
+              },
+            ]
+          : [],
       });
 
-      return { sent: true, code };
+      return { sent: true };
     } catch (error) {
-      // Continue to next candidate if the first SMTP mode fails.
+      // Se sigue con el siguiente candidato de puerto/seguridad.
     }
   }
 
   return {
     sent: false,
-    code,
     message:
-      "No fue posible enviar el correo con el SMTP configurado; se devuelve el código para pruebas locales.",
+      "No fue posible enviar el correo con el SMTP configurado; se devuelve el contenido para pruebas locales.",
   };
+}
+
+async function sendVerificationEmail({ email, fullName, code }) {
+  const name = fullName || "usuario";
+  const bodyHtml = `
+    <p style="margin:0 0 12px;">Hola <strong>${name}</strong>,</p>
+    <p style="margin:0 0 18px;">Para verificar tu cuenta de PideTiétar, introduce este código:</p>
+    <div style="margin:0 0 18px; background:#fff5f0; border:2px dashed #ff4e00; border-radius:12px; padding:20px 12px; text-align:center; font-size:34px; font-weight:700; letter-spacing:8px; color:#a93200; font-family:'Courier New', monospace;">${code}</div>
+    <p style="margin:0; color:#8d7f73; font-size:12px;">Este código expira en 15 minutos y sólo puede usarse una vez.</p>
+  `;
+
+  const delivery = await sendBrandEmail({
+    to: email,
+    subject: `Tu código de verificación en PideTiétar: ${code}`,
+    text: `Hola ${name},\n\nTu código de verificación es: ${code}\n\nEste código expira en 15 minutos.\n`,
+    heading: "Verifica tu cuenta",
+    bodyHtml,
+    preheader: `Tu código de verificación: ${code} (expira en 15 minutos)`,
+  });
+
+  return { ...delivery, code };
 }
 
 async function setUserVerificationCode(userId, code) {
@@ -1580,55 +1600,29 @@ async function getUserByPasswordResetToken(tokenHash) {
 }
 
 async function sendPasswordResetEmail({ email, fullName, resetUrl, minutes }) {
-  const from =
-    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es";
-  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
-  const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
-  const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
+  const name = fullName || "usuario";
+  const bodyHtml = `
+    <p style="margin:0 0 12px;">Hola <strong>${name}</strong>,</p>
+    <p style="margin:0 0 18px;">El superadministrador ha iniciado la recuperación de tu contraseña. Abre el siguiente botón para fijar una clave nueva:</p>
+    <p style="margin:0 0 18px; text-align:center;">
+      <a href="${resetUrl}" style="display:inline-block; background:#1a0903; color:#8bca60; font-family:Arial, sans-serif; font-size:15px; font-weight:700; letter-spacing:1px; padding:14px 32px; border-radius:12px; text-decoration:none; background-image:linear-gradient(135deg, #1a0903 0%, #3a1503 70%, #6b2400 100%);">Restablecer contraseña</a>
+    </p>
+    <p style="margin:0 0 18px; font-size:12px; color:#8d7f73;">O copia este enlace en tu navegador:<br />
+      <a href="${resetUrl}" style="color:#ff4e00; word-break:break-all;">${resetUrl}</a>
+    </p>
+    <p style="margin:0; color:#8d7f73; font-size:12px;">Este enlace expira en ${minutes} minutos y sólo puede usarse una vez. Si no has solicitado nada, ignora el mensaje: tu contraseña sigue siendo la misma.</p>
+  `;
 
-  if (!host || !user || !pass) {
-    return {
-      sent: false,
-      message: "SMTP no configurado; se devuelve el enlace para pruebas locales.",
-    };
-  }
+  const delivery = await sendBrandEmail({
+    to: email,
+    subject: "Recupera tu contraseña en PideTiétar",
+    text: `Hola ${name},\n\nEl superadministrador ha iniciado la recuperación de tu contraseña.\nAbre este enlace para fijar una nueva clave (válido durante ${minutes} minutos):\n\n${resetUrl}\n\nSi no has solicitado esto, ignora el mensaje y tu contraseña sigue siendo la misma.\n`,
+    heading: "Recupera tu contraseña",
+    bodyHtml,
+    preheader: "Enlace de un solo uso para fijar una contraseña nueva",
+  });
 
-  const transporter = getSmtpTransporter();
-  if (!transporter) {
-    return {
-      sent: false,
-      message: "SMTP no configurado; se devuelve el enlace para pruebas locales.",
-    };
-  }
-
-  try {
-    await transporter.sendMail({
-      from,
-      to: email,
-      subject: "Recupera tu contraseña en PideTiétar",
-      text: `Hola ${fullName || "usuario"},\n\nEl superadministrador ha iniciado la recuperación de tu contraseña.\nAbre este enlace para fijar una nueva clave (válido durante ${minutes} minutos):\n\n${resetUrl}\n\nSi no has solicitado esto, ignora el mensaje y tu contraseña sigue siendo la misma.`,
-      html: `
-        <div style="font-family: Arial, sans-serif; background: #fff; color: #1a1a1a; padding: 24px; border-radius: 12px; max-width: 560px; margin: 0 auto; border: 1px solid #f0f0f0;">
-          <h2 style="color: #ff4e00; margin-top: 0;">PideTiétar</h2>
-          <p>Hola <strong>${fullName || "usuario"}</strong>,</p>
-          <p>El superadministrador ha iniciado la recuperación de tu contraseña. Abre este enlace para fijar una nueva clave:</p>
-          <p style="margin: 20px 0; text-align: center;">
-            <a href="${resetUrl}" style="display: inline-block; background: #ff4e00; color: #fff; font-weight: 700; padding: 12px 24px; border-radius: 10px; text-decoration: none;">Restablecer contraseña</a>
-          </p>
-          <p style="word-break: break-all; color: #555;">O copia este enlace: <a href="${resetUrl}">${resetUrl}</a></p>
-          <p>Este enlace expira en ${minutes} minutos y sólo puede usarse una vez. Si no has solicitado esto, ignora el mensaje: tu contraseña sigue siendo la misma.</p>
-        </div>
-      `,
-    });
-
-    return { sent: true };
-  } catch (error) {
-    return {
-      sent: false,
-      message:
-        "No fue posible enviar el correo con el SMTP configurado; se devuelve el enlace para pruebas locales.",
-    };
-  }
+  return delivery;
 }
 
 async function getUserByIdentifier(identifier) {
@@ -6122,6 +6116,17 @@ async function startServer() {
     console.log(
       `Database target: ${mysqlPool ? process.env.MYSQL_DATABASE || "mysql" : DB_PATH}`,
     );
+    // Diagnóstico de correo: si falta una variable SMTP el envío devolverá
+    // el enlace/código en la respuesta. Así se ve al arrancar sin adivinar.
+    const smtpHost = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
+    const smtpUser = process.env.SMTP_USER || process.env.EMAIL_USER || "";
+    const smtpPass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
+    console.log(
+      smtpHost && smtpUser && smtpPass
+        ? `SMTP configurado ✔ host=${smtpHost}`
+        : "SMTP sin configurar: los correos no se envían y el enlace/código se devuelve en la API.",
+    );
+    console.log(`Logo del correo: ${BRAND_EMAIL_LOGO_PATH} (${fs.existsSync(BRAND_EMAIL_LOGO_PATH) ? "encontrado" : "no existe; el email saldrá sin imagen"})`);
   });
 }
 
