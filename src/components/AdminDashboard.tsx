@@ -1432,7 +1432,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       <button
                         onClick={() => handleRequestOwnerPasswordReset(biz)}
                         disabled={resetLinkBusyId === biz.id}
-                        className="text-xs text-[#A32300] hover:underline font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                        className="text-xs text-[#8bca60] hover:underline font-semibold cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                         title="Envía al correo del propietario un enlace para fijar una contraseña nueva"
                       >
                         {resetLinkBusyId === biz.id ? 'Enviando…' : 'Recuperar Clave'}

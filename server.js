@@ -1625,6 +1625,47 @@ async function sendPasswordResetEmail({ email, fullName, resetUrl, minutes }) {
   return delivery;
 }
 
+// Correo de bienvenida: se envía al crear cualquier cuenta (registro libre o
+// alta desde el panel). Va sin bloquear la respuesta del endpoint (void).
+function appHomeUrl() {
+  return String(process.env.APP_URL || "http://localhost:3000").replace(
+    /\/+$/,
+    "",
+  );
+}
+
+const WELCOME_ROLE_LINES = {
+  CLIENT: "Ya puedes explorar los comercios del valle, armar tu carrito y seguir tus pedidos en tiempo real.",
+  BUSINESS_ADMIN: "Ya puedes abrir tu panel, publicar tu carta y recibir pedidos de los vecinos del valle.",
+  PLATFORM_COURIER: "Ya puedes entrar a tu panel de repartidor y gestionar las entregas de la plataforma.",
+  BUSINESS_COURIER: "Ya puedes entrar a tu panel de repartidor para gestionar las entregas de tu negocio.",
+  SUPERADMIN: "Ya puedes gestionar la plataforma desde el panel de superadministración.",
+};
+
+function sendWelcomeEmail({ email, fullName, role }) {
+  const name = fullName || "usuario";
+  const roleLine = WELCOME_ROLE_LINES[String(role || "CLIENT").toUpperCase()] || WELCOME_ROLE_LINES.CLIENT;
+  const homeUrl = appHomeUrl();
+  const bodyHtml = `
+    <p style="margin:0 0 12px;">Hola <strong>${name}</strong>,</p>
+    <p style="margin:0 0 12px;">Te damos la bienvenida a <strong>PideTiétar</strong>, la app de pedidos entre vecinos y comercios del Valle del Tiétar.</p>
+    <p style="margin:0 0 20px;">${roleLine}</p>
+    <p style="margin:0 0 18px; text-align:center;">
+      <a href="${homeUrl}" style="display:inline-block; background:#1a0903; color:#8bca60; font-family:Arial, sans-serif; font-size:15px; font-weight:700; letter-spacing:1px; padding:14px 32px; border-radius:12px; text-decoration:none; background-image:linear-gradient(135deg, #1a0903 0%, #3a1503 70%, #6b2400 100%);">Entrar y explorar</a>
+    </p>
+    <p style="margin:0; color:#8d7f73; font-size:12px;">Si el botón no funciona, abre ${homeUrl} en tu navegador.</p>
+  `;
+
+  return sendBrandEmail({
+    to: email,
+    subject: "¡Bienvenido a PideTiétar!",
+    text: `Hola ${name},\n\nTe damos la bienvenida a PideTiétar, la app de pedidos entre vecinos y comercios del Valle del Tiétar.\n${roleLine}\n\nEntra aquí: ${homeUrl}\n`,
+    heading: "Bienvenido a PideTiétar",
+    bodyHtml,
+    preheader: "Ya puedes pedir en los comercios del Valle del Tiétar",
+  });
+}
+
 async function getUserByIdentifier(identifier) {
   const value = String(identifier || "").trim();
 
@@ -3501,6 +3542,11 @@ app.post("/api/auth/register", async (req, res) => {
     newUser.avatar_url = await persistUserAvatar(newUser.id, avatarUrl, newUser.id);
   }
 
+  // Mensaje de bienvenida con la plantilla de marca. Sin bloquear la
+  // respuesta: si el SMTP falla, el alta del usuario sigue correcta.
+  void sendWelcomeEmail({ email: newUser.email, fullName: newUser.full_name, role: newUser.role })
+    .catch(() => {});
+
   res.status(201).json({
     success: true,
     user: sanitizeUser(newUser),
@@ -4223,6 +4269,12 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const avatarUrl = cleanString(body.avatarUrl || body.avatar_url);
   if (avatarUrl.startsWith("data:")) {
     user.avatar_url = await persistUserAvatar(user.id, avatarUrl, sessionUser.id);
+  }
+
+  // Bienvenida con la plantilla de marca, sin bloquear la respuesta.
+  if (user.email) {
+    void sendWelcomeEmail({ email: user.email, fullName: user.full_name, role: user.role })
+      .catch(() => {});
   }
 
   res.status(201).json({ success: true, user: sanitizeUser(user) });
