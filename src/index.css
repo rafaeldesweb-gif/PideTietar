@@ -49,19 +49,26 @@
 
 .product-banner__category {
   position: absolute;
-  top: 26px;
-  left: 27px;
+  top: 23px;
+  left: 22px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  max-width: calc(100% - 280px);
-  padding: 4px 10px;
+  gap: 10px;
+  max-width: calc(100% - 300px);
+  padding: 6px 16px;
   border: 1px solid #8a3600;
   border-radius: 999px;
   color: #f5e09e;
-  font: 800 9px/14px "Inter", "Segoe UI", sans-serif;
-  letter-spacing: 1.2px;
+  font: 800 14px/22px "Inter", "Segoe UI", sans-serif;
+  letter-spacing: 2px;
   text-transform: uppercase;
+  /* Halo intenso (el de la selección clásica) en naranja corporativo. */
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 60%),
+    0 0 0 1px rgb(255 78 0 / 90%),
+    0 0 4px 1px rgb(255 224 200 / 95%),
+    0 0 10px 2px rgb(255 78 0 / 90%),
+    0 0 20px 5px rgb(255 96 0 / 65%);
 }
 
 .product-banner__copy {
@@ -116,7 +123,14 @@
   border: 3px solid #773000;
   border-radius: 50%;
   background: #282828;
-  box-shadow: 0 12px 35px rgb(255 78 0 / 12%);
+  /* Halo intenso (el de la selección clásica) en naranja corporativo. */
+  box-shadow:
+    0 12px 35px rgb(255 78 0 / 12%),
+    inset 0 0 0 1px rgb(255 255 255 / 60%),
+    0 0 0 1px rgb(255 78 0 / 90%),
+    0 0 4px 1px rgb(255 224 200 / 95%),
+    0 0 10px 2px rgb(255 78 0 / 90%),
+    0 0 20px 5px rgb(255 96 0 / 65%);
 }
 
 .product-banner .product-banner__dish-media {
@@ -203,16 +217,14 @@ button {
   cursor: pointer;
 }
 
-/* Borde de selección inspirado en la referencia: línea amarillo-blanca y halo luminoso. */
+/* Borde de selección: contorno naranja corporativo y halo suave y poco intenso. */
 .selection-glow {
-  border: 2px solid #fff6a3 !important;
+  border: 2px solid #ffd1b8 !important;
   box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 88%),
-    0 0 0 1px rgb(255 229 71 / 92%),
-    0 0 4px 1px rgb(255 253 210 / 96%),
-    0 0 10px 2px rgb(255 224 48 / 92%),
-    0 0 20px 5px rgb(255 181 0 / 70%),
-    0 0 32px 9px rgb(83 21 122 / 28%);
+    inset 0 0 0 1px rgb(255 255 255 / 55%),
+    0 0 0 1px rgb(255 78 0 / 55%),
+    0 0 6px 1px rgb(255 214 191 / 55%),
+    0 0 14px 3px rgb(255 78 0 / 38%);
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
 }
 

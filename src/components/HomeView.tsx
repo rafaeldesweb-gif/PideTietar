@@ -144,7 +144,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
           <div className="product-banner__shade" />
           <div key={activeBanner.id} className="product-banner__content" aria-label="Datos del producto destacado">
             <span className="product-banner__category">
-              <Sparkles size={12} aria-hidden="true" />
+              <Sparkles size={19} strokeWidth={2.25} aria-hidden="true" />
               {activeBanner.tag}
             </span>
             <div className="product-banner__copy">
@@ -226,7 +226,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
             >
               <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
                 selectedCategory === null
-                  ? 'selection-glow scale-105 shadow-md shadow-[#F5BB00]/30'
+                  ? 'selection-glow scale-105 shadow-md shadow-[#FF4E00]/30'
                   : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
               }`}>
                 <div className="flex h-full w-full items-center justify-center rounded-full bg-[#F5BB00] font-black text-stone-950 shadow-inner">
