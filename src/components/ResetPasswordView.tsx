@@ -48,7 +48,10 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({ token, onC
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data?.message || 'El enlace no es válido o ha caducado. Pide otro al superadministrador.');
+        throw new Error(
+          data?.message ||
+            'El enlace no es válido o ha caducado. Pide otro al superadministrador. Recuerda: cada enlace vale una sola vez y un enlace nuevo anula los anteriores.',
+        );
       }
 
       showNotification(data?.message || 'Contraseña restablecida. Ya puedes iniciar sesión.', 'success');
@@ -71,7 +74,7 @@ export const ResetPasswordView: React.FC<ResetPasswordViewProps> = ({ token, onC
             </span>
             <div>
               <h2 className="text-lg font-bold text-white">Nueva contraseña</h2>
-              <p className="text-xs text-stone-400">Enlace de recuperación del superadmin de PideTiétar.</p>
+              <p className="text-xs text-stone-400">Enlace de recuperación del superadmin de PideTiétar. Vale una sola vez y 60 minutos.</p>
             </div>
           </div>
           <button

@@ -52,6 +52,18 @@ export default function App() {
   const [resetToken, setResetToken] = useState<string | null>(() => readResetTokenFromHash());
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
 
+  // El hash de la URL puede cambiar sin recargar la página (al pegar otro
+  // enlace de recuperación en una pestaña ya abierta). Sin este listener el
+  // modal seguiría mostrando el token antiguo y fallaría con "enlace no
+  // válido": cada token nuevo emitido anula el anterior.
+  useEffect(() => {
+    const handleHashChange = () => {
+      setResetToken(readResetTokenFromHash());
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   // El avatar de la cabecera: el administrador de negocio edita sólo la foto
   // (sus datos completos están en "DATOS DEL NEGOCIO"); el resto de roles
   // conserva el modal de perfil completo.
