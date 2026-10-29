@@ -6,7 +6,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   const { api, admin, password, login } = await startTestApp(t);
   const token = admin.token;
   const send = (route, method, body, status = 200, auth = token) => api(route, { method, body, status, token: auth });
-  let zone, category, business, owner, secondBusiness, secondOwner, client, courier, product, orderId;
+  let zone, category, business, owner, secondBusiness, secondOwner, duplicateBusiness, client, courier, product, orderId;
 
   await t.test('localidades: crear, leer, editar y borrar', async () => {
     zone = (await send('/localities', 'POST', { name: 'Zona de pruebas', postalCode: '05400' }, 201)).data.locality;
@@ -53,6 +53,15 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send(`/businesses/${business.id}`, 'PUT', { name: 'Sin permiso' }, 403, secondOwner.token);
     await send(`/businesses/${business.id}`, 'PUT', { schedule: [{ dayOfWeek: 1, openTime: '25:00', closeTime: '23:00' }] }, 400);
     await send(`/categories/${category.id}`, 'DELETE', undefined, 409);
+  });
+  await t.test('negocios: permitir el mismo DNI de gestor en varios comercios', async () => {
+    const duplicate = { ...businessInput('tres', zone.id, category.id, password), managerDni: '12345678Z' };
+    await send(`/businesses/${business.id}`, 'PUT', { managerDni: '12345678Z' }, 200, owner.token);
+    duplicateBusiness = (await send('/businesses', 'POST', duplicate, 201)).data.business;
+    await send(`/businesses/${secondBusiness.id}`, 'PUT', { managerDni: '12345678Z' }, 200, secondOwner.token);
+    const businesses = (await api('/businesses')).data;
+    assert.ok(businesses.filter((item) => item.managerDni === '12345678Z' || item.manager_dni === '12345678Z').length >= 2);
+    await send(`/businesses/${duplicateBusiness.id}`, 'DELETE');
   });
   await t.test('horarios: días cerrados sin horas, segundos y cierre a medianoche', async () => {
     const schedule = [

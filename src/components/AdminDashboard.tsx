@@ -1480,6 +1480,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               <p className="text-xs text-stone-500 dark:text-stone-400">
                 No hay SMTP configurado, así que el correo no se ha enviado. Copia este enlace de uso único (válido 60 minutos) y pásaselo al propietario por el canal que prefieras:
               </p>
+              {/^https?:\/\/(localhost|127\.0\.0\.1)/i.test(resetLinkModal.url) && (
+                <p className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-200">
+                  Ojo: este enlace apunta a localhost (falta APP_URL en el servidor). El token se guardó aquí, pero quien lo abra en otro equipo llegará a SU app local con otra base de datos y verá "enlace no válido". Sustituye localhost por el dominio real o configura APP_URL y pide un enlace nuevo.
+                </p>
+              )}
               <textarea
                 readOnly
                 value={resetLinkModal.url}
