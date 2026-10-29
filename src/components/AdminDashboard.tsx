@@ -299,7 +299,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   useEffect(() => {
     void refreshCouriers();
     void refreshBusinessCatalog();
-    // Sólo al montar el panel: los cambios se refrescan tras crear o confirmar.
+    // La disponibilidad puede cambiar desde el panel del propio repartidor.
+    // Se actualiza al volver a la pestaña y periódicamente mientras se observa
+    // el panel de Superadmin.
+    const refreshOnFocus = () => { void refreshCouriers(); };
+    const intervalId = window.setInterval(refreshOnFocus, 20000);
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', refreshOnFocus);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -840,6 +849,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <p className="mt-1 text-xs text-stone-500">
               Crea la cuenta del repartidor y confírmala para que pueda entrar en su panel de reparto.
             </p>
+            <p className="mt-2 flex items-center gap-1.5 text-[11px] text-stone-400">
+              <Bike className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
+              El icono verde indica que está recibiendo repartos.
+            </p>
           </div>
           <button
             type="button"
@@ -1032,6 +1045,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
           ) : (
             couriers.map((courier) => {
               const confirmation = courier.courierProfile?.confirmation || 'PENDING';
+              const isReceivingDeliveries = courier.courierProfile?.isReceivingDeliveries === true;
               const assignedIds = assignedBusinessIds(courier);
               const assignedNames = assignedIds
                 .map((bizId) => businesses.find((biz) => biz.id === bizId)?.name)
@@ -1054,6 +1068,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 <div key={courier.id} className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        role="img"
+                        aria-label={isReceivingDeliveries
+                          ? 'Está recibiendo repartos'
+                          : 'No está recibiendo repartos'}
+                        title={isReceivingDeliveries
+                          ? 'Está recibiendo repartos'
+                          : 'No está recibiendo repartos'}
+                        className={`inline-flex h-7 w-7 items-center justify-center rounded-full border ${
+                          isReceivingDeliveries
+                            ? 'border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900/70 dark:bg-emerald-950/40 dark:text-emerald-300'
+                            : 'border-stone-200 bg-stone-50 text-stone-300 dark:border-stone-700 dark:bg-stone-800/60 dark:text-stone-500'
+                        }`}
+                      >
+                        <Bike className="h-4 w-4" aria-hidden="true" />
+                      </span>
                       <h3 className="text-sm font-bold text-stone-900 dark:text-white">{courier.name}</h3>
                       <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${badgeClass}`}>
                         {confirmationLabel}

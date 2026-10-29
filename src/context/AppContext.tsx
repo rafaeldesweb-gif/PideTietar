@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected } from '../types';
+import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected, getDeliveryAddressString } from '../types';
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
 import { isSingleBusinessOrder } from '../utils/orderValidation';
@@ -1896,9 +1896,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Necesitamos un teléfono para confirmar el pedido.' };
     }
 
+    const selectedAddress = currentUser.addresses?.[data.addressIndex ?? 0];
+    // Las cuentas actuales guardan la dirección principal en `address`. Se
+    // mantiene el fallback a `addresses` para no romper sesiones antiguas que
+    // todavía tengan direcciones estructuradas en el estado del cliente.
+    const deliveryAddress =
+      currentUser.address?.trim() || getDeliveryAddressString(selectedAddress).trim();
+
     if (data.deliveryType === 'DELIVERY') {
-      const selectedAddress = currentUser.addresses[data.addressIndex || 0];
-      if (!selectedAddress || !selectedAddress.street.trim()) {
+      if (!deliveryAddress) {
         return { success: false, error: 'Selecciona o añade una dirección de entrega antes de confirmar.' };
       }
     }
@@ -1935,8 +1941,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const orderNum = 'PT-' + Math.floor(1000 + Math.random() * 9000);
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
-    const selectedAddr = data.deliveryType === 'DELIVERY' 
-      ? currentUser.address || undefined
+    const selectedAddr = data.deliveryType === 'DELIVERY'
+      ? deliveryAddress || undefined
       : undefined;
 
     const newOrder: Order = {

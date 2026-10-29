@@ -1337,6 +1337,26 @@ function sanitizeUser(row) {
     ? rawConfirmation
     : "PENDING";
 
+  const courierProfile = isCourier
+    ? {
+        // Un repartidor puede cubrir uno o varios negocios. El de
+        // plataforma cubre todo el valle y el panel no filtra por esta lista.
+        businessIds: parseCourierBusinessIds(row),
+        localityIds: [],
+        isOnline: Boolean(row.is_online),
+        confirmation: courierConfirmation,
+      }
+    : undefined;
+
+  if (
+    courierProfile &&
+    Object.prototype.hasOwnProperty.call(row, "is_receiving_deliveries")
+  ) {
+    courierProfile.isReceivingDeliveries = Boolean(
+      row.is_receiving_deliveries,
+    );
+  }
+
   return {
     id: row.id,
     username: row.username || row.email?.split("@")[0] || "",
@@ -1353,16 +1373,7 @@ function sanitizeUser(row) {
     isEmailVerified: isEmailVerified,
     emailVerified: isEmailVerified,
     createdAt: row.created_at || new Date().toISOString(),
-    courierProfile: isCourier
-      ? {
-          // Un repartidor puede cubrir uno o varios negocios. El de
-          // plataforma cubre todo el valle y el panel no filtra por esta lista.
-          businessIds: parseCourierBusinessIds(row),
-          localityIds: [],
-          isOnline: Boolean(row.is_online),
-          confirmation: courierConfirmation,
-        }
-      : undefined,
+    courierProfile,
   };
 }
 
@@ -2215,16 +2226,62 @@ async function listOrders(user) {
   );
 }
 
-async function listUsers() {
+// Disponibilidad real del repartidor: estar conectado no basta si la cuenta
+// no está activa/confirmada, no cubre ningún negocio o ya tiene un pedido en
+// curso. Así el indicador del panel no confunde "en línea" con disponibilidad
+// efectiva para recibir un nuevo reparto.
+async function listReceivingCourierIds() {
+  const sql = `
+    SELECT id, role, courier_business_ids, business_id
+    FROM app_users
+    WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER')
+      AND status = 'ACTIVE'
+      AND is_online = 1
+      AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN')
+      AND (email_verified = 1 OR email_verified_at IS NOT NULL)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM orders o
+        WHERE o.courier_id = app_users.id
+          AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED')
+      )`;
+
+  let rows;
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(
-      "SELECT * FROM app_users ORDER BY created_at DESC",
-    );
-    return rows;
+    const [result] = await mysqlPool.execute(sql);
+    rows = result;
+  } else {
+    rows = getSqliteDb().prepare(sql).all();
   }
 
-  const db = getSqliteDb();
-  return db.prepare("SELECT * FROM app_users ORDER BY created_at DESC").all();
+  return new Set(
+    rows
+      .filter(
+        (row) =>
+          row.role === 'PLATFORM_COURIER' ||
+          parseCourierBusinessIds(row).length > 0,
+      )
+      .map((row) => String(row.id)),
+  );
+}
+
+async function listUsers() {
+  const receivingCourierIds = await listReceivingCourierIds();
+  let rows;
+
+  if (mysqlPool) {
+    const [result] = await mysqlPool.execute(
+      "SELECT * FROM app_users ORDER BY created_at DESC",
+    );
+    rows = result;
+  } else {
+    rows = getSqliteDb().prepare("SELECT * FROM app_users ORDER BY created_at DESC").all();
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    is_receiving_deliveries: receivingCourierIds.has(String(row.id)),
+  }));
 }
 
 async function createUser({

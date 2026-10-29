@@ -143,6 +143,11 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal(courier.courierProfile.confirmation, 'PENDING');
     await send(`/users/${courier.id}`, 'PUT', { courierConfirmation: 'BUSINESS_EMAIL' }, 200, owner.token);
     await send(`/users/${courier.id}`, 'PUT', { phone: '611222333', accountNumber: 'ES9121000418450200051332' });
+    const courierSession = await login('repartidor_prueba', password);
+    await send(`/users/${courier.id}`, 'PUT', { isOnline: true }, 200, courierSession.token);
+    const receivingCouriers = (await api('/users', { token })).data;
+    assert.equal(receivingCouriers.find((item) => item.id === courier.id).courierProfile.isReceivingDeliveries, true);
+    await send(`/users/${courier.id}`, 'PUT', { isOnline: false }, 200, courierSession.token);
     const ownCouriers = (await api('/users', { token: owner.token })).data;
     assert.ok(ownCouriers.some((item) => item.id === courier.id));
     assert.equal(ownCouriers.find((item) => item.id === courier.id).accountNumber, '');

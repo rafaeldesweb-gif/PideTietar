@@ -29,6 +29,7 @@ export interface User {
     businessIds: string[];
     localityIds: string[];
     isOnline: boolean;
+    isReceivingDeliveries?: boolean;
     confirmation: 'PENDING' | 'BUSINESS_EMAIL' | 'SUPERADMIN';
   };
 }
