@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Package, Clock, CheckCircle2, MapPin, 
+  Package, Clock, CheckCircle2, MapPin, Bike, Phone,
   Calendar, ExternalLink, ShieldCheck, Mail, RefreshCw,
   Star, Lock
 } from 'lucide-react';
 import { OrderStatus, getDeliveryAddressString } from '../types';
 import { canViewOrdersPage, filterOrdersForCurrentUser } from '../utils/orderVisibility';
+import { MediaView } from './MediaView';
 // Pasos del progreso según el tipo de entrega.
 // - RECIDA (PICKUP): 1. Pedido, 2. En Cocina, 3. Listo, 4. Entregado
 // - REPARTO (DELIVERY): 1. Pagado, 2. En Cocina, 3. En Camino, 4. Entregado
@@ -67,7 +68,7 @@ export const OrdersView: React.FC = () => {
 
   const statusLabels: Record<OrderStatus, { label: string; color: string }> = {
     PENDING_PAYMENT: { label: 'Pago Pendiente', color: 'bg-stone-100 text-stone-700' },
-    PAID: { label: 'Pagado y Confirmado', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' },
+    PAID: { label: 'CONFIRMADO', color: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300' },
     NEW: { label: 'Nuevo en Cocina', color: 'bg-amber-100 text-amber-800' },
     ACCEPTED: { label: 'Aceptado por el Comercio', color: 'bg-indigo-100 text-indigo-800' },
     PREPARING: { label: 'En Preparación / Horno', color: 'bg-orange-100 text-orange-800 dark:bg-orange-950/60 dark:text-orange-300' },
@@ -146,6 +147,7 @@ export const OrdersView: React.FC = () => {
         <div className="space-y-6">
           {userOrders.map(order => {
             const currentBadge = statusLabels[order.status] || { label: order.status, color: 'bg-stone-100 text-stone-700' };
+            const hasAssignedCourier = Boolean(order.courierId || order.courierName);
 
             return (
               <div
@@ -192,6 +194,49 @@ export const OrdersView: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {currentUser?.role === 'CLIENT' && order.deliveryType === 'DELIVERY' && (
+                  <div className="border-b border-stone-100 bg-orange-50/40 px-4 py-4 dark:border-stone-800 dark:bg-orange-950/10 sm:px-6">
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-stone-500 dark:text-stone-400">
+                      <Bike className="h-4 w-4 text-[#FF4E00]" />
+                      <span>Datos del repartidor</span>
+                    </div>
+                    {hasAssignedCourier ? (
+                      <div className="mt-3 flex items-center gap-3">
+                        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full border border-orange-200 bg-white shadow-sm dark:border-orange-900/60 dark:bg-stone-800">
+                          <MediaView
+                            src={order.courierAvatarUrl}
+                            alt={`Avatar de ${order.courierName || 'tu repartidor'}`}
+                            fit="cover"
+                            className="h-full w-full"
+                          />
+                        </div>
+                        <div className="min-w-0 text-sm text-stone-700 dark:text-stone-200">
+                          <p className="font-bold text-stone-900 dark:text-stone-100">
+                            {order.courierName || 'Repartidor asignado'}
+                          </p>
+                          {order.courierPhone ? (
+                            <a
+                              href={`tel:${order.courierPhone}`}
+                              className="mt-1 inline-flex items-center gap-1.5 text-xs text-stone-500 transition hover:text-[#FF4E00] dark:text-stone-400"
+                            >
+                              <Phone className="h-3.5 w-3.5 text-emerald-500" />
+                              {order.courierPhone}
+                            </a>
+                          ) : (
+                            <p className="mt-1 text-xs text-stone-500 dark:text-stone-400">
+                              Teléfono no disponible
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                        El repartidor aparecerá aquí cuando el negocio lo asigne.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {order.status === 'DELIVERED' && !order.reviewScore && (
                   <div className="border-t border-stone-100 dark:border-stone-800 bg-[#fffaf4] dark:bg-stone-900/70 p-4 sm:p-6">

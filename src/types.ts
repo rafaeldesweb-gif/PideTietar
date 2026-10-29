@@ -259,6 +259,7 @@ export interface Order {
   courierId?: string;
   courierName?: string;
   courierPhone?: string;
+  courierAvatarUrl?: string;
   deliveryPin: string; // e.g. "4921" for secure proof of delivery
 
   calendarEventId?: string; // Synced to Google Calendar

@@ -14,7 +14,7 @@ interface AppContextType {
   // true cuando ya se restauró (o descartó) el token guardado al cargar la app
   sessionChecked: boolean;
   loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => void;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateCurrentUserProfile: (data: Partial<User>) => Promise<boolean>;
   setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
   toggleCourierAvailability: (online?: boolean) => Promise<void>;
@@ -94,7 +94,7 @@ interface AppContextType {
   addProductToBusiness: (businessId: string, product: Omit<Product, 'id' | 'businessId'>) => Promise<Product | null>;
   updateProductInBusiness: (productId: string, product: Partial<Product>) => Promise<Product | null>;
   deleteProductFromBusiness: (productId: string) => void;
-  updateBusinessShift: (businessId: string, isOpen: boolean) => void;
+  updateBusinessShift: (businessId: string, isOpen: boolean) => Promise<void>;
   toggleProductAvailability: (productId: string) => void;
   createManualOrder: (orderData: Partial<Order>) => Promise<Order | null>;
 
@@ -448,6 +448,8 @@ const normalizeOrder = (item: any): Order => {
     courierId: item?.courierId ?? item?.courier_id ?? undefined,
     courierName: item?.courierName ?? item?.courier_name ?? undefined,
     courierPhone: item?.courierPhone ?? item?.courier_phone ?? undefined,
+    courierAvatarUrl:
+      item?.courierAvatarUrl ?? item?.courier_avatar_url ?? undefined,
     deliveryPin: String(item?.deliveryPin ?? item?.delivery_pin ?? ''),
     calendarEventId:
       item?.calendarEventId ?? item?.calendar_event_id ?? undefined,
@@ -853,14 +855,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const logout = () => {
+  const logout = async (): Promise<void> => {
+    const sessionUser = currentUser;
+    const businessId = sessionUser?.role === 'BUSINESS_ADMIN' ? sessionUser.businessId : undefined;
+    const previousShift = businessId
+      ? businesses.find((business) => business.id === businessId)?.isShiftOpen
+      : undefined;
+    let shiftCloseFailed = false;
+
+    // Cerrar la sesión del negocio también termina su turno. Se actualiza la
+    // interfaz al instante y luego se confirma en el servidor para que el
+    // catálogo público no siga mostrando "Recibiendo pedidos".
+    if (businessId) {
+      setBusinesses((previous) => previous.map((business) =>
+        business.id === businessId ? { ...business, isShiftOpen: false } : business,
+      ));
+      try {
+        await apiFetch(`/businesses/${encodeURIComponent(businessId)}`, {
+          method: 'PUT',
+          body: JSON.stringify({ is_shift_open: 0 }),
+        });
+        await refreshBusinesses();
+      } catch (error) {
+        shiftCloseFailed = true;
+        if (previousShift !== undefined) {
+          setBusinesses((previous) => previous.map((business) =>
+            business.id === businessId ? { ...business, isShiftOpen: previousShift } : business,
+          ));
+        }
+        showNotification(
+          error instanceof Error
+            ? `La sesión se cerrará, pero no se pudo cerrar el turno: ${error.message}`
+            : 'La sesión se cerrará, pero no se pudo cerrar el turno.',
+          'error',
+        );
+      }
+    }
+
     setSessionToken(null);
     setCurrentUser(null);
     setOrders([]);
     setCart(null);
     localStorage.removeItem('pidetietar_orders');
     localStorage.removeItem('pidetietar_cart');
-    showNotification('Has cerrado la sesión.', 'info');
+    if (!shiftCloseFailed) showNotification('Has cerrado la sesión.', 'info');
   };
 
   // La sesión vive sólo en memoria: si nadie la restaura del token al cargar
@@ -1661,27 +1699,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  const updateBusinessShift = (businessId: string, isOpen: boolean) => {
+  const updateBusinessShift = async (businessId: string, isOpen: boolean): Promise<void> => {
     const previous = businesses.find(b => b.id === businessId)?.isShiftOpen;
     setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
 
-    // El turno sólo vivía en el navegador: al recargar volvía al valor
-    // guardado. Ahora se guarda en el servidor (PUT parcial con is_shift_open).
-    void apiFetch(`/businesses/${encodeURIComponent(businessId)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ is_shift_open: Number(isOpen) }),
-    })
-      .then(() => showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, 'success'))
-      .catch((error) => {
-        // Se revierte para no mostrar un turno que no llegó a guardarse.
-        if (previous !== undefined) {
-          setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: previous } : b));
-        }
-        showNotification(
-          error instanceof Error ? error.message : 'No se pudo guardar el turno en el servidor.',
-          'error',
-        );
+    // El turno se guarda en el servidor y después se vuelve a cargar el
+    // catálogo completo. Así cerrar sesión inmediatamente después no puede
+    // sustituir el estado confirmado por un valor local antiguo y tampoco se
+    // pierde `hasOnlineCourier` en la misma actualización.
+    try {
+      await apiFetch(`/businesses/${encodeURIComponent(businessId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ is_shift_open: Number(isOpen) }),
       });
+      const refreshed = await refreshBusinesses();
+      if (!refreshed && previous !== undefined) {
+        setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: isOpen } : b));
+      }
+      showNotification(`Turno ${isOpen ? 'ABIERTO y aceptando pedidos' : 'CERRADO'} para el comercio.`, 'success');
+    } catch (error) {
+      // Se revierte sólo si la escritura no llegó a guardarse.
+      if (previous !== undefined) {
+        setBusinesses(prev => prev.map(b => b.id === businessId ? { ...b, isShiftOpen: previous } : b));
+      }
+      showNotification(
+        error instanceof Error ? error.message : 'No se pudo guardar el turno en el servidor.',
+        'error',
+      );
+    }
   };
 
   const addProductToBusiness = async (businessId: string, product: Omit<Product, 'id' | 'businessId'>): Promise<Product | null> => {

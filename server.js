@@ -2100,6 +2100,11 @@ function normalizeOrderRow(row, items = []) {
     courierId: row.courier_id ?? row.courierId ?? undefined,
     courierName: row.courier_name ?? row.courierName ?? undefined,
     courierPhone: row.courier_phone ?? row.courierPhone ?? undefined,
+    courierAvatarUrl:
+      row.courier_avatar_url ??
+      row.courierAvatarUrl ??
+      row.joined_courier_avatar_url ??
+      undefined,
     deliveryPin: String(row.delivery_pin ?? row.deliveryPin ?? ""),
     calendarEventId:
       row.calendar_event_id ?? row.calendarEventId ?? undefined,
@@ -2192,8 +2197,9 @@ function buildOrderVisibilityFilter(user) {
 async function listOrders(user) {
   const { whereSql, params } = buildOrderVisibilityFilter(user);
   const selectOrdersSql =
-    "SELECT o.*, b.name AS joined_business_name FROM orders o " +
+    "SELECT o.*, b.name AS joined_business_name, cu.avatar_url AS joined_courier_avatar_url FROM orders o " +
     "LEFT JOIN businesses b ON b.id = o.business_id " +
+    "LEFT JOIN app_users cu ON cu.id = o.courier_id " +
     `${whereSql} ORDER BY o.created_at DESC`;
   // Se reutiliza el mismo WHERE para no cargar líneas de pedidos que el
   // usuario no puede ver.

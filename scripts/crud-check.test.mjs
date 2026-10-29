@@ -137,7 +137,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal((await login('recuperable@example.com', fresh)).user.id, targetId);
   });
   await t.test('repartidores: alta, consulta, edición y confirmación por su dueño', async () => {
-    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z' }, 201, owner.token);
+    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z', avatarUrl: 'https://example.com/repartidor.png' }, 201, owner.token);
     courier = created.data.user;
     assert.ok(courier.id);
     assert.equal(courier.courierProfile.confirmation, 'PENDING');
@@ -194,6 +194,9 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   await t.test('pedidos: crear desde cesta y consultar según el rol', async () => {
     orderId = 'pedido-crud';
     await send('/orders', 'POST', { id: orderId, businessId: business.id, customerId: client.user.id, customerName: 'Cliente', customerEmail: client.user.email, customerPhone: '666555444', deliveryType: 'DELIVERY', deliveryAddress: 'Calle de pruebas 2', deliveryPin: '4321', subtotalCents: 1200, deliveryFeeCents: 200, platformFeeCents: 100, businessPayoutCents: 1140, courierPayoutCents: 160, totalCents: 1400, status: 'NEW', items: [{ productId: product.id, productName: 'Plato editado', quantity: 1, unitPriceCents: 1200, totalCents: 1200 }] }, 201, client.token);
+    await send(`/orders/${orderId}`, 'PUT', { courierId: courier.id, courierName: courier.name, courierPhone: '611222333' });
+    const clientOrder = (await api('/orders', { token: client.token })).data.find((item) => item.id === orderId);
+    assert.equal(clientOrder.courierAvatarUrl, 'https://example.com/repartidor.png');
     assert.ok((await api('/orders', { token: client.token })).data.some((item) => item.id === orderId));
     assert.ok((await api('/orders', { token: owner.token })).data.some((item) => item.id === orderId));
     assert.ok(!(await api('/orders', { token: secondOwner.token })).data.some((item) => item.id === orderId));
