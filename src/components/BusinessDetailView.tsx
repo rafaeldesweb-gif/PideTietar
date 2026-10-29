@@ -38,7 +38,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
       </button>
 
       {/* Business Header Card */}
-      <div className="relative rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm">
+      <div className="pidetietar-card-border relative rounded-3xl overflow-hidden bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 shadow-sm">
         <div className="relative h-56 sm:h-72 w-full overflow-hidden">
           <MediaView
             src={business.bannerUrl}
@@ -151,7 +151,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
                 <div
                   key={product.id}
                   onClick={() => openProductCustomizer(product, business.id)}
-                  className="bg-white dark:bg-stone-900 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 shadow-xs hover:border-[#FF4E00] transition flex gap-4 cursor-pointer group"
+                  className="pidetietar-card-border bg-white dark:bg-stone-900 p-4 rounded-2xl border border-stone-200 dark:border-stone-800 shadow-xs hover:border-[#FF4E00] transition flex gap-4 cursor-pointer group"
                 >
                   <div className="flex-1 min-w-0 space-y-1">
                     <h3 className="font-bold text-sm text-stone-900 dark:text-stone-100 group-hover:text-[#FF4E00] transition">

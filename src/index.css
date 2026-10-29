@@ -134,12 +134,16 @@
 }
 
 /* Banner de producto: medidas de la referencia en escritorio, con ajuste móvil. */
+.pidetietar-card-border {
+  border-color: #fff;
+}
+
 .product-banner {
   position: relative;
   isolation: isolate;
   height: 300px;
   overflow: hidden;
-  border: 1px solid #302723;
+  border: 1px solid #fff;
   border-radius: 20px;
   background: #1a0903;
   color: #fff;

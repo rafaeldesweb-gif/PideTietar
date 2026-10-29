@@ -311,7 +311,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               return (
                 <div
                   key={prod.id}
-                  className="bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between"
+                  className="pidetietar-card-border bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between"
                 >
                   <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
                     <LazyMediaView
@@ -407,7 +407,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               <div
                 key={biz.id}
                 onClick={() => onSelectBusiness(biz)}
-                className="group bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
+                className="pidetietar-card-border group bg-white dark:bg-stone-900 rounded-2xl overflow-hidden border border-stone-200/90 dark:border-stone-800 shadow-xs hover:shadow-xl transition-all cursor-pointer flex flex-col justify-between"
               >
                 {/* Banner & Open indicator */}
                 <div className="relative h-48 overflow-hidden">
