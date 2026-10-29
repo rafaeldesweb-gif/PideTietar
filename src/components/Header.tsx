@@ -45,12 +45,12 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/95 text-stone-900 shadow-xs backdrop-blur-md transition-colors dark:border-stone-800 dark:bg-stone-900/95 dark:text-stone-100">
       <div className="mx-auto w-full max-w-7xl px-3 sm:px-6 lg:px-8">
-        <div className="flex h-14 items-center gap-2 sm:h-16">
-          <div className="relative min-w-0 shrink-0">
+        <div className="flex h-14 items-center gap-1 sm:h-16 sm:gap-2">
+          <div className="relative min-w-0 shrink sm:shrink-0">
             <button
               id="locality-selector-btn"
               onClick={() => setLocalityMenuOpen(!localityMenuOpen)}
-              className="flex max-w-[150px] items-center gap-1.5 rounded-full border border-stone-200 bg-stone-100 px-2.5 py-1.5 text-left text-[11px] font-medium text-stone-800 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:max-w-[190px] sm:text-sm"
+              className="flex max-w-[130px] min-w-0 items-center gap-1.5 rounded-full border border-stone-200 bg-stone-100 px-2.5 py-1.5 text-left text-[11px] font-medium text-stone-800 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:max-w-[190px] sm:text-sm"
             >
               <MapPin className="h-3.5 w-3.5 shrink-0 text-[#FF4E00]" />
               <span className="truncate">{selectedLocality?.name || 'Sin localidad'}</span>
@@ -96,7 +96,7 @@ export const Header: React.FC<HeaderProps> = ({
             <ProjectLogo variant="split" />
           </button>
 
-          <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-2.5">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2.5">
             <button
               id="cart-trigger-btn"
               onClick={openCart}

@@ -70,6 +70,69 @@
   width: 90px;
 }
 
+/* En móvil el selector y las acciones laterales conservan su espacio; el
+   logo reduce sus piezas sin deformarse ni invadir los botones. */
+@media (max-width: 639px) {
+  .project-logo-split {
+    gap: 4px;
+    height: 34px;
+    transform: none;
+  }
+
+  .project-logo-split__mark {
+    width: 34px;
+    height: 32px;
+  }
+
+  .project-logo-split__mark img {
+    left: -6px;
+    width: 46px;
+  }
+
+  .project-logo-split__wordmark {
+    width: 70px;
+    height: 20px;
+  }
+
+  .project-logo-split__wordmark img {
+    top: -50px;
+    width: 70px;
+  }
+}
+
+@media (max-width: 400px) {
+  #locality-selector-btn {
+    max-width: 112px;
+    padding-right: 7px;
+    padding-left: 7px;
+  }
+
+  .project-logo-split {
+    gap: 3px;
+    height: 30px;
+  }
+
+  .project-logo-split__mark {
+    width: 30px;
+    height: 28px;
+  }
+
+  .project-logo-split__mark img {
+    left: -5px;
+    width: 41px;
+  }
+
+  .project-logo-split__wordmark {
+    width: 62px;
+    height: 18px;
+  }
+
+  .project-logo-split__wordmark img {
+    top: -44px;
+    width: 62px;
+  }
+}
+
 /* Banner de producto: medidas de la referencia en escritorio, con ajuste móvil. */
 .product-banner {
   position: relative;
