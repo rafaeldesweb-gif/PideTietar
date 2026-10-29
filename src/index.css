@@ -18,6 +18,58 @@
 
 * { box-sizing: border-box; }
 
+/* El PNG original se recorta en dos piezas para conservar sus contornos,
+   colores y definición: símbolo a la izquierda y nombre a la derecha. */
+.project-logo-split {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 46px;
+  width: max-content;
+  transform: scale(1.2);
+  transform-origin: center;
+}
+
+.project-logo-split__mark,
+.project-logo-split__wordmark {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.project-logo-split__mark {
+  width: 46px;
+  /* Termina justo antes de que empiece el texto del PNG original. */
+  height: 43px;
+}
+
+.project-logo-split__mark img,
+.project-logo-split__wordmark img {
+  position: absolute;
+  display: block;
+  max-width: none;
+  height: auto;
+  user-select: none;
+}
+
+.project-logo-split__mark img {
+  top: 0;
+  left: -8px;
+  width: 62px;
+}
+
+.project-logo-split__wordmark {
+  width: 90px;
+  height: 26px;
+}
+
+.project-logo-split__wordmark img {
+  top: -64px;
+  left: 0;
+  width: 90px;
+}
+
 /* Banner de producto: medidas de la referencia en escritorio, con ajuste móvil. */
 .product-banner {
   position: relative;

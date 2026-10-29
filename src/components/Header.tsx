@@ -93,7 +93,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={() => setCurrentView('home')}
             className="flex h-full min-w-0 shrink-0 flex-1 items-center justify-center self-stretch p-0 text-left"
           >
-            <ProjectLogo variant="full" className="my-0 block h-full max-h-14 w-auto max-w-[200px] py-0 sm:max-h-16 sm:max-w-[280px]" />
+            <ProjectLogo variant="split" />
           </button>
 
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-2.5">
