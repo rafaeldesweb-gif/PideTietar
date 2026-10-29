@@ -58,6 +58,7 @@ import {
 } from '../utils/mediaUpload';
 import { normalizeDni, validateCourierContact } from '../utils/courierValidation';
 import { buildEffectiveOptionGroups, getDefaultSelectedOptions } from '../utils/productOptions';
+import { sortProductsByCategory } from '../utils/productSorting';
 
 interface ManualOrderLine {
   lineId: string;
@@ -457,7 +458,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     : orders.filter((o) => o.businessId === business.id))
     .filter(o => isCurrentLogicalDay(o.createdAt));
   const restaurantProducts = business
-    ? products.filter((p) => p.businessId === business.id)
+    ? sortProductsByCategory(
+      products.filter((product) => product.businessId === business.id),
+      categories,
+    )
     : [];
   const zoneBusinessesForFilter =
     ordersZoneFilter === 'all'

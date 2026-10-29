@@ -7,6 +7,7 @@ import {
 import { Business, Product } from '../types';
 import { MediaView } from './MediaView';
 import { LazyMediaView } from './LazyMediaView';
+import { sortProductsByCategory } from '../utils/productSorting';
 
 interface BusinessDetailViewProps {
   business: Business;
@@ -19,10 +20,13 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
   onBack,
   openProductCustomizer
 }) => {
-  const { products, userSubscription, currentUser } = useApp();
+  const { products, categories, userSubscription, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<'catalog' | 'info'>('catalog');
 
-  const bizProducts = products.filter(p => p.businessId === business.id);
+  const bizProducts = sortProductsByCategory(
+    products.filter((product) => product.businessId === business.id),
+    categories,
+  );
   const courierActiveForBusiness = Boolean(business.hasOnlineCourier);
 
   return (
