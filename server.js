@@ -1339,8 +1339,8 @@ function sanitizeUser(row) {
 
   const courierProfile = isCourier
     ? {
-        // Un repartidor puede cubrir uno o varios negocios. El de
-        // plataforma cubre todo el valle y el panel no filtra por esta lista.
+        // Tanto el repartidor de negocio como el de plataforma reciben sólo
+        // los pedidos de los negocios que aparecen en esta lista.
         businessIds: parseCourierBusinessIds(row),
         localityIds: [],
         isOnline: Boolean(row.is_online),
@@ -1778,17 +1778,17 @@ async function listBusinesses() {
     ).all();
   }
   const onlineBusinessIds = new Set();
-  let platformCourierOnline = false;
   for (const courier of couriers) {
-    if (courier.role === "PLATFORM_COURIER") platformCourierOnline = true;
-    else for (const businessId of parseCourierBusinessIds(courier)) onlineBusinessIds.add(businessId);
+    for (const businessId of parseCourierBusinessIds(courier)) {
+      onlineBusinessIds.add(businessId);
+    }
   }
   const scheduled = attachBusinessSchedules(rows, await readBusinessHours());
   return scheduled.map((business) => ({
     ...business,
     has_online_courier:
       parseStoredList(business.delivery_modes ?? business.deliveryModes).some((mode) => ["OWN_COURIER", "PLATFORM_COURIER"].includes(mode)) &&
-      (platformCourierOnline || onlineBusinessIds.has(String(business.id))),
+      onlineBusinessIds.has(String(business.id)),
   }));
 }
 
@@ -2148,7 +2148,7 @@ function buildOrderVisibilityFilter(user) {
       : { whereSql: "WHERE 1 = 0", params: [] };
   }
 
-  if (role === "BUSINESS_COURIER") {
+  if (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") {
     const clauses = [];
     const params = [];
     if (courierBusinessIds.length) {
@@ -2163,12 +2163,6 @@ function buildOrderVisibilityFilter(user) {
     return clauses.length
       ? { whereSql: `WHERE (${clauses.join(" OR ")})`, params }
       : { whereSql: "WHERE 1 = 0", params: [] };
-  }
-
-  if (role === "PLATFORM_COURIER") {
-    // El repartidor de plataforma cubre todo el valle y su panel muestra los
-    // pedidos de todos los negocios, igual que antes de filtrar en servidor.
-    return { whereSql: "", params: [] };
   }
 
   if (role === "CLIENT") {
@@ -2257,9 +2251,7 @@ async function listReceivingCourierIds() {
   return new Set(
     rows
       .filter(
-        (row) =>
-          row.role === 'PLATFORM_COURIER' ||
-          parseCourierBusinessIds(row).length > 0,
+        (row) => parseCourierBusinessIds(row).length > 0,
       )
       .map((row) => String(row.id)),
   );
@@ -4228,8 +4220,9 @@ app.post("/api/users", requireAuth, async (req, res) => {
         businessId = courierBusinessIds[0];
       }
     } else if (role === "PLATFORM_COURIER") {
-      // El repartidor de plataforma cubre todo el valle: business_id se deja
-      // vacío y la lista queda como información de zonas asignadas.
+      // El repartidor de plataforma también queda limitado a los negocios
+      // elegidos; business_id se deja vacío y la lista es la fuente real de
+      // asignación.
       businessId = null;
     } else {
       courierBusinessIds = [];
@@ -4256,7 +4249,10 @@ app.post("/api/users", requireAuth, async (req, res) => {
   if (!ALLOWED_USER_ROLES.includes(role)) {
     errors.role = `El rol debe ser uno de: ${ALLOWED_USER_ROLES.join(", ")}.`;
   }
-  if (role === "BUSINESS_COURIER" && courierBusinessIds.length === 0) {
+  if (
+    ["PLATFORM_COURIER", "BUSINESS_COURIER"].includes(role) &&
+    courierBusinessIds.length === 0
+  ) {
     errors.courierBusinessIds =
       "Selecciona al menos un negocio para el repartidor.";
   }
@@ -4607,11 +4603,11 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
           errors.courierBusinessIds =
             "Alguno de los negocios seleccionados no existe.";
         } else if (
-          effectiveRole === "BUSINESS_COURIER" &&
+          ["PLATFORM_COURIER", "BUSINESS_COURIER"].includes(effectiveRole) &&
           courierBusinessIds.length === 0
         ) {
           errors.courierBusinessIds =
-            "Un repartidor de negocio necesita al menos un negocio asignado.";
+            "Selecciona al menos un negocio para el repartidor.";
         } else {
           updates.push("courier_business_ids = ?");
           values.push(JSON.stringify(courierBusinessIds));
@@ -4630,7 +4626,7 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
   if (
     isSuperAdmin &&
     body.role !== undefined &&
-    effectiveRole === "BUSINESS_COURIER" &&
+    ["PLATFORM_COURIER", "BUSINESS_COURIER"].includes(effectiveRole) &&
     body.courierBusinessIds === undefined &&
     body.courier_business_ids === undefined &&
     parseCourierBusinessIds(targetUser).length === 0
@@ -5742,8 +5738,7 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       );
     } else if (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") {
       const assignedBusinesses = parseCourierBusinessIds(req.user);
-      const canAccess = role === "PLATFORM_COURIER" ||
-        assignedBusinesses.includes(orderBusinessId) ||
+      const canAccess = assignedBusinesses.includes(orderBusinessId) ||
         String(existing.courier_id || "") === String(req.user.id || "");
       if (!canAccess) {
         throw httpError(403, "FORBIDDEN", "No puedes modificar este pedido.");

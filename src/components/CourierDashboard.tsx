@@ -20,12 +20,11 @@ export const CourierDashboard: React.FC = () => {
   }
 
   // Assigned orders for courier
-  const isPlatformCourier = currentUser?.role === 'PLATFORM_COURIER';
   const acceptedBusinessIds = currentUser?.courierProfile?.businessIds || [];
-  // El repartidor de plataforma cubre todos los negocios; el de negocio sólo
-  // los pedidos de los negocios que tenga asignados.
+  // Cualquier repartidor sólo puede ver los pedidos de los negocios que tenga
+  // asignados. También se aplica al rol de plataforma.
   const canServeBusiness = (businessId: string) =>
-    isPlatformCourier || acceptedBusinessIds.includes(businessId);
+    acceptedBusinessIds.includes(businessId);
 
   const activeDeliveries = orders.filter(
     o => o.deliveryType === 'DELIVERY' && 

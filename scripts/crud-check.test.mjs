@@ -6,7 +6,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   const { api, admin, password, login } = await startTestApp(t);
   const token = admin.token;
   const send = (route, method, body, status = 200, auth = token) => api(route, { method, body, status, token: auth });
-  let zone, category, business, owner, secondBusiness, secondOwner, duplicateBusiness, client, courier, product, orderId;
+  let zone, category, business, owner, secondBusiness, secondOwner, duplicateBusiness, client, courier, platformCourier, product, orderId;
 
   await t.test('localidades: crear, leer, editar y borrar', async () => {
     zone = (await send('/localities', 'POST', { name: 'Zona de pruebas', postalCode: '05400' }, 201)).data.locality;
@@ -148,6 +148,20 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     const receivingCouriers = (await api('/users', { token })).data;
     assert.equal(receivingCouriers.find((item) => item.id === courier.id).courierProfile.isReceivingDeliveries, true);
     await send(`/users/${courier.id}`, 'PUT', { isOnline: false }, 200, courierSession.token);
+    const platformCreated = await send('/users', 'POST', {
+      username: 'plataforma_prueba', fullName: 'Repartidor de plataforma',
+      email: 'plataforma@example.com', password, role: 'PLATFORM_COURIER',
+      courierBusinessIds: [business.id], phone: '600111223',
+      address: 'Calle de plataforma 4', dni: '12345679Z',
+    }, 201);
+    platformCourier = platformCreated.data.user;
+    await send(`/users/${platformCourier.id}`, 'PUT', { courierConfirmation: 'SUPERADMIN' });
+    const platformSession = await login('plataforma_prueba', password);
+    await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: true }, 200, platformSession.token);
+    const businessesWithAvailability = (await api('/businesses')).data;
+    assert.equal(businessesWithAvailability.find((item) => item.id === business.id).has_online_courier, true);
+    assert.equal(businessesWithAvailability.find((item) => item.id === secondBusiness.id).has_online_courier, false);
+    await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: false }, 200, platformSession.token);
     const ownCouriers = (await api('/users', { token: owner.token })).data;
     assert.ok(ownCouriers.some((item) => item.id === courier.id));
     assert.equal(ownCouriers.find((item) => item.id === courier.id).accountNumber, '');
@@ -218,6 +232,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.ok(!(await api('/orders', { token })).data.some((item) => item.id === orderId));
     await send(`/products/${product.id}`, 'DELETE', undefined, 200, owner.token);
     await send(`/users/${courier.id}`, 'DELETE');
+    await send(`/users/${platformCourier.id}`, 'DELETE');
     await send(`/users/${client.user.id}`, 'DELETE');
     await send(`/users/${admin.user.id}`, 'DELETE', undefined, 400);
     await send(`/businesses/${secondBusiness.id}`, 'DELETE');

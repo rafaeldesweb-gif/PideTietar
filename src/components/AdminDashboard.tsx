@@ -45,14 +45,16 @@ const assignedBusinessIds = (courier: User): string[] => {
   return courier.businessId ? [courier.businessId] : [];
 };
 
-// Validación compartida por el alta y la edición del repartidor.
+// Validación compartida por el alta y la edición del repartidor. La cobertura
+// se aplica también a los repartidores de plataforma: la lista de negocios ya
+// no es informativa, determina dónde puede recibir pedidos.
 const validateCourierBanking = (
   role: User['role'],
   businessIds: string[],
   accountNumber: string,
 ): FieldErrors => {
   const errors: FieldErrors = {};
-  if (role === 'BUSINESS_COURIER' && businessIds.length === 0) {
+  if (['BUSINESS_COURIER', 'PLATFORM_COURIER'].includes(role) && businessIds.length === 0) {
     errors.businessIds = 'Selecciona al menos un negocio para el repartidor.';
   }
   const cleanIban = normalizeIban(accountNumber);
@@ -953,7 +955,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [] })}
               className="w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]"
             >
-              <option value="PLATFORM_COURIER">Plataforma (todo el valle)</option>
+              <option value="PLATFORM_COURIER">Plataforma (negocios asignados)</option>
               <option value="BUSINESS_COURIER">De uno o varios negocios</option>
             </select>
           </div>
@@ -968,44 +970,41 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             />
             <FieldError message={courierFormErrors.address} />
           </div>
-          {courierForm.role === 'BUSINESS_COURIER' ? (
-            <div className="sm:col-span-2 lg:col-span-3">
-              <label className="mb-1 block text-xs font-semibold text-stone-500">
-                Negocios que cubre <span className="font-normal text-stone-400">(uno o varios)</span>
-              </label>
-              <div className="grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
-                {businesses.map((biz) => (
-                  <label
-                    key={biz.id}
-                    className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-700 transition hover:bg-stone-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={courierForm.businessIds.includes(biz.id)}
-                      onChange={() => toggleCourierBusiness(biz.id)}
-                      className="mt-0.5 h-4 w-4 accent-[#FF4E00]"
-                    />
-                    <span>
-                      <span className="block font-semibold text-stone-800">{biz.name}</span>
-                      <span className="block text-[10px] text-stone-400">
-                        {localities.find((loc) => loc.id === biz.localityId)?.name || 'Sin localidad'}
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {businesses.length === 0 && (
-                <p className="mt-1 text-xs text-amber-600">
-                  No hay negocios creados todavía.
-                </p>
-              )}
-              <FieldError message={courierFormErrors.businessIds} />
-            </div>
-          ) : (
-            <p className="rounded-xl bg-sky-50 px-4 py-2 text-xs text-sky-800 sm:col-span-2 lg:col-span-3 dark:bg-sky-950/40 dark:text-sky-300">
-              El repartidor de plataforma cubre todos los negocios del valle.
+          <div className="sm:col-span-2 lg:col-span-3">
+            <label className="mb-1 block text-xs font-semibold text-stone-500">
+              Negocios que cubre <span className="font-normal text-stone-400">(uno o varios)</span>
+            </label>
+            <p className="mb-2 text-[11px] text-stone-400">
+              Solo recibirá pedidos de los negocios seleccionados.
             </p>
-          )}
+            <div className="grid max-h-44 gap-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
+              {businesses.map((biz) => (
+                <label
+                  key={biz.id}
+                  className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-xs text-stone-700 transition hover:bg-stone-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={courierForm.businessIds.includes(biz.id)}
+                    onChange={() => toggleCourierBusiness(biz.id)}
+                    className="mt-0.5 h-4 w-4 accent-[#FF4E00]"
+                  />
+                  <span>
+                    <span className="block font-semibold text-stone-800">{biz.name}</span>
+                    <span className="block text-[10px] text-stone-400">
+                      {localities.find((loc) => loc.id === biz.localityId)?.name || 'Sin localidad'}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+            {businesses.length === 0 && (
+              <p className="mt-1 text-xs text-amber-600">
+                No hay negocios creados todavía.
+              </p>
+            )}
+            <FieldError message={courierFormErrors.businessIds} />
+          </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-stone-500">
               Cuenta bancaria (IBAN){' '}
@@ -1621,11 +1620,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
               <div>
                 <label className="mb-1 block text-xs font-semibold text-stone-500">
-                  Negocios asignados{' '}
-                  {editingCourier.role === 'PLATFORM_COURIER' && (
-                    <span className="font-normal text-stone-400">(informativo)</span>
-                  )}
+                  Negocios asignados
                 </label>
+                <p className="mb-2 text-[11px] text-stone-400">
+                  Solo recibirá pedidos de los negocios seleccionados.
+                </p>
                 <div className="grid max-h-52 gap-1 overflow-y-auto rounded-xl border border-stone-200 bg-white p-2 sm:grid-cols-2 dark:border-stone-700 dark:bg-stone-800/50">
                   {businesses.map((biz) => (
                     <label
@@ -1649,11 +1648,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                     </label>
                   ))}
                 </div>
-                {editingCourier.role === 'PLATFORM_COURIER' && (
-                  <p className="mt-1 text-[10px] text-stone-400">
-                    El repartidor de plataforma cubre todo el valle; esta lista es sólo informativa.
-                  </p>
-                )}
+                <p className="mt-1 text-[10px] text-stone-400">
+                  La lista determina los negocios de los que puede recibir pedidos.
+                </p>
                 <FieldError message={courierEditErrors.businessIds} />
               </div>
 
