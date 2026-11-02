@@ -700,7 +700,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       required
                       value={addressInput}
                       onChange={(e) => setAddressInput(e.target.value)}
-                      placeholder="Calle, número y localidad"
+                      placeholder="Calle y número"
                       className={fieldClass(
                         "w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]",
                         Boolean(registerFieldErrors.address),
