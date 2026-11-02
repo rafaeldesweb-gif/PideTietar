@@ -1,0 +1,16 @@
+{
+  "name": "PideTiétar",
+  "short_name": "PideTiétar",
+  "description": "Plataforma de delivery y comercio local en el Valle del Tiétar.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffaf5",
+  "theme_color": "#ff4e00",
+  "icons": [
+    {
+      "src": "/PideTietar-app-icon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}
