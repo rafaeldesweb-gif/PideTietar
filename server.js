@@ -3447,12 +3447,37 @@ async function getLocalityById(id) {
   }
   return getSqliteDb().prepare("SELECT * FROM localities WHERE id = ? LIMIT 1").get(id);
 }
+// Clave de Google Maps Geocoding API (para verificar que la dirección de
+// registro pertenece al código postal de la localidad seleccionada).
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
 
-// Extrae el código postal (5 dígitos) de una dirección, si lo tiene.
-function extractPostalCode(address) {
-  if (!address) return null;
-  const match = String(address).match(/\b(\d{5})\b/);
-  return match ? match[1] : null;
+// Geocodea una dirección con Google Maps y devuelve el código postal del
+// primer resultado, o null si no se puede obtener (sin clave, error de red o
+// sin componente postal). Cuando no hay clave configurada se devuelve null y
+// el registro no se bloquea por este motivo (ver verifyAddressInLocality).
+async function geocodePostalCode(address) {
+  if (!GOOGLE_MAPS_API_KEY || !address) return null;
+  try {
+    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+    url.searchParams.set('address', String(address));
+    url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
+    url.searchParams.set('region', 'es');
+    url.searchParams.set('components', 'country:ES');
+    const response = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.status !== 'OK' || !data.results || !data.results.length) return null;
+    const components = data.results[0].address_components || [];
+    for (const component of components) {
+      if (component.types && component.types.includes('postal_code')) {
+        return String(component.long_name || '').trim();
+      }
+    }
+    return null;
+  } catch (error) {
+    console.warn('Google Maps geocode failed:', error.message);
+    return null;
+  }
 }
 
 // Lee el horario de todos los negocios. Si se pasa una transacción se consulta
@@ -3667,17 +3692,21 @@ app.post("/api/auth/register", async (req, res) => {
     errors.localityId = "Selecciona una localidad válida.";
   }
 
-  // Dirección dentro de la zona: compara el código postal de la dirección
-  // con el de la localidad seleccionada (cuando la zona lo tiene definido).
+  // Dirección dentro de la zona: verifica con Google Maps que el código
+  // postal de la dirección coincida con el de la localidad seleccionada (cuando
+  // la zona lo tiene definido). No se pide el código postal por separado al
+  // cliente: Google Maps lo extrae de la dirección escrita.
   if (localityId) {
     const localityRow = await getLocalityById(localityId);
     const localityPostal = String(localityRow?.postal_code || "").trim();
-    const addressPostal = extractPostalCode(address);
     if (localityPostal && localityPostal !== "00000") {
-      if (!addressPostal) {
-        errors.address = `La dirección debe incluir el código postal de la zona "${localityRow?.name || localityId}" (${localityPostal}).`;
+      const addressPostal = await geocodePostalCode(address);
+      if (addressPostal === null) {
+        // Sin clave de Google Maps o error de geocodificación: no se bloquea
+        // el registro, pero no se puede confirmar que la dirección pertenece a
+        // la zona. Se permite pasar para no impedir el alta sin clave configurada.
       } else if (addressPostal !== localityPostal) {
-        errors.address = `El código postal de la dirección no corresponde a la zona seleccionada. El código postal de "${localityRow?.name || localityId}" es ${localityPostal}.`;
+        errors.address = `Según Google Maps, la dirección no pertenece al código postal ${localityPostal} de "${localityRow?.name || localityId}". Escribe una dirección dentro de esa zona.`;
       }
     }
   }
