@@ -15,6 +15,10 @@ interface TermsAndConditionsViewProps {
 
 export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ onBack }) => {
   const isCourierTerms = window.location.hash === COURIER_TERMS_ANCHOR;
+  // El checkbox de aceptación solo tiene sentido cuando los términos se abren
+  // desde el formulario de registro (pestaña nueva con opener). Desde el enlace
+  // del footer no hay formulario de registro abierto, así que no se muestra.
+  const hasOpener = !!window.opener && !window.opener.closed;
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   const handleTermsAcceptance = (accepted: boolean) => {
@@ -49,7 +53,7 @@ export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ 
         className="inline-flex items-center gap-2 rounded-xl border border-stone-700 px-4 py-2 text-xs font-bold text-stone-200 transition hover:bg-stone-800"
       >
         <ArrowLeft className="h-4 w-4" />
-        Volver al Formulario
+        Volver
       </button>
     </div>
 
@@ -126,20 +130,22 @@ export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ 
         </p>
       </div>
 
-      <label className="mt-8 flex cursor-pointer items-start gap-3 border-t border-stone-200 pt-5 text-xs text-stone-600 dark:border-stone-800 dark:text-stone-300">
-        <input
-          type="checkbox"
-          checked={termsAccepted}
-          onChange={(event) => handleTermsAcceptance(event.target.checked)}
-          className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
-        />
-        <span className="flex items-start gap-2 leading-5">
-          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[#ff4e00]" />
-          <span>
-            Acepto los {isCourierTerms ? 'términos y condiciones para repartidores' : 'términos y condiciones de uso'} de PideTiétar y confirmo que he podido leer esta página.
+      {hasOpener && (
+        <label className="mt-8 flex cursor-pointer items-start gap-3 border-t border-stone-200 pt-5 text-xs text-stone-600 dark:border-stone-800 dark:text-stone-300">
+          <input
+            type="checkbox"
+            checked={termsAccepted}
+            onChange={(event) => handleTermsAcceptance(event.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+          />
+          <span className="flex items-start gap-2 leading-5">
+            <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[#ff4e00]" />
+            <span>
+              Acepto los {isCourierTerms ? 'términos y condiciones para repartidores' : 'términos y condiciones de uso'} de PideTiétar y confirmo que he podido leer esta página.
+            </span>
           </span>
-        </span>
-      </label>
+        </label>
+      )}
     </div>
   </section>
   );

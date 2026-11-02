@@ -162,7 +162,7 @@ export default function App() {
                     window.close();
                     return;
                   }
-                  history.replaceState(null, '', window.location.pathname + window.location.search);
+                  window.history.back();
                   setCurrentView('home');
                 }}
               />
