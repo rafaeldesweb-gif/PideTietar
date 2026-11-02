@@ -9,6 +9,14 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
 import {
+  normalizeAddressPart,
+  prepareAddressForGeocoding,
+  hasLocalityPostalCode,
+  localityMatchesResult,
+  resolveLocalityName,
+  assessAddressResult,
+} from './server/addressVerification.js';
+import {
   getSupabaseMediaBucket,
   getSupabaseMediaClient,
   parseDataUrl,
@@ -3447,37 +3455,200 @@ async function getLocalityById(id) {
   }
   return getSqliteDb().prepare("SELECT * FROM localities WHERE id = ? LIMIT 1").get(id);
 }
-// Clave de Google Maps Geocoding API (para verificar que la dirección de
-// registro pertenece al código postal de la localidad seleccionada).
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+const GEOAPIFY_API_KEY = String(process.env.GEOAPIFY_API_KEY || '').trim();
+const GEOAPIFY_GEOCODING_URL = 'https://api.geoapify.com/v1/geocode/search';
+const GEOAPIFY_TIMEOUT_MS = 8000;
+const ADDRESS_VERIFICATION_CACHE_TTL_MS = 5 * 60 * 1000;
+const addressVerificationCache = new Map();
+const addressLocalityCache = new Map();
 
-// Geocodea una dirección con Google Maps y devuelve el código postal del
-// primer resultado, o null si no se puede obtener (sin clave, error de red o
-// sin componente postal). Cuando no hay clave configurada se devuelve null y
-// el registro no se bloquea por este motivo (ver verifyAddressInLocality).
-async function geocodePostalCode(address) {
-  if (!GOOGLE_MAPS_API_KEY || !address) return null;
-  try {
-    const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
-    url.searchParams.set('address', String(address));
-    url.searchParams.set('key', GOOGLE_MAPS_API_KEY);
-    url.searchParams.set('region', 'es');
-    url.searchParams.set('components', 'country:ES');
-    const response = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (data.status !== 'OK' || !data.results || !data.results.length) return null;
-    const components = data.results[0].address_components || [];
-    for (const component of components) {
-      if (component.types && component.types.includes('postal_code')) {
-        return String(component.long_name || '').trim();
-      }
-    }
-    return null;
-  } catch (error) {
-    console.warn('Google Maps geocode failed:', error.message);
+async function getGeoapifyLocalityName(localityRow) {
+  if (!hasLocalityPostalCode(localityRow)) return localityRow.name;
+  const key = `${localityRow.id}:${localityRow.name}:${localityRow.postal_code}`;
+  const cached = addressLocalityCache.get(key);
+  if (cached && Date.now() - cached.createdAt < 24 * 60 * 60 * 1000) return cached.name;
+
+  const url = new URL(GEOAPIFY_GEOCODING_URL);
+  url.searchParams.set('text', `${localityRow.postal_code}, España`);
+  url.searchParams.set('type', 'postcode');
+  url.searchParams.set('filter', 'countrycode:es');
+  url.searchParams.set('format', 'json');
+  url.searchParams.set('limit', '10');
+  url.searchParams.set('apiKey', GEOAPIFY_API_KEY);
+  const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+  if (!response.ok) throw new Error(`Geoapify HTTP ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data?.results)) throw new Error('Respuesta de localidad no válida');
+  const name = resolveLocalityName(data.results, localityRow);
+  if (addressLocalityCache.size >= 1000) addressLocalityCache.delete(addressLocalityCache.keys().next().value);
+  addressLocalityCache.set(key, { name, createdAt: Date.now() });
+  return name;
+}
+
+async function geoapifyAddressQuery(address, localityRow) {
+  const localityName = await getGeoapifyLocalityName(localityRow);
+  const postalCode = hasLocalityPostalCode(localityRow) ? localityRow.postal_code : '';
+  return `${prepareAddressForGeocoding(address)}, ${postalCode} ${localityName}, España`;
+}
+
+const addressVerificationCacheKey = (address, localityId) =>
+  `${localityId}:${normalizeAddressPart(address)}`;
+
+function readCachedAddressVerification(address, localityId) {
+  const key = addressVerificationCacheKey(address, localityId);
+  const cached = addressVerificationCache.get(key);
+  if (!cached) return null;
+  if (Date.now() - cached.createdAt > ADDRESS_VERIFICATION_CACHE_TTL_MS) {
+    addressVerificationCache.delete(key);
     return null;
   }
+  return cached.value;
+}
+
+function cacheAddressVerification(address, localityId, value) {
+  addressVerificationCache.set(addressVerificationCacheKey(address, localityId), {
+    createdAt: Date.now(),
+    value,
+  });
+  return value;
+}
+
+// Valida una dirección contra Geoapify sin exponer la API key al navegador.
+// La localidad y el código postal proceden de nuestra propia tabla localities;
+// Geoapify solo aporta la búsqueda y la normalización geográfica.
+async function verifyAddressWithGeoapify(address, localityRow) {
+  const cleanAddress = cleanString(address);
+  const localityId = `${localityRow?.id}:${localityRow?.name}:${localityRow?.postal_code}`;
+  const localityName = cleanString(localityRow?.name);
+
+  if (!GEOAPIFY_API_KEY) {
+    return {
+      configured: false,
+      available: false,
+      checked: false,
+      verified: false,
+      message: 'La verificación de direcciones no está disponible todavía. Tu dirección sigue sin confirmar.',
+    };
+  }
+
+  const cached = readCachedAddressVerification(cleanAddress, localityId);
+  if (cached) return cached;
+
+  try {
+    const url = new URL(GEOAPIFY_GEOCODING_URL);
+    url.searchParams.set('text', await geoapifyAddressQuery(cleanAddress, localityRow));
+    url.searchParams.set('filter', 'countrycode:es');
+    url.searchParams.set('limit', '5');
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('lang', 'es');
+    url.searchParams.set('apiKey', GEOAPIFY_API_KEY);
+
+    const latitude = Number(localityRow?.latitude);
+    const longitude = Number(localityRow?.longitude);
+    if (Number.isFinite(latitude) && Number.isFinite(longitude) &&
+        (latitude !== 0 || longitude !== 0)) {
+      url.searchParams.set('bias', `proximity:${longitude},${latitude}`);
+    }
+
+    const response = await fetch(url.toString(), {
+      signal: AbortSignal.timeout(GEOAPIFY_TIMEOUT_MS),
+      headers: { Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`Geoapify HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!Array.isArray(data?.results)) throw new Error('Respuesta de direcciones no válida');
+    const requestedHouseNumber = data.query?.parsed?.housenumber;
+    const candidates = data.results.map((result) => ({
+      result, assessment: assessAddressResult(result, localityRow, requestedHouseNumber),
+    }));
+    const selected = candidates.find(({ assessment }) => assessment.verified) ||
+      candidates.find(({ assessment }) => assessment.streetVerified) ||
+      candidates.find(({ assessment }) => assessment.inLocality) || candidates[0];
+    const result = selected?.result;
+    if (!result) {
+      return cacheAddressVerification(cleanAddress, localityId, {
+        configured: true,
+        available: true,
+        checked: true,
+        verified: false,
+        message: `No se ha encontrado esa dirección en ${localityName}. Revisa la calle y el número.`,
+      });
+    }
+
+    const resultPostalCode = String(result.postcode || '').trim();
+    const confidence = Number(result.rank?.confidence || 0);
+    const matchType = String(result.rank?.match_type || '').trim();
+    const resultType = String(result.result_type || '').trim();
+    const { verified, streetVerified, verificationLevel } = selected.assessment;
+    const message = verified ? 'Dirección confirmada.' : streetVerified
+      ? `Calle localizada en ${result.city || localityName}. Geoapify no ha podido confirmar el portal${requestedHouseNumber ? ` ${requestedHouseNumber}` : ''}.`
+      : `No se ha podido localizar esa calle y portal en ${localityName}. Revisa la dirección o selecciona una sugerencia.`;
+
+    return cacheAddressVerification(cleanAddress, localityId, {
+      configured: true,
+      available: true,
+      checked: true,
+      verified,
+      streetVerified,
+      verificationLevel,
+      message,
+      normalizedAddress: result.formatted || result.address_line1 || cleanAddress,
+      postalCode: resultPostalCode,
+      locality: result.city || result.town || result.village || localityName,
+      coordinates: Number.isFinite(Number(result.lat)) && Number.isFinite(Number(result.lon))
+        ? { lat: Number(result.lat), lng: Number(result.lon) }
+        : undefined,
+      confidence,
+      resultType,
+      matchType,
+    });
+  } catch (error) {
+    console.warn('Geoapify address verification failed:', error.message);
+    return {
+      configured: true,
+      available: false,
+      checked: false,
+      verified: false,
+      message: 'No se ha podido conectar con el servicio de verificación de direcciones.',
+    };
+  }
+}
+
+async function autocompleteAddressWithGeoapify(text, localityRow) {
+  if (!GEOAPIFY_API_KEY) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+
+  const url = new URL('https://api.geoapify.com/v1/geocode/autocomplete');
+  url.searchParams.set('text', await geoapifyAddressQuery(text, localityRow));
+  url.searchParams.set('filter', 'countrycode:es');
+  url.searchParams.set('limit', '5');
+  url.searchParams.set('lang', 'es');
+  url.searchParams.set('apiKey', GEOAPIFY_API_KEY);
+
+  const latitude = Number(localityRow?.latitude);
+  const longitude = Number(localityRow?.longitude);
+  if (Number.isFinite(latitude) && Number.isFinite(longitude) &&
+      (latitude !== 0 || longitude !== 0)) {
+    url.searchParams.set('bias', `proximity:${longitude},${latitude}`);
+  }
+
+  const response = await fetch(url.toString(), {
+    signal: AbortSignal.timeout(GEOAPIFY_TIMEOUT_MS),
+    headers: { Accept: 'application/geo+json, application/json' },
+  });
+  if (!response.ok) throw new Error(`Geoapify HTTP ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data?.features)) throw new Error('Respuesta de sugerencias no válida');
+  return {
+    type: 'FeatureCollection',
+    features: data.features.filter(({ properties: result }) => result?.country_code === 'es' &&
+      (!hasLocalityPostalCode(localityRow) || result.postcode === localityRow.postal_code) &&
+      localityMatchesResult(localityRow, result)),
+  };
 }
 
 // Lee el horario de todos los negocios. Si se pasa una transacción se consulta
@@ -3645,6 +3816,68 @@ app.get("/api/debug/database", requireSuperAdmin, async (_req, res) => {
   });
 });
 
+app.post("/api/address/verify", async (req, res) => {
+  const address = cleanString(req.body?.address);
+  const localityId = cleanString(req.body?.localityId ?? req.body?.locality_id);
+  const errors = {};
+
+  if (!address || address.length < 5 || address.length > 500) {
+    errors.address = "Escribe una dirección de entre 5 y 500 caracteres.";
+  }
+  if (!localityId) errors.localityId = "Selecciona una localidad.";
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "La dirección y la localidad son obligatorias.",
+      errors,
+    });
+  }
+
+  const localityRow = await getLocalityById(localityId);
+  if (!localityRow) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "La localidad seleccionada no existe.",
+      errors: { localityId: "Selecciona una localidad válida." },
+    });
+  }
+
+  const verification = await verifyAddressWithGeoapify(address, localityRow);
+  if (verification.configured && !verification.available) {
+    return res.status(503).json({
+      code: "ADDRESS_VALIDATION_UNAVAILABLE",
+      message: verification.message,
+    });
+  }
+
+  res.json({
+    ...verification,
+    localityId,
+    localityName: localityRow.name,
+  });
+});
+
+app.get("/api/address/autocomplete", async (req, res) => {
+  const text = cleanString(req.query?.text);
+  const localityId = cleanString(req.query?.localityId ?? req.query?.locality_id);
+  if (!text || text.length < 3 || !localityId) {
+    return res.json({ type: 'FeatureCollection', features: [] });
+  }
+
+  const localityRow = await getLocalityById(localityId);
+  if (!localityRow) return res.json({ type: 'FeatureCollection', features: [] });
+
+  try {
+    res.json(await autocompleteAddressWithGeoapify(text, localityRow));
+  } catch (error) {
+    console.warn('Geoapify address autocomplete failed:', error.message);
+    res.status(503).json({
+      code: "ADDRESS_VALIDATION_UNAVAILABLE",
+      message: "No se ha podido consultar el autocompletado de direcciones.",
+    });
+  }
+});
+
 app.post("/api/auth/register", async (req, res) => {
   const {
     username,
@@ -3692,22 +3925,16 @@ app.post("/api/auth/register", async (req, res) => {
     errors.localityId = "Selecciona una localidad válida.";
   }
 
-  // Dirección dentro de la zona: verifica con Google Maps que el código
-  // postal de la dirección coincida con el de la localidad seleccionada (cuando
-  // la zona lo tiene definido). No se pide el código postal por separado al
-  // cliente: Google Maps lo extrae de la dirección escrita.
-  if (localityId) {
+  // Para registrarse basta localizar la calle dentro de la localidad y CP
+  // seleccionados, aunque el portal no esté cartografiado. Eso no convierte
+  // el portal en confirmado. Sin API key se conserva el comportamiento local.
+  if (localityId && !errors.localityId) {
     const localityRow = await getLocalityById(localityId);
-    const localityPostal = String(localityRow?.postal_code || "").trim();
-    if (localityPostal && localityPostal !== "00000") {
-      const addressPostal = await geocodePostalCode(address);
-      if (addressPostal === null) {
-        // Sin clave de Google Maps o error de geocodificación: no se bloquea
-        // el registro, pero no se puede confirmar que la dirección pertenece a
-        // la zona. Se permite pasar para no impedir el alta sin clave configurada.
-      } else if (addressPostal !== localityPostal) {
-        errors.address = `Según Google Maps, la dirección no pertenece al código postal ${localityPostal} de "${localityRow?.name || localityId}". Escribe una dirección dentro de esa zona.`;
-      }
+    const verification = await verifyAddressWithGeoapify(address, localityRow);
+    if (verification.configured && !verification.available) {
+      errors.address = verification.message;
+    } else if (verification.configured && !verification.verified && !verification.streetVerified) {
+      errors.address = verification.message;
     }
   }
 
@@ -6290,6 +6517,12 @@ app.get("/api/debug/config", requireSuperAdmin, (_req, res) => {
   });
 });
 
+// Ninguna ruta desconocida de API debe caer al HTML de la SPA ni al 404 HTML
+// predeterminado de Express, independientemente de que exista dist/.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ code: 'NOT_FOUND', message: 'La ruta de API solicitada no existe.' });
+});
+
 const distPath = path.join(__dirname, "dist");
 const indexFile = path.join(distPath, "index.html");
 
@@ -6423,6 +6656,9 @@ async function startServer() {
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`PideTiétar backend running on http://0.0.0.0:${PORT}`);
     console.log(`Database mode: ${databaseMode}`);
+    console.log(GEOAPIFY_API_KEY
+      ? 'Geoapify configurado: verificación de direcciones disponible.'
+      : 'Geoapify sin configurar: falta GEOAPIFY_API_KEY; las direcciones no se confirman.');
     console.log(
       `Database target: ${mysqlPool ? process.env.MYSQL_DATABASE || "mysql" : DB_PATH}`,
     );

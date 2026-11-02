@@ -24,6 +24,9 @@ test('el perfil se guarda con sesiones nuevas y con el ID antiguo del superadmin
     cwd: fileURLToPath(new URL('../', import.meta.url)),
     env: {
       ...process.env,
+      NODE_ENV: 'test',
+      GEOAPIFY_API_KEY: '',
+      SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', EMAIL_HOST: '', EMAIL_USER: '', EMAIL_PASS: '',
       PORT: String(port),
       DB_PATH: path.join(temporaryDirectory, 'app.db'),
       DB_HOST: '', MYSQL_HOST: '',

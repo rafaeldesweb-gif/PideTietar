@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function startTestApp(t) {
+export async function startTestApp(t, { geoapifyApiKey = '', preload } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pidetietar-crud-'));
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
@@ -17,13 +17,14 @@ export async function startTestApp(t) {
   const { port } = socket.address();
   await new Promise((resolve) => socket.close(resolve));
   const password = randomBytes(20).toString('hex');
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, [...(preload ? ['--import', preload] : []), 'server.js'], {
     cwd: fileURLToPath(new URL('../', import.meta.url)), windowsHide: true,
     env: {
       ...process.env, NODE_ENV: 'test', PORT: String(port), DB_PATH: path.join(directory, 'app.db'),
       DB_HOST: '', MYSQL_HOST: '', DB_USER: '', MYSQL_USER: '', DB_PASSWORD: '', MYSQL_PASSWORD: '', DB_NAME: '', MYSQL_DATABASE: '',
       SESSION_SECRET: randomBytes(32).toString('hex'), SUPERADMIN_USERNAME: 'AdminPruebas', SUPERADMIN_PASSWORD: password,
       SUPABASE_URL: '', SUPABASE_SECRET_KEY: '',
+      GEOAPIFY_API_KEY: geoapifyApiKey,
       SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', EMAIL_HOST: '', EMAIL_USER: '', EMAIL_PASS: '',
     },
     stdio: ['ignore', 'pipe', 'pipe'],

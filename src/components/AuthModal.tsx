@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp, setSessionToken } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
 import { MediaView } from './MediaView';
+import { GeoapifyAddressInput } from './GeoapifyAddressInput';
 import {
   MEDIA_ACCEPT,
   isMediaUrl,
@@ -9,10 +10,11 @@ import {
   processMediaUrl,
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
+import { verifyAddress, type AddressVerificationResult } from '../services/addressValidation';
 import { openTermsInNewTab, TERMS_ACCEPTED_MESSAGE, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
 import { extractFieldErrors, FieldError, fieldClass, type FieldErrors } from './FormErrors';
 import { 
-  X, LogOut, ArrowLeft
+  X, LogOut, ArrowLeft, Loader2
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -66,6 +68,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [localityId, setLocalityId] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [registerFieldErrors, setRegisterFieldErrors] = useState<FieldErrors>({});
+  const [addressVerification, setAddressVerification] = useState<AddressVerificationResult | null>(null);
+  const [addressVerificationLoading, setAddressVerificationLoading] = useState(false);
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const authSubmissionPending = useRef(false);
+  const addressVerificationInput = useRef({ address: addressInput, localityId, isOpen });
+  addressVerificationInput.current = { address: addressInput, localityId, isOpen };
 
   // Resetea el formulario de registro cada vez que se cierra el modal, para que
   // al volver a abrirlo los campos estén limpios (sin datos residuales).
@@ -79,6 +87,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setLocalityId('');
       setTermsAccepted(false);
       setRegisterFieldErrors({});
+      setAddressVerification(null);
+      setAddressVerificationLoading(false);
       setRequiresEmailVerification(false);
       setVerificationCodeInput('');
     }
@@ -147,6 +157,57 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     onClose();
   };
 
+  const verifyCurrentAddress = async (announce = true): Promise<boolean> => {
+    if (!addressInput.trim() || !localityId) return false;
+
+    setAddressVerificationLoading(true);
+    try {
+      const result = await verifyAddress(addressInput, localityId);
+      if (!addressVerificationInput.current.isOpen ||
+          addressVerificationInput.current.address !== addressInput ||
+          addressVerificationInput.current.localityId !== localityId) return false;
+      setAddressVerification(result);
+
+      if (result.configured && !result.verified && !result.streetVerified) {
+        setRegisterFieldErrors((previous) => ({
+          ...previous,
+          address: result.message,
+        }));
+        if (announce) showNotification(result.message, result.streetVerified ? 'info' : 'error');
+        return false;
+      }
+
+      setRegisterFieldErrors((previous) => {
+        const next = { ...previous };
+        delete next.address;
+        return next;
+      });
+      if (announce) {
+        showNotification(result.message, result.verified ? 'success' : 'info');
+      }
+      return true;
+    } catch (error) {
+      if (!addressVerificationInput.current.isOpen ||
+          addressVerificationInput.current.address !== addressInput ||
+          addressVerificationInput.current.localityId !== localityId) return false;
+      const message = error instanceof Error
+        ? error.message
+        : 'No se pudo verificar la dirección.';
+      setAddressVerification({
+        configured: true,
+        available: false,
+        checked: false,
+        verified: false,
+        message,
+      });
+      setRegisterFieldErrors((previous) => ({ ...previous, address: message }));
+      if (announce) showNotification(message, 'error');
+      return false;
+    } finally {
+      setAddressVerificationLoading(false);
+    }
+  };
+
   const handleSendVerification = async () => {
     const cleanEmail = emailInput.trim();
     if (!cleanEmail) {
@@ -212,6 +273,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleSubmitAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (authSubmissionPending.current) return;
 
     const normalizedUser = (emailInput || '').trim();
     const normalizedPassword = (password || '').trim();
@@ -253,8 +315,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
 
+    authSubmissionPending.current = true;
+    setAuthSubmitting(true);
     try {
       if (isRegisterMode) {
+        if (!(await verifyCurrentAddress(true))) return;
+
         const payload = {
           username: normalizedUser.split('@')[0] || finalName,
           fullName: finalName,
@@ -352,6 +418,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       completeLogin(data, normalizedUser, finalName);
     } catch (error) {
       showNotification(error instanceof Error ? error.message : 'No se pudo completar la operación', 'error');
+    } finally {
+      authSubmissionPending.current = false;
+      setAuthSubmitting(false);
     }
   };
 
@@ -695,20 +764,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <label className="block text-xs font-bold text-stone-300 mb-1">
                       Dirección de entrega
                     </label>
-                    <input
-                      type="text"
-                      required
+                    <GeoapifyAddressInput
                       value={addressInput}
-                      onChange={(e) => setAddressInput(e.target.value)}
-                      placeholder="Calle y número"
-                      className={fieldClass(
-                        "w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]",
-                        Boolean(registerFieldErrors.address),
-                      )}
-                      autoComplete="street-address"
+                      localityId={localityId}
+                      onChange={(value) => {
+                        setAddressInput(value);
+                        setAddressVerification(null);
+                        setRegisterFieldErrors((previous) => ({ ...previous, address: '' }));
+                      }}
+                      hasError={Boolean(registerFieldErrors.address) && !addressVerification?.streetVerified}
                     />
-                    {registerFieldErrors.address && (
+                    {(addressVerification?.verified || (addressVerification && !addressVerification.configured)) && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        {addressVerification?.checked && addressVerification.verified && (
+                          <span className="text-[11px] font-semibold text-[#8bca60]">
+                            Dirección confirmada
+                          </span>
+                        )}
+                        {addressVerification && !addressVerification.configured && (
+                          <span className="text-[11px] text-amber-300">
+                            Verificación no disponible. Dirección sin confirmar.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {addressVerification?.streetVerified && !addressVerification.verified && (
+                      <p role="status" className="mt-2 text-xs text-amber-300">
+                        {addressVerification.message}
+                      </p>
+                    )}
+                    {registerFieldErrors.address && !addressVerification?.streetVerified && (
                       <FieldError message={registerFieldErrors.address} />
+                    )}
+                    {addressVerification?.checked && (
+                      <p className="mt-2 text-[10px] text-stone-400">
+                        Powered by{' '}
+                        <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer" className="underline">Geoapify</a>
+                        {' · '}
+                        <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer" className="underline">© OpenStreetMap contributors</a>
+                      </p>
                     )}
                   </div>
                 )}
@@ -721,7 +815,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <select
                       required
                       value={localityId}
-                      onChange={(e) => setLocalityId(e.target.value)}
+                      onChange={(e) => {
+                        setLocalityId(e.target.value);
+                        setAddressVerification(null);
+                        setRegisterFieldErrors((previous) => ({ ...previous, address: '', localityId: '' }));
+                      }}
                       className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                     >
                       <option value="">Selecciona una localidad…</option>
@@ -824,9 +922,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 {/* Big White Button with Black Text (Exact Match to Image 4) */}
                 <button
                   type="submit"
-                  className="mt-3 w-full rounded-xl bg-white py-3.5 text-xs font-black uppercase tracking-wider text-stone-950 shadow-lg transition hover:bg-stone-200 cursor-pointer"
+                  disabled={authSubmitting}
+                  aria-busy={authSubmitting}
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white py-3.5 text-xs font-black uppercase tracking-wider text-stone-950 shadow-lg transition hover:bg-stone-200 cursor-pointer disabled:cursor-wait disabled:opacity-60"
                 >
-                  {isRegisterMode ? 'CREAR CUENTA' : 'INICIAR SESIÓN'}
+                  {authSubmitting && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
+                  {authSubmitting
+                    ? addressVerificationLoading ? 'VERIFICANDO DIRECCIÓN…' : isRegisterMode ? 'CREANDO CUENTA…' : 'INICIANDO SESIÓN…'
+                    : isRegisterMode ? 'CREAR CUENTA' : 'INICIAR SESIÓN'}
                 </button>
 
                 {requiresPasswordChange && !isRegisterMode && (

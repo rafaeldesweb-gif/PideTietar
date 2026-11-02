@@ -475,3 +475,53 @@ html.dark textarea.field-ink::placeholder {
   opacity: 1;
 }
 
+/* Campo de dirección basado en el componente oficial de Geoapify. */
+.geoapify-address-input .geoapify-geocoder-autocomplete-container {
+  width: 100%;
+}
+
+.geoapify-address-input .geoapify-autocomplete-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 40px 0 16px;
+  border: 1px solid #292524;
+  border-radius: 0.75rem;
+  background: #1a1a1e;
+  color: #ffffff;
+  font-size: 0.875rem;
+  line-height: 48px;
+  outline: none;
+}
+
+.geoapify-address-input .geoapify-autocomplete-input::placeholder {
+  color: #78716c;
+}
+
+.geoapify-address-input .geoapify-autocomplete-input:focus {
+  border-color: #ff4e00;
+  box-shadow: 0 0 0 2px rgb(255 78 0 / 25%);
+}
+
+.geoapify-address-input--error .geoapify-autocomplete-input {
+  border-color: #f87171;
+  box-shadow: 0 0 0 1px rgb(248 113 113 / 30%);
+}
+
+.geoapify-address-input .geoapify-autocomplete-items {
+  overflow: hidden;
+  border: 1px solid #44403c;
+  border-radius: 0 0 0.75rem 0.75rem;
+  background: #1a1a1e;
+  color: #ffffff;
+}
+
+.geoapify-address-input .geoapify-autocomplete-items div:hover,
+.geoapify-address-input .geoapify-autocomplete-items .active {
+  background: #2b2523;
+}
+
+.geoapify-address-input .geoapify-autocomplete-items .secondary-part {
+  color: #a8a29e;
+}
+

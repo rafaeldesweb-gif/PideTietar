@@ -32,6 +32,27 @@ npm run dev
 
 Vite redirige `/api` al backend del puerto 4000.
 
+### Verificación de direcciones
+
+Define `GEOAPIFY_API_KEY` en `.env` con la clave de tu proyecto en
+[Geoapify](https://myprojects.geoapify.com/). Reinicia `npm run server` después
+de modificar `.env` o `server.js`: Vite solo recarga el frontend.
+
+Sin clave, la API indica `configured: false`, `checked: false` y `verified: false`.
+El registro conserva el comportamiento local, pero la dirección no se muestra
+como confirmada. Si el navegador recibe HTML (`Unexpected token '<'`) o un 404
+en `/api/address/verify`, comprueba que el backend del puerto 4000 ejecuta la
+versión actual y reinícialo. Las rutas de API desconocidas devuelven JSON.
+
+La búsqueda incluye el CP de la localidad y resuelve nombres abreviados, como
+Sotillo → Sotillo de la Adrada (05420). `#34` se consulta como portal `34`.
+La API distingue `verificationLevel: "building"` (portal confirmado), `"street"`
+(calle localizada, portal sin confirmar) y coincidencias insuficientes. Un
+`full_match` con `confidence_building_level: 0` no confirma el portal. El registro
+sí se permite si `streetVerified: true`: la calle pertenece a la localidad y CP
+seleccionados. Una coincidencia solo de localidad o una calle fuera de zona no
+permiten registrarse cuando Geoapify está configurado.
+
 ## Producción
 
 ```bash
