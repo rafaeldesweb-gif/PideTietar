@@ -139,7 +139,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
             src={activeBanner.image}
             alt=""
             className="product-banner__background"
-            fit="cover"
+            fit="contain"
           />
           <div className="product-banner__shade" />
           <div key={activeBanner.id} className="product-banner__content" aria-label="Datos del producto destacado">
@@ -158,7 +158,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
               <p className="product-banner__description">{activeBanner.product.description}</p>
             </div>
             <div className="product-banner__dish" aria-hidden="true">
-              <MediaView src={activeBanner.image} alt="" className="product-banner__dish-media" fit="cover" />
+              <MediaView src={activeBanner.image} alt="" className="product-banner__dish-media" fit="contain" />
             </div>
           </div>
           <div className="product-banner__pagination" aria-label="Diapositivas del banner">
@@ -221,10 +221,10 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
           >
             <button
               onClick={() => setSelectedCategory(null)}
-              className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+              className="group flex w-[85px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[104px] lg:w-[113px]"
               aria-pressed={selectedCategory === null}
             >
-              <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
+              <div className={`flex h-[80px] w-[80px] items-center justify-center rounded-full p-1 transition-all sm:h-[94px] sm:w-[94px] lg:h-[113px] lg:w-[113px] ${
                 selectedCategory === null
                   ? 'selection-glow scale-105 shadow-md shadow-[#FF4E00]/30'
                   : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
@@ -233,7 +233,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   <Utensils className="h-5 w-5 stroke-[2.5] sm:h-6 sm:w-6 lg:h-7 lg:w-7" />
                 </div>
               </div>
-              <span className={`max-w-full truncate text-[9px] font-bold tracking-tight sm:text-[10px] lg:text-xs ${
+              <span className={`max-w-full text-[11px] font-bold tracking-tight sm:text-[12px] lg:text-[14px] ${
                 selectedCategory === null ? 'text-[#FF4E00] dark:text-[#F5BB00]' : 'text-stone-700 dark:text-stone-300'
               }`}>
                 Todos
@@ -246,27 +246,28 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                 <button
                   key={cat.id}
                   onClick={() => setSelectedCategory(isSelected ? null : cat.id)}
-                  className="group flex w-[62px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[76px] lg:w-[82px]"
+                  className="group flex w-[85px] shrink-0 snap-start cursor-pointer flex-col items-center gap-2 sm:w-[104px] lg:w-[113px]"
                   aria-pressed={isSelected}
                 >
-                  <div className={`flex h-[58px] w-[58px] items-center justify-center rounded-full p-1 transition-all sm:h-[68px] sm:w-[68px] lg:h-[74px] lg:w-[74px] ${
+                  <div className={`flex h-[80px] w-[80px] items-center justify-center rounded-full p-1 transition-all sm:h-[94px] sm:w-[94px] lg:h-[113px] lg:w-[113px] ${
                     isSelected
                       ? 'selection-glow scale-105 shadow-md shadow-[#FF4E00]/30'
                       : 'ring-1 ring-stone-200 hover:ring-stone-400 dark:ring-stone-700'
                   }`}>
-                    <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner">
+                    <div className="relative h-full w-full overflow-hidden rounded-full shadow-inner bg-black">
                       <LazyMediaView
                         src={cat.imageUrl}
                         alt={cat.name}
                         className="h-full w-full transition duration-300 group-hover:scale-110"
-                        fit="cover"
+                        fit="contain"
                         lazy
                         skeletonLabel="Categoría"
+                        mediaStyle={{ backgroundColor: 'black' }}
                       />
                       <div className="absolute inset-0 bg-black/10 transition group-hover:bg-transparent" />
                     </div>
                   </div>
-                  <span className={`max-w-full truncate text-[9px] font-bold tracking-tight sm:text-[10px] lg:text-xs ${
+                  <span className={`max-w-full text-[11px] font-bold tracking-tight sm:text-[12px] lg:text-[14px] ${
                     isSelected ? 'text-[#FF4E00]' : 'text-stone-700 dark:text-stone-300'
                   }`}>
                     {cat.name}
@@ -316,7 +317,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                   <div className="relative h-28 sm:h-32 lg:h-36 overflow-hidden">
                     <LazyMediaView
                       src={prod.imageUrl}
-                      fit="cover"
+                      fit="contain"
                       alt={prod.name}
                       className="w-full h-full transition duration-300"
                       lazy
@@ -413,7 +414,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                 <div className="relative h-48 overflow-hidden">
                   <LazyMediaView
                     src={biz.bannerUrl}
-                    fit="cover"
+                    fit="contain"
                     alt={biz.name}
                     className="w-full h-full group-hover:scale-105 transition duration-500"
                     lazy

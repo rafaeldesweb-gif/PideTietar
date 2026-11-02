@@ -207,7 +207,7 @@ export const OrdersView: React.FC = () => {
                           <MediaView
                             src={order.courierAvatarUrl}
                             alt={`Avatar de ${order.courierName || 'tu repartidor'}`}
-                            fit="cover"
+                            fit="contain"
                             className="h-full w-full"
                           />
                         </div>

@@ -18,6 +18,8 @@ export const LazyMediaView: React.FC<{
   lazy?: boolean;
   /** Mensaje del skeleton mientras carga. */
   skeletonLabel?: string;
+  /** Estilo adicional para el contenedor interno de MediaView (p. ej. fondo negro para contain). */
+  mediaStyle?: React.CSSProperties;
 }> = ({
   src,
   defaultSrc,
@@ -29,6 +31,7 @@ export const LazyMediaView: React.FC<{
   fit = 'contain',
   lazy = true,
   skeletonLabel = 'Cargando imagen…',
+  mediaStyle,
 }) => {
   const [ref, isIntersecting] = useIntersectionObserver();
   const [shouldRender, setShouldRender] = useState(!lazy);
@@ -66,6 +69,7 @@ export const LazyMediaView: React.FC<{
         width={width}
         height={height}
         showLoading
+        style={mediaStyle}
       />
     </div>
   );

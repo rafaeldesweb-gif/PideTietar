@@ -91,7 +91,7 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({ isOpen, on
               alt="Vista previa del avatar"
               className="block h-16 w-16 rounded-full border-2 border-[#e7d5c7] bg-stone-100"
               style={{ borderRadius: '9999px' }}
-              fit="cover"
+              fit="contain"
             />
             <div className="min-w-0 flex-1">
               <input

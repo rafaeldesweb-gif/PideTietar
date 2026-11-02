@@ -508,7 +508,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     alt={currentUser.name}
                     className="block h-14 w-14 rounded-full border-2 border-[#FF4E00] bg-stone-100 object-center"
                     style={{ borderRadius: '9999px' }}
-                    fit="cover"
+                    fit="contain"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-bold text-white">{currentUser.name}</div>

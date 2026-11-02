@@ -163,7 +163,7 @@ export const Header: React.FC<HeaderProps> = ({
                     src={currentUser.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80'}
                     alt={currentUser.name}
                     className="h-9 w-9 rounded-full border-2 border-stone-200 dark:border-stone-700"
-                    fit="cover"
+                    fit="contain"
                   />
                 </button>
                 <button

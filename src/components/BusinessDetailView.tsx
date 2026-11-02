@@ -46,7 +46,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
         <div className="relative h-56 sm:h-72 w-full overflow-hidden">
           <MediaView
             src={business.bannerUrl}
-            fit="cover"
+            fit="contain"
             alt={business.name}
             className="w-full h-full"
           />
@@ -179,7 +179,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
                   <div className="w-24 h-24 rounded-xl overflow-hidden shrink-0 bg-stone-100 dark:bg-stone-800">
                   <LazyMediaView
                       src={product.imageUrl}
-                      fit="cover"
+                      fit="contain"
                       alt={product.name}
                       className="w-full h-full group-hover:scale-105 transition duration-300"
                       lazy

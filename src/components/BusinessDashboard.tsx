@@ -1294,7 +1294,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   alt="user"
                   className="block w-10 h-10 rounded-full border-2 border-stone-700 bg-stone-100"
                   style={{ borderRadius: '9999px' }}
-                  fit="cover"
+                  fit="contain"
                 />
                 </div>
                 <div className="flex-1 min-w-0">
@@ -2616,7 +2616,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       alt="Avatar del responsable"
                       className="block w-14 h-14 rounded-full border-2 border-[#e7d5c7] bg-stone-100"
                       style={{ borderRadius: '9999px' }}
-                      fit="cover"
+                      fit="contain"
                     />
                     <div className="min-w-0 flex-1">
                       <div className="text-[10px] uppercase tracking-wider text-stone-500">Avatar</div>
