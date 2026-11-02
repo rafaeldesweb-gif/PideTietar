@@ -15,7 +15,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
   const business = businessResponse.data.business;
   await api('/auth/verify-email', { method: 'POST', body: { email: 'propietarioui@example.com', code: businessResponse.data.verificationCode }, status: 200 });
   const owner = await login('propietario_ui');
-  const client = (await api('/auth/register', { method: 'POST', body: { username: 'cliente_ui', email: 'clienteui@example.com', fullName: 'Cliente UI', password, address: 'Calle UI 1', phone: '600111222', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, status: 201 })).data;
+  const client = (await api('/auth/register', { method: 'POST', body: { username: 'cliente_ui', email: 'clienteui@example.com', fullName: 'Cliente UI', password, address: 'Calle UI 1, 05400', phone: '600111222', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, status: 201 })).data;
   const courierResponse = await api('/users', { method: 'POST', token, body: { username: 'courier_ui', email: 'courierui@example.com', fullName: 'Repartidor UI', password, role: 'PLATFORM_COURIER', courierBusinessIds: [business.id], courierConfirmation: 'SUPERADMIN', phone: '600111222', address: 'Calle UI 2', dni: '12345678Z', termsAccepted: true, termsVersion: 'v1' }, status: 201 });
   const courier = courierResponse.data.user;
   await api('/auth/verify-email', { method: 'POST', body: { email: 'courierui@example.com', code: courierResponse.data.verificationCode }, status: 200 });

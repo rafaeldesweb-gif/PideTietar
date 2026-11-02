@@ -10,6 +10,7 @@ import {
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
 import { openTermsInNewTab, TERMS_ACCEPTED_MESSAGE, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
+import { extractFieldErrors, FieldError, fieldClass, type FieldErrors } from './FormErrors';
 import { 
   X, LogOut, ArrowLeft
 } from 'lucide-react';
@@ -64,6 +65,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [password, setPassword] = useState('');
   const [localityId, setLocalityId] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [registerFieldErrors, setRegisterFieldErrors] = useState<FieldErrors>({});
 
   // Resetea el formulario de registro cada vez que se cierra el modal, para que
   // al volver a abrirlo los campos estén limpios (sin datos residuales).
@@ -76,6 +78,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setPassword('');
       setLocalityId('');
       setTermsAccepted(false);
+      setRegisterFieldErrors({});
       setRequiresEmailVerification(false);
       setVerificationCodeInput('');
     }
@@ -273,6 +276,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         const data = await response.json().catch(() => ({}));
         if (!response.ok) {
+          // Pinta los errores por campo devueltos por el servidor (address,
+          // localityId, email...) y deja el mensaje general para la notificación.
+          setRegisterFieldErrors(extractFieldErrors(data));
           throw new Error(
             data?.message ||
               (isBackendUnreachable(response.status, data)
@@ -695,9 +701,15 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       value={addressInput}
                       onChange={(e) => setAddressInput(e.target.value)}
                       placeholder="Calle, número, código postal y localidad"
-                      className="w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                      className={fieldClass(
+                        "w-full px-4 py-3 text-xs sm:text-sm rounded-xl border border-stone-800 bg-[#1a1a1e] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]",
+                        Boolean(registerFieldErrors.address),
+                      )}
                       autoComplete="street-address"
                     />
+                    {registerFieldErrors.address && (
+                      <FieldError message={registerFieldErrors.address} />
+                    )}
                   </div>
                 )}
 

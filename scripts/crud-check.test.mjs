@@ -85,16 +85,30 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   });
   await t.test('clientes: registro, login y validación de dirección', async () => {
     await send('/auth/register', 'POST', { email: 'sin-direccion@example.com', password }, 400, undefined);
-    const registered = await send('/auth/register', 'POST', { username: 'cliente_prueba', fullName: 'Cliente de pruebas', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
+    const registered = await send('/auth/register', 'POST', { username: 'cliente_prueba', fullName: 'Cliente de pruebas', email: 'cliente@example.com', password, address: 'Calle de pruebas 2, 05400', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
     client = registered.data;
     assert.equal(client.user.role, 'CLIENT');
     const logged = await login('cliente_prueba');
     assert.equal(logged.user.id, client.user.id);
-    await send('/auth/register', 'POST', { username: 'cliente_prueba', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 409, undefined);
+    await send('/auth/register', 'POST', { username: 'cliente_prueba', email: 'cliente@example.com', password, address: 'Calle de pruebas 2, 05400', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 409, undefined);
   });
   await t.test('registro: rechazar email inválido y localidad inexistente', async () => {
     await send('/auth/register', 'POST', { username: 'email_invalido', fullName: 'Cliente', email: 'sin-arroba', password, address: 'Calle de pruebas 2', localityId: zone.id }, 400, undefined);
     await send('/auth/register', 'POST', { username: 'zona_invalida', email: 'zona@example.com', password, address: 'Calle de pruebas 2', localityId: 'no-existe' }, 400, undefined);
+  });
+  await t.test('registro: dirección fuera de la zona seleccionada', async () => {
+    // Dirección sin código postal en una zona que sí lo tiene: se rechaza.
+    await send('/auth/register', 'POST', { username: 'cliente_sin_cp', fullName: 'Cliente', email: 'sin_cp@example.com', password, address: 'Calle sin código postal', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 400, undefined);
+    // Dirección con código postal de otra zona: se rechaza.
+    await send('/auth/register', 'POST', { username: 'cliente_cp_otro', fullName: 'Cliente', email: 'cp_otro@example.com', password, address: 'Calle de pruebas 2, 28001', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 400, undefined);
+    // Dirección con el código postal de la zona: se acepta.
+    const ok = await send('/auth/register', 'POST', { username: 'cliente_cp_ok', fullName: 'Cliente OK', email: 'cp_ok@example.com', password, address: 'Calle de pruebas 2, 05400', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
+    assert.equal(ok.data.user.role, 'CLIENT');
+  });
+  await t.test('registro: zona sin código postal no bloquea la dirección', async () => {
+    const sinCp = (await send('/localities', 'POST', { name: 'Zona sin CP', postalCode: '' }, 201)).data.locality;
+    await send('/auth/register', 'POST', { username: 'cliente_zona_sin_cp', fullName: 'Cliente', email: 'zona_sin_cp@example.com', password, address: 'Calle de pruebas 3', localityId: sinCp.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
+    await send(`/localities/${sinCp.id}`, 'DELETE');
   });
   await t.test('perfil: actualizar, verificar persistencia, rechazar email y teléfono inválidos', async () => {
     const saved = await send(`/users/${client.user.id}`, 'PUT', { fullName: 'Cliente editado', phone: '666555444' }, 200, client.token);
@@ -117,7 +131,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal((await login(client.user.email, `${password}-nueva`)).user.id, client.user.id);
   });
   await t.test('recuperación: enlace de superadmin, uso único y cambio efectivo', async () => {
-    const registered = await send('/auth/register', 'POST', { username: 'recuperable', fullName: 'Cuenta a recuperar', email: 'recuperable@example.com', password, address: 'Calle de recuperación 4', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
+    const registered = await send('/auth/register', 'POST', { username: 'recuperable', fullName: 'Cuenta a recuperar', email: 'recuperable@example.com', password, address: 'Calle de recuperación 4, 05400', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
     const targetId = registered.data.user.id;
     // Sólo el superadmin puede pedir el enlace: un cliente recibe 403.
     await send(`/users/${targetId}/request-password-reset`, 'POST', undefined, 403, client.token);

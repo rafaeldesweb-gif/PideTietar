@@ -3439,6 +3439,22 @@ async function countRows(sql, params = []) {
   return Number(row?.c ?? 0);
 }
 
+// Devuelve la fila de una localidad por su id, indistintamente del motor.
+async function getLocalityById(id) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute("SELECT * FROM localities WHERE id = ? LIMIT 1", [id]);
+    return rows[0];
+  }
+  return getSqliteDb().prepare("SELECT * FROM localities WHERE id = ? LIMIT 1").get(id);
+}
+
+// Extrae el código postal (5 dígitos) de una dirección, si lo tiene.
+function extractPostalCode(address) {
+  if (!address) return null;
+  const match = String(address).match(/\b(\d{5})\b/);
+  return match ? match[1] : null;
+}
+
 // Lee el horario de todos los negocios. Si se pasa una transacción se consulta
 // a través de ella: en MySQL la lectura tendría que ir por la MISMA conexión o
 // no vería lo que aún no se ha confirmado.
@@ -3650,6 +3666,22 @@ app.post("/api/auth/register", async (req, res) => {
   if (!localityId || !(await countRows("SELECT COUNT(*) AS c FROM localities WHERE id = ?", [localityId]))) {
     errors.localityId = "Selecciona una localidad válida.";
   }
+
+  // Dirección dentro de la zona: compara el código postal de la dirección
+  // con el de la localidad seleccionada (cuando la zona lo tiene definido).
+  if (localityId) {
+    const localityRow = await getLocalityById(localityId);
+    const localityPostal = String(localityRow?.postal_code || "").trim();
+    const addressPostal = extractPostalCode(address);
+    if (localityPostal && localityPostal !== "00000") {
+      if (!addressPostal) {
+        errors.address = `La dirección debe incluir el código postal de la zona "${localityRow?.name || localityId}" (${localityPostal}).`;
+      } else if (addressPostal !== localityPostal) {
+        errors.address = `El código postal de la dirección no corresponde a la zona seleccionada. El código postal de "${localityRow?.name || localityId}" es ${localityPostal}.`;
+      }
+    }
+  }
+
   assertValid(errors);
 
   const existing = await findUserByUsernameOrEmail(username, email);
