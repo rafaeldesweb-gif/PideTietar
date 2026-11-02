@@ -15,7 +15,13 @@ import {
   toCourierFieldErrors,
 } from './FormErrors';
 import { MediaView } from './MediaView';
-import { COURIER_TERMS_ANCHOR, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
+import {
+  COURIER_TERMS_ANCHOR,
+  openTermsInNewTab,
+  TERMS_ACCEPTED_MESSAGE,
+  TERMS_ANCHOR,
+  TERMS_VERSION,
+} from '../data/legalTerms';
 import {
   MEDIA_ACCEPT,
   isMediaUrl,
@@ -270,6 +276,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   });
   const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
   const [courierSubmitting, setCourierSubmitting] = useState(false);
+
+  useEffect(() => {
+    const handleTermsMessage = (event: MessageEvent<{ type?: string; anchor?: string; accepted?: boolean }>) => {
+      if (event.origin !== window.location.origin || event.data?.type !== TERMS_ACCEPTED_MESSAGE) return;
+      if (event.data.anchor === COURIER_TERMS_ANCHOR) {
+        setCourierForm((previous) => ({ ...previous, termsAccepted: event.data.accepted === true }));
+      }
+      if (event.data.anchor === TERMS_ANCHOR) {
+        setNewBusinessForm((previous) => ({ ...previous, ownerTermsAccepted: event.data.accepted === true }));
+      }
+    };
+
+    window.addEventListener('message', handleTermsMessage);
+    return () => window.removeEventListener('message', handleTermsMessage);
+  }, []);
 
   // Edición de negocios e IBAN de un repartidor (sólo superadmin).
   const [editingCourier, setEditingCourier] = useState<User | null>(null);
@@ -1059,8 +1080,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 El repartidor acepta los{' '}
                 <a
                   href={COURIER_TERMS_ANCHOR}
-                  target="_blank"
-                  rel="noreferrer"
+                    onClick={(event) => openTermsInNewTab(event, COURIER_TERMS_ANCHOR)}
                   className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]"
                 >
                   términos y condiciones para repartidores
@@ -1418,7 +1438,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   />
                   <span className="leading-5">
                     El responsable del negocio acepta los{' '}
-                    <a href={TERMS_ANCHOR} target="_blank" rel="noreferrer" className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]">
+                    <a href={TERMS_ANCHOR} onClick={(event) => openTermsInNewTab(event, TERMS_ANCHOR)} className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]">
                       términos y condiciones de uso
                     </a>{' '}
                     y recibirá un correo para verificar y activar su cuenta.

@@ -157,6 +157,11 @@ export default function App() {
             {currentView === 'terms' && (
               <TermsAndConditionsView
                 onBack={() => {
+                  if (window.opener && !window.opener.closed) {
+                    window.opener.focus();
+                    window.close();
+                    return;
+                  }
                   history.replaceState(null, '', window.location.pathname + window.location.search);
                   setCurrentView('home');
                 }}

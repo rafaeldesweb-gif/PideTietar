@@ -1,14 +1,39 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ArrowLeft, Bike, FileText, ShieldCheck } from 'lucide-react';
 import { ProjectLogo } from './ProjectLogo';
-import { TERMS_LAST_UPDATED, TERMS_VERSION } from '../data/legalTerms';
+import {
+  COURIER_TERMS_ANCHOR,
+  TERMS_ACCEPTED_MESSAGE,
+  TERMS_ANCHOR,
+  TERMS_LAST_UPDATED,
+  TERMS_VERSION,
+} from '../data/legalTerms';
 
 interface TermsAndConditionsViewProps {
   onBack: () => void;
 }
 
-export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ onBack }) => (
-  <section className="mx-auto w-full max-w-4xl space-y-6 pb-8">
+export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ onBack }) => {
+  const isCourierTerms = window.location.hash === COURIER_TERMS_ANCHOR;
+  const [termsAccepted, setTermsAccepted] = useState(false);
+
+  const handleTermsAcceptance = (accepted: boolean) => {
+    setTermsAccepted(accepted);
+    if (window.opener && !window.opener.closed) {
+      window.opener.postMessage(
+        {
+          type: TERMS_ACCEPTED_MESSAGE,
+          anchor: isCourierTerms ? COURIER_TERMS_ANCHOR : TERMS_ANCHOR,
+          accepted,
+          termsVersion: TERMS_VERSION,
+        },
+        window.location.origin,
+      );
+    }
+  };
+
+  return (
+    <section className="mx-auto w-full max-w-4xl space-y-6 pb-8">
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl bg-[#121214] p-5 text-white shadow-lg sm:p-7">
       <div className="flex items-center gap-4">
         <ProjectLogo variant="badge" className="h-12 w-auto" />
@@ -24,7 +49,7 @@ export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ 
         className="inline-flex items-center gap-2 rounded-xl border border-stone-700 px-4 py-2 text-xs font-bold text-stone-200 transition hover:bg-stone-800"
       >
         <ArrowLeft className="h-4 w-4" />
-        Volver a la aplicación
+        Volver al Formulario
       </button>
     </div>
 
@@ -101,10 +126,21 @@ export const TermsAndConditionsView: React.FC<TermsAndConditionsViewProps> = ({ 
         </p>
       </div>
 
-      <div className="mt-8 flex items-center gap-3 border-t border-stone-200 pt-5 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
-        <FileText className="h-4 w-4 shrink-0 text-[#ff4e00]" />
-        <span>Al marcar la casilla de aceptación confirmas que has podido leer esta página y que aceptas la versión indicada arriba.</span>
-      </div>
+      <label className="mt-8 flex cursor-pointer items-start gap-3 border-t border-stone-200 pt-5 text-xs text-stone-600 dark:border-stone-800 dark:text-stone-300">
+        <input
+          type="checkbox"
+          checked={termsAccepted}
+          onChange={(event) => handleTermsAcceptance(event.target.checked)}
+          className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+        />
+        <span className="flex items-start gap-2 leading-5">
+          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-[#ff4e00]" />
+          <span>
+            Acepto los {isCourierTerms ? 'términos y condiciones para repartidores' : 'términos y condiciones de uso'} de PideTiétar y confirmo que he podido leer esta página.
+          </span>
+        </span>
+      </label>
     </div>
   </section>
-);
+  );
+};

@@ -9,7 +9,7 @@ import {
   processMediaUrl,
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
-import { TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
+import { openTermsInNewTab, TERMS_ACCEPTED_MESSAGE, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
 import { 
   X, LogOut, ArrowLeft
 } from 'lucide-react';
@@ -89,6 +89,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setProfileNewPassword('');
     setProfileAvatarUrl(currentUser.avatarUrl || '');
   }, [isOpen, currentUser]);
+
+  useEffect(() => {
+    const handleTermsMessage = (event: MessageEvent<{ type?: string; anchor?: string; accepted?: boolean }>) => {
+      if (
+        event.origin !== window.location.origin ||
+        event.data?.type !== TERMS_ACCEPTED_MESSAGE ||
+        event.data.anchor !== TERMS_ANCHOR
+      ) {
+        return;
+      }
+      setTermsAccepted(event.data.accepted === true);
+    };
+
+    window.addEventListener('message', handleTermsMessage);
+    return () => window.removeEventListener('message', handleTermsMessage);
+  }, []);
 
   const clearPasswordChangeFlow = () => {
     setRequiresPasswordChange(false);
@@ -783,8 +799,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       Acepto los{' '}
                       <a
                         href={TERMS_ANCHOR}
-                        target="_blank"
-                        rel="noreferrer"
+                        onClick={(event) => openTermsInNewTab(event, TERMS_ANCHOR)}
                         className="font-bold text-[#ff8a5c] underline decoration-[#ff4e00] underline-offset-2 hover:text-white"
                       >
                         Términos y condiciones de uso
