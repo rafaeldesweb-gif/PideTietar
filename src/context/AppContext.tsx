@@ -69,6 +69,8 @@ interface AppContextType {
       courierBusinessIds?: string[];
       accountNumber?: string;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
+      termsAccepted?: boolean;
+      termsVersion?: string;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
@@ -1375,7 +1377,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         closeTime: slot.closeTime,
         isOpen: slot.isOpen,
       })),
-      owner: owner || undefined,
+      owner: owner
+        ? {
+            ...owner,
+            termsAccepted: owner.termsAccepted,
+            termsVersion: owner.termsVersion,
+          }
+        : undefined,
     };
 
     try {
@@ -1390,7 +1398,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setBusinesses((previous) => [created, ...previous.filter((business) => business.id !== created.id)]);
-      showNotification(`Nuevo negocio creado: ${created.name}`, 'success');
+      showNotification(
+        response?.requiresEmailVerification
+          ? `Nuevo negocio creado: ${created.name}. Se ha enviado un correo al responsable para activar su cuenta.`
+          : `Nuevo negocio creado: ${created.name}`,
+        'success',
+      );
       return created;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'No se pudo crear el negocio';
@@ -1456,7 +1469,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // Sólo llega si el superadmin rellena las credenciales: el backend
           // crea o actualiza la cuenta del propietario dentro de la misma
           // transacción.
-          owner: owner || undefined,
+          owner: owner
+            ? {
+                ...owner,
+                termsAccepted: owner.termsAccepted,
+                termsVersion: owner.termsVersion,
+              }
+            : undefined,
         }),
       });
 
@@ -1539,11 +1558,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courierBusinessIds?: string[];
       accountNumber?: string;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
+      termsAccepted?: boolean;
+      termsVersion?: string;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ): Promise<boolean> => {
     try {
-      await apiFetch('/users', {
+      const response = await apiFetch('/users', {
         method: 'POST',
         body: JSON.stringify({
           username: data.username,
@@ -1558,9 +1579,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           courierBusinessIds: data.courierBusinessIds,
           accountNumber: data.accountNumber,
           courierConfirmation: data.courierConfirmation,
+          termsAccepted: data.termsAccepted,
+          termsVersion: data.termsVersion,
         }),
       });
-      showNotification('Cuenta creada correctamente.', 'success');
+      showNotification(
+        response?.requiresEmailVerification
+          ? 'Cuenta creada. Se ha enviado un correo para verificar y activar la cuenta.'
+          : 'Cuenta creada correctamente.',
+        'success',
+      );
       return true;
     } catch (error) {
       const serverErrors =

@@ -35,11 +35,13 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   await t.test('negocios: alta transaccional y cuenta del propietario', async () => {
     const created = await send('/businesses', 'POST', businessInput('uno', zone.id, category.id, password), 201);
     business = created.data.business;
+    await api('/auth/verify-email', { method: 'POST', body: { email: 'propietariouno@example.com', code: created.data.verificationCode }, status: 200 });
     assert.ok(business.id);
     owner = await login('propietario_uno');
     assert.equal(owner.user.businessId, business.id);
     const second = await send('/businesses', 'POST', businessInput('dos', zone.id, category.id, password), 201);
     secondBusiness = second.data.business;
+    await api('/auth/verify-email', { method: 'POST', body: { email: 'propietariodos@example.com', code: second.data.verificationCode }, status: 200 });
     secondOwner = await login('propietario_dos');
   });
   await t.test('negocios: editar datos, IBAN y horarios; rechazar otro propietario', async () => {
@@ -83,12 +85,12 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   });
   await t.test('clientes: registro, login y validación de dirección', async () => {
     await send('/auth/register', 'POST', { email: 'sin-direccion@example.com', password }, 400, undefined);
-    const registered = await send('/auth/register', 'POST', { username: 'cliente_prueba', fullName: 'Cliente de pruebas', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id }, 201, undefined);
+    const registered = await send('/auth/register', 'POST', { username: 'cliente_prueba', fullName: 'Cliente de pruebas', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
     client = registered.data;
     assert.equal(client.user.role, 'CLIENT');
     const logged = await login('cliente_prueba');
     assert.equal(logged.user.id, client.user.id);
-    await send('/auth/register', 'POST', { username: 'cliente_prueba', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id }, 409, undefined);
+    await send('/auth/register', 'POST', { username: 'cliente_prueba', email: 'cliente@example.com', password, address: 'Calle de pruebas 2', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 409, undefined);
   });
   await t.test('registro: rechazar email inválido y localidad inexistente', async () => {
     await send('/auth/register', 'POST', { username: 'email_invalido', fullName: 'Cliente', email: 'sin-arroba', password, address: 'Calle de pruebas 2', localityId: zone.id }, 400, undefined);
@@ -115,7 +117,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal((await login(client.user.email, `${password}-nueva`)).user.id, client.user.id);
   });
   await t.test('recuperación: enlace de superadmin, uso único y cambio efectivo', async () => {
-    const registered = await send('/auth/register', 'POST', { username: 'recuperable', fullName: 'Cuenta a recuperar', email: 'recuperable@example.com', password, address: 'Calle de recuperación 4', localityId: zone.id }, 201, undefined);
+    const registered = await send('/auth/register', 'POST', { username: 'recuperable', fullName: 'Cuenta a recuperar', email: 'recuperable@example.com', password, address: 'Calle de recuperación 4', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, 201, undefined);
     const targetId = registered.data.user.id;
     // Sólo el superadmin puede pedir el enlace: un cliente recibe 403.
     await send(`/users/${targetId}/request-password-reset`, 'POST', undefined, 403, client.token);
@@ -137,8 +139,9 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal((await login('recuperable@example.com', fresh)).user.id, targetId);
   });
   await t.test('repartidores: alta, consulta, edición y confirmación por su dueño', async () => {
-    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z', avatarUrl: 'https://example.com/repartidor.png' }, 201, owner.token);
+    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z', avatarUrl: 'https://example.com/repartidor.png', termsAccepted: true, termsVersion: 'v1' }, 201, owner.token);
     courier = created.data.user;
+    await api('/auth/verify-email', { method: 'POST', body: { email: 'repartidor@example.com', code: created.data.verificationCode }, status: 200 });
     assert.ok(courier.id);
     assert.equal(courier.courierProfile.confirmation, 'PENDING');
     await send(`/users/${courier.id}`, 'PUT', { courierConfirmation: 'BUSINESS_EMAIL' }, 200, owner.token);
@@ -152,9 +155,11 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
       username: 'plataforma_prueba', fullName: 'Repartidor de plataforma',
       email: 'plataforma@example.com', password, role: 'PLATFORM_COURIER',
       courierBusinessIds: [business.id], phone: '600111223',
-      address: 'Calle de plataforma 4', dni: '12345679Z',
+      address: 'Calle de plataforma 4', dni: '12345679Z', termsAccepted: true, termsVersion: 'v1',
+      termsAccepted: true, termsVersion: 'v1',
     }, 201);
     platformCourier = platformCreated.data.user;
+    await api('/auth/verify-email', { method: 'POST', body: { email: 'plataforma@example.com', code: platformCreated.data.verificationCode }, status: 200 });
     await send(`/users/${platformCourier.id}`, 'PUT', { courierConfirmation: 'SUPERADMIN' });
     const platformSession = await login('plataforma_prueba', password);
     await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: true }, 200, platformSession.token);

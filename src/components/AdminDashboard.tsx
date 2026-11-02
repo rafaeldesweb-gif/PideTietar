@@ -15,6 +15,7 @@ import {
   toCourierFieldErrors,
 } from './FormErrors';
 import { MediaView } from './MediaView';
+import { COURIER_TERMS_ANCHOR, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
 import {
   MEDIA_ACCEPT,
   isMediaUrl,
@@ -119,6 +120,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     adminUsername: '',
     adminEmail: '',
     adminPassword: '',
+    ownerTermsAccepted: false,
     schedule: [
       { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
       { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -211,6 +213,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       adminUsername: '',
       adminEmail: '',
       adminPassword: '',
+      ownerTermsAccepted: false,
       schedule: [
         { dayOfWeek: 1, openTime: '12:00', closeTime: '23:00', isOpen: true },
         { dayOfWeek: 2, openTime: '12:00', closeTime: '23:00', isOpen: true },
@@ -263,6 +266,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
     businessIds: [] as string[],
     accountNumber: '',
+    termsAccepted: false,
   });
   const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
   const [courierSubmitting, setCourierSubmitting] = useState(false);
@@ -375,6 +379,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierForm.accountNumber,
       ),
     );
+    if (!courierForm.termsAccepted) {
+      errors.termsAccepted = 'El repartidor debe aceptar los términos específicos para repartidores.';
+    }
 
     setCourierFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -395,6 +402,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierBusinessIds: courierForm.businessIds,
         accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
         courierConfirmation: 'PENDING',
+        termsAccepted: true,
+        termsVersion: TERMS_VERSION,
       },
       // Si el backend rechaza un campo (por ejemplo, un negocio que ya no
       // existe), se marca ese campo concreto en el formulario.
@@ -414,6 +423,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         role: 'PLATFORM_COURIER',
         businessIds: [],
         accountNumber: '',
+        termsAccepted: false,
       });
       setCourierFormErrors({});
       await refreshCouriers();
@@ -558,6 +568,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     else if (newBusinessForm.adminPassword.trim().length < 8) {
       localErrors.adminPassword = 'La clave inicial debe tener al menos 8 caracteres.';
     }
+    if (!editingBusinessId && !newBusinessForm.ownerTermsAccepted) {
+      localErrors.ownerTermsAccepted = 'El responsable debe aceptar los términos y condiciones.';
+    }
 
     // El horario: los días abiertos necesitan hora de apertura y cierre.
     validateSchedule(localErrors);
@@ -589,6 +602,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
         email: newBusinessForm.adminEmail.trim(),
         password: newBusinessForm.adminPassword.trim(),
+        termsAccepted: newBusinessForm.ownerTermsAccepted,
+        termsVersion: TERMS_VERSION,
       },
       (errors) => setBusinessFormErrors(toBusinessFieldErrors(errors)),
     );
@@ -602,7 +617,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setBusinessFormErrors({});
 
     showNotification(
-      `Negocio ${createdBusiness.name} creado y acceso asignado a ${newBusinessForm.adminUsername.trim()} (rol BUSINESS_ADMIN).`,
+      `Negocio ${createdBusiness.name} creado. El responsable debe verificar su correo para activar el acceso.`,
       'success',
     );
     resetBusinessForm();
@@ -640,6 +655,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       // acceso y bloqueara el guardado hasta rellenar usuario y clave.
       adminEmail: '',
       adminPassword: '',
+      ownerTermsAccepted: false,
       schedule: business.schedule?.length ? business.schedule : newBusinessForm.schedule,
     });
   };
@@ -670,6 +686,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     // Las credenciales del propietario sólo se tocan si el superadmin
     // rellena los tres campos; si no, la cuenta existente queda intacta.
     const hasOwnerCredentials = filledOwnerFields === 3;
+    if (hasOwnerCredentials && !newBusinessForm.ownerTermsAccepted) {
+      const ownerTermsError = { ownerTermsAccepted: 'El responsable debe aceptar los términos y condiciones.' };
+      setBusinessFormErrors(ownerTermsError);
+      showNotification(ownerTermsError.ownerTermsAccepted, 'error');
+      return;
+    }
 
     // El horario: los días abiertos necesitan hora de apertura y cierre.
     const scheduleErrors: FieldErrors = {};
@@ -703,6 +725,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
             email: newBusinessForm.adminEmail.trim(),
             password: newBusinessForm.adminPassword.trim(),
+            termsAccepted: newBusinessForm.ownerTermsAccepted,
+            termsVersion: TERMS_VERSION,
           }
         : null,
       (errors) => setBusinessFormErrors(toBusinessFieldErrors(errors)),
@@ -1024,6 +1048,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <FieldError message={courierFormErrors.accountNumber} />
           </div>
           <div className="col-span-full pt-1">
+            <label className="mb-3 flex items-start gap-3 rounded-xl border border-stone-200 bg-white p-3 text-xs text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
+              <input
+                type="checkbox"
+                checked={courierForm.termsAccepted}
+                onChange={(e) => setCourierForm({ ...courierForm, termsAccepted: e.target.checked })}
+                className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+              />
+              <span className="leading-5">
+                El repartidor acepta los{' '}
+                <a
+                  href={COURIER_TERMS_ANCHOR}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]"
+                >
+                  términos y condiciones para repartidores
+                </a>{' '}
+                de PideTiétar.
+                <FieldError message={courierFormErrors.termsAccepted} />
+              </span>
+            </label>
             <button
               type="submit"
               disabled={courierSubmitting}
@@ -1364,6 +1409,22 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   />
                   <FieldError message={businessFormErrors.adminPassword} />
                 </div>
+                <label className="col-span-full flex items-start gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
+                  <input
+                    type="checkbox"
+                    checked={newBusinessForm.ownerTermsAccepted}
+                    onChange={(e) => setNewBusinessForm({ ...newBusinessForm, ownerTermsAccepted: e.target.checked })}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+                  />
+                  <span className="leading-5">
+                    El responsable del negocio acepta los{' '}
+                    <a href={TERMS_ANCHOR} target="_blank" rel="noreferrer" className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]">
+                      términos y condiciones de uso
+                    </a>{' '}
+                    y recibirá un correo para verificar y activar su cuenta.
+                    <FieldError message={businessFormErrors.ownerTermsAccepted} />
+                  </span>
+                </label>
               </>
             ))}
           </>

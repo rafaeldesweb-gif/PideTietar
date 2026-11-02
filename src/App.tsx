@@ -12,6 +12,7 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { AuthModal } from './components/AuthModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal';
 import { ResetPasswordView } from './components/ResetPasswordView';
+import { TermsAndConditionsView } from './components/TermsAndConditionsView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
@@ -24,6 +25,12 @@ const readResetTokenFromHash = (): string | null => {
   return match ? match[1] : null;
 };
 
+const isTermsHash = (hash: string): boolean =>
+  hash === '#terminos-y-condiciones' || hash === '#terminos-repartidores';
+
+const readInitialView = (): string =>
+  isTermsHash(window.location.hash) ? 'terms' : 'home';
+
 export default function App() {
   const { 
     notification, 
@@ -35,7 +42,7 @@ export default function App() {
     businesses
   } = useApp();
 
-  const [currentView, setCurrentView] = useState<string>('home');
+  const [currentView, setCurrentView] = useState<string>(readInitialView);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
 
   const activeSelectedBusiness = selectedBusiness
@@ -59,6 +66,7 @@ export default function App() {
   useEffect(() => {
     const handleHashChange = () => {
       setResetToken(readResetTokenFromHash());
+      if (isTermsHash(window.location.hash)) setCurrentView('terms');
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -146,6 +154,14 @@ export default function App() {
           />
         ) : (
           <>
+            {currentView === 'terms' && (
+              <TermsAndConditionsView
+                onBack={() => {
+                  history.replaceState(null, '', window.location.pathname + window.location.search);
+                  setCurrentView('home');
+                }}
+              />
+            )}
             {currentView === 'home' && (
               <HomeView
                 onSelectBusiness={handleSelectBusiness}
@@ -260,10 +276,16 @@ export default function App() {
             <span>• Valle del Tiétar (Ávila)</span>
           </div>
 
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center justify-center gap-y-2 space-x-4">
             <span>Verificación por correo</span>
             <span>Integración con Google Calendar</span>
             <span>Pagos en modo de prueba</span>
+            <a
+              href="#terminos-y-condiciones"
+              className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+            >
+              Términos y condiciones
+            </a>
             <button
               onClick={() => {
                 setPageError('Simulación intencionada de error del servidor para validar la página de error personalizada.');

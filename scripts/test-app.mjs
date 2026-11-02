@@ -65,5 +65,5 @@ export const businessInput = (suffix, localityId, category, password) => ({
   name: `Negocio ${suffix}`, legalName: `Negocio ${suffix}`, cif: 'B12345678', phone: '600123456', email: `negocio${suffix}@example.com`,
   address: 'Calle de pruebas 1', localityId, category, deliveryModes: ['PICKUP', 'PLATFORM_COURIER'],
   schedule: [1, 2, 3, 4, 5, 6, 0].map((dayOfWeek) => ({ dayOfWeek, openTime: '12:00', closeTime: '00:00', isOpen: dayOfWeek !== 1 })),
-  owner: { username: `propietario_${suffix}`, fullName: `Dueño ${suffix}`, email: `propietario${suffix}@example.com`, password },
+  owner: { username: `propietario_${suffix}`, fullName: `Dueño ${suffix}`, email: `propietario${suffix}@example.com`, password, termsAccepted: true, termsVersion: 'v1' },
 });

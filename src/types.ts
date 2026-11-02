@@ -87,6 +87,8 @@ export interface BusinessOwnerInput {
   fullName: string;
   email: string;
   password: string;
+  termsAccepted?: boolean;
+  termsVersion?: string;
 }
 
 export interface Business {

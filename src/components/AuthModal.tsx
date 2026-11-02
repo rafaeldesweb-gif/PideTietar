@@ -9,6 +9,7 @@ import {
   processMediaUrl,
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
+import { TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
 import { 
   X, LogOut, ArrowLeft
 } from 'lucide-react';
@@ -44,6 +45,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [passwordChangeCurrentPassword, setPasswordChangeCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [requiresEmailVerification, setRequiresEmailVerification] = useState(false);
+  const [verificationCodeInput, setVerificationCodeInput] = useState('');
+  const [verificationSending, setVerificationSending] = useState(false);
   const [profileFullName, setProfileFullName] = useState('');
   const [profileEmail, setProfileEmail] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
@@ -59,6 +63,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [emailInput, setEmailInput] = useState(currentUser?.email || '');
   const [password, setPassword] = useState('');
   const [localityId, setLocalityId] = useState('');
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   // Resetea el formulario de registro cada vez que se cierra el modal, para que
   // al volver a abrirlo los campos estén limpios (sin datos residuales).
@@ -70,6 +75,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setEmailInput('');
       setPassword('');
       setLocalityId('');
+      setTermsAccepted(false);
+      setRequiresEmailVerification(false);
+      setVerificationCodeInput('');
     }
   }, [isOpen]);
 
@@ -88,6 +96,97 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     setPasswordChangeCurrentPassword('');
     setNewPassword('');
     setConfirmNewPassword('');
+  };
+
+  const completeLogin = (data: any, normalizedUser: string, finalName: string) => {
+    setSessionToken(data?.token);
+
+    const user = data.user || {
+      name: finalName,
+      email: normalizedUser,
+      isEmailVerified: true,
+    };
+
+    loginAs(user.role || 'CLIENT', user.email || '', {
+      id: user.id,
+      username: user.username,
+      name: user.name || finalName,
+      email: user.email || normalizedUser,
+      password: undefined,
+      phone: user.phone || undefined,
+      address: user.address || '',
+      dni: user.dni || '',
+      accountNumber: user.accountNumber || undefined,
+      avatarUrl: user.avatarUrl || '',
+      isEmailVerified: Boolean(user.isEmailVerified),
+      businessId: user.businessId || undefined,
+      courierProfile: user.courierProfile,
+    });
+    setRequiresEmailVerification(false);
+    setVerificationCodeInput('');
+    showNotification(`Sesión iniciada como ${user.name || normalizedUser}`, 'success');
+    onClose();
+  };
+
+  const handleSendVerification = async () => {
+    const cleanEmail = emailInput.trim();
+    if (!cleanEmail) {
+      showNotification('Introduce el correo de la cuenta que quieres verificar.', 'error');
+      return;
+    }
+
+    setVerificationSending(true);
+    try {
+      const response = await fetch('/api/auth/send-verification-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data?.message || 'No se pudo enviar el correo de verificación.');
+      if (data?.code) setVerificationCodeInput(String(data.code));
+      showNotification(
+        data?.sent
+          ? 'Código enviado. Revisa el correo de la cuenta.'
+          : `Código generado para pruebas locales: ${data.code}`,
+        data?.sent ? 'success' : 'info',
+      );
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'No se pudo enviar el correo de verificación.', 'error');
+    } finally {
+      setVerificationSending(false);
+    }
+  };
+
+  const handleVerifyAndLogin = async () => {
+    const cleanEmail = emailInput.trim();
+    const cleanCode = verificationCodeInput.trim();
+    if (!cleanEmail || !cleanCode) {
+      showNotification('Introduce el correo y el código de verificación.', 'error');
+      return;
+    }
+
+    try {
+      const verifyResponse = await fetch('/api/auth/verify-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, code: cleanCode }),
+      });
+      const verifyData = await verifyResponse.json().catch(() => ({}));
+      if (!verifyResponse.ok) throw new Error(verifyData?.message || 'El código de verificación no es válido.');
+
+      const loginResponse = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, password: password.trim() }),
+      });
+      const loginData = await loginResponse.json().catch(() => ({}));
+      if (!loginResponse.ok) throw new Error(loginData?.message || 'La cuenta se verificó, pero no se pudo iniciar sesión.');
+
+      completeLogin(loginData, cleanEmail, (fullName || 'Usuario').trim() || 'Usuario');
+    } catch (error) {
+      showNotification(error instanceof Error ? error.message : 'No se pudo verificar la cuenta.', 'error');
+    }
   };
 
   if (!isOpen) return null;
@@ -128,6 +227,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (isRegisterMode && !termsAccepted) {
+      showNotification('Debes aceptar los Términos y condiciones para crear la cuenta.', 'error');
+      return;
+    }
+
     const finalName = (fullName || 'Nuevo cliente').trim() || 'Nuevo cliente';
 
     try {
@@ -141,6 +245,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           address: addressInput.trim() || undefined,
           localityId,
           role: 'CLIENT' as const,
+          termsAccepted: true,
+          termsVersion: TERMS_VERSION,
         };
 
         const response = await fetch('/api/auth/register', {
@@ -207,6 +313,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           );
           return;
         }
+        if (data?.code === 'EMAIL_NOT_VERIFIED') {
+          setRequiresEmailVerification(true);
+          setIsRegisterMode(false);
+          showNotification('Verifica primero el correo de la cuenta para activarla.', 'error');
+          return;
+        }
         throw new Error(
           data?.message ||
             (isBackendUnreachable(response.status, data)
@@ -215,32 +327,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         );
       }
 
-      setSessionToken(data?.token);
-
-      const user = data.user || {
-        name: finalName,
-        email: normalizedUser,
-        password: normalizedPassword,
-        isEmailVerified: true,
-      };
-
-      loginAs(user.role || 'CLIENT', user.email || '', {
-        id: user.id,
-        username: user.username,
-        name: user.name || finalName,
-        email: user.email || normalizedUser,
-        password: undefined,
-        phone: user.phone || undefined,
-        address: user.address || '',
-        dni: user.dni || '',
-        accountNumber: user.accountNumber || undefined,
-        avatarUrl: user.avatarUrl || '',
-        isEmailVerified: Boolean(user.isEmailVerified),
-        businessId: user.businessId || undefined,
-        courierProfile: user.courierProfile,
-      });
-      showNotification(`Sesión iniciada como ${user.name || normalizedUser}`, 'success');
-      onClose();
+      completeLogin(data, normalizedUser, finalName);
     } catch (error) {
       showNotification(error instanceof Error ? error.message : 'No se pudo completar la operación', 'error');
     }
@@ -650,6 +737,62 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     toggleLabel="contraseña"
                   />
                 </div>
+
+                {requiresEmailVerification && !isRegisterMode && (
+                  <div className="space-y-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5">
+                    <p className="text-xs leading-5 text-amber-100">
+                      Esta cuenta está pendiente de activación. Envía el código al correo y verifícalo para poder entrar.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleSendVerification}
+                      disabled={verificationSending}
+                      className="w-full rounded-xl border border-amber-300/60 px-3 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-300/10 disabled:opacity-60"
+                    >
+                      {verificationSending ? 'Enviando código…' : 'ENVIAR CÓDIGO DE VERIFICACIÓN'}
+                    </button>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={verificationCodeInput}
+                      onChange={(event) => setVerificationCodeInput(event.target.value.replace(/\D/g, ''))}
+                      placeholder="Código de 6 dígitos"
+                      className="w-full rounded-xl border border-stone-800 bg-[#1a1a1e] px-4 py-3 text-center text-sm font-bold tracking-[0.3em] text-white placeholder-stone-500 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleVerifyAndLogin}
+                      className="w-full rounded-xl bg-amber-300 py-3 text-xs font-black uppercase tracking-wider text-stone-950 transition hover:bg-amber-200"
+                    >
+                      VERIFICAR Y ACTIVAR CUENTA
+                    </button>
+                  </div>
+                )}
+
+                {isRegisterMode && (
+                  <label className="flex items-start gap-3 rounded-xl border border-stone-800 bg-stone-900/50 p-3 text-xs text-stone-300">
+                    <input
+                      type="checkbox"
+                      checked={termsAccepted}
+                      onChange={(event) => setTermsAccepted(event.target.checked)}
+                      required
+                      className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+                    />
+                    <span className="leading-5">
+                      Acepto los{' '}
+                      <a
+                        href={TERMS_ANCHOR}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-bold text-[#ff8a5c] underline decoration-[#ff4e00] underline-offset-2 hover:text-white"
+                      >
+                        Términos y condiciones de uso
+                      </a>{' '}
+                      de PideTiétar.
+                    </span>
+                  </label>
+                )}
 
                 {/* Big White Button with Black Text (Exact Match to Image 4) */}
                 <button

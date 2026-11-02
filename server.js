@@ -75,6 +75,16 @@ const passwordResetTtlMs =
   Number(process.env.PASSWORD_RESET_TTL_MINUTES || 60) * 60 * 1000;
 const INSECURE_DEFAULT_PASSWORD = "PideTietar123";
 const MIN_PASSWORD_LENGTH = 8;
+const CURRENT_TERMS_VERSION = "v1";
+const EMAIL_VERIFICATION_ROLES = new Set([
+  "BUSINESS_ADMIN",
+  "BUSINESS_COURIER",
+  "PLATFORM_COURIER",
+]);
+
+function requiresEmailVerification(role) {
+  return EMAIL_VERIFICATION_ROLES.has(String(role || "").toUpperCase());
+}
 
 function normalizePassword(value) {
   return String(value ?? "").trim();
@@ -140,6 +150,8 @@ const sqliteSchema = `
     courier_confirmation TEXT DEFAULT 'PENDING',
     courier_business_ids TEXT DEFAULT '[]',
     is_online INTEGER NOT NULL DEFAULT 0,
+    terms_version TEXT,
+    terms_accepted_at TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -328,6 +340,8 @@ const mysqlSchema = `
     courier_confirmation VARCHAR(20) NOT NULL DEFAULT 'PENDING',
     courier_business_ids JSON NULL,
     is_online TINYINT(1) NOT NULL DEFAULT 0,
+    terms_version VARCHAR(32) NULL,
+    terms_accepted_at DATETIME(3) NULL,
     created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uq_app_users_email (email),
@@ -641,6 +655,8 @@ async function ensureMySqlSchemaShape(pool) {
     ["courier_confirmation", "VARCHAR(20) NOT NULL DEFAULT 'PENDING'"],
     ["courier_business_ids", "JSON NULL"],
     ["is_online", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["terms_version", "VARCHAR(32) NULL"],
+    ["terms_accepted_at", "DATETIME(3) NULL"],
   ]);
 
   await ensureMysqlColumns(pool, "businesses", [
@@ -806,6 +822,8 @@ function ensureSqliteSchemaShape() {
     "courier_business_ids",
     "TEXT DEFAULT '[]'",
   );
+  ensureColumn("app_users", "terms_version", "TEXT");
+  ensureColumn("app_users", "terms_accepted_at", "TEXT");
 
   ensureColumn("products", "tax_percentage", "REAL DEFAULT 0");
   ensureColumn("products", "is_sold_out", "INTEGER DEFAULT 0");
@@ -1544,7 +1562,7 @@ async function setUserVerificationCode(userId, code) {
 async function clearUserVerificationCode(userId) {
   if (mysqlPool) {
     await mysqlPool.execute(
-      "UPDATE app_users SET email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
+      "UPDATE app_users SET status = 'ACTIVE', email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
       [new Date().toISOString(), userId],
     );
     return;
@@ -1552,8 +1570,18 @@ async function clearUserVerificationCode(userId) {
 
   const db = getSqliteDb();
   db.prepare(
-    "UPDATE app_users SET email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
+    "UPDATE app_users SET status = 'ACTIVE', email_verified = 1, email_verified_at = ?, email_verification_code = NULL, email_verification_expires_at = NULL WHERE id = ?",
   ).run(new Date().toISOString(), userId);
+}
+
+async function issueVerificationEmail(user) {
+  const code = buildVerificationCode();
+  await setUserVerificationCode(user.id, code);
+  return sendVerificationEmail({
+    email: user.email,
+    fullName: user.full_name || user.username || "usuario",
+    code,
+  });
 }
 
 // Recuperación de contraseña: el token nunca se guarda en claro (sólo su
@@ -2296,6 +2324,8 @@ async function createUser({
   courierConfirmation = "PENDING",
   courierBusinessIds = [],
   accountNumber = null,
+  termsAccepted = false,
+  termsVersion = CURRENT_TERMS_VERSION,
 }) {
   const cleanUsername = String(
     username || email.split("@")[0] || "client",
@@ -2328,14 +2358,19 @@ async function createUser({
     ? String(accountNumber).replace(/\s+/g, "").toUpperCase()
     : null;
   const cleanAddress = address ? String(address).trim() : null;
+  const cleanTermsVersion = cleanString(termsVersion) || CURRENT_TERMS_VERSION;
+  const termsAcceptedAt = termsAccepted ? new Date().toISOString() : null;
   const cleanDni = dni
     ? String(dni).replace(/\s+/g, "").toUpperCase()
     : null;
+  const needsVerification = requiresEmailVerification(role);
+  const initialStatus = needsVerification ? "PENDING" : "ACTIVE";
+  const initialEmailVerified = needsVerification ? 0 : 1;
 
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
+      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         id,
         cleanUsername,
@@ -2347,10 +2382,14 @@ async function createUser({
         avatarUrl || null,
         hash,
         role,
+        initialStatus,
         businessId || null,
         cleanAccountNumber,
+        initialEmailVerified,
         cleanCourierConfirmation,
         JSON.stringify(cleanCourierBusinessIds),
+        cleanTermsVersion,
+        termsAcceptedAt,
       ],
     );
     const [rows] = await mysqlPool.execute(
@@ -2363,7 +2402,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, 1, ?, ?)",
+    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     cleanUsername,
@@ -2375,10 +2414,14 @@ async function createUser({
     avatarUrl || null,
     hash,
     role,
+    initialStatus,
     businessId || null,
     cleanAccountNumber,
+    initialEmailVerified,
     cleanCourierConfirmation,
     JSON.stringify(cleanCourierBusinessIds),
+    cleanTermsVersion,
+    termsAcceptedAt,
   );
   return db.prepare("SELECT * FROM app_users WHERE id = ? LIMIT 1").get(id);
 }
@@ -3297,6 +3340,11 @@ function validateOwnerAccount(owner, { required: isRequired = true } = {}) {
     return { errors, value };
   }
 
+  if (raw.termsAccepted !== true) {
+    errors.ownerTermsAccepted =
+      "El responsable debe aceptar los términos y condiciones antes de activar su cuenta.";
+  }
+
   const username = cleanString(raw.username);
   const fullName = cleanString(raw.fullName || raw.full_name || raw.name);
   const email = cleanString(raw.email).toLowerCase();
@@ -3336,6 +3384,8 @@ function validateOwnerAccount(owner, { required: isRequired = true } = {}) {
   }
 
   value.role = "BUSINESS_ADMIN";
+  value.termsAccepted = true;
+  value.termsVersion = cleanString(raw.termsVersion) || CURRENT_TERMS_VERSION;
 
   return { errors, value };
 }
@@ -3464,10 +3514,24 @@ async function upsertOwnerAccount(tx, owner, businessId) {
           SET full_name = ?,
               business_id = ?,
               password_hash = ?,
+               status = 'PENDING',
+               email_verified = 0,
+               email_verified_at = NULL,
+               email_verification_code = NULL,
+               email_verification_expires_at = NULL,
               password_change_required = 0,
-              password_changed_at = NULL
+               password_changed_at = NULL,
+               terms_version = ?,
+               terms_accepted_at = ?
         WHERE id = ?`,
-      [owner.fullName, businessId, hash, existing.id],
+      [
+        owner.fullName,
+        businessId,
+        hash,
+        owner.termsVersion || CURRENT_TERMS_VERSION,
+        new Date().toISOString(),
+        existing.id,
+      ],
     );
 
     const rows = await txQuery(tx, "SELECT * FROM app_users WHERE id = ?", [
@@ -3480,8 +3544,8 @@ async function upsertOwnerAccount(tx, owner, businessId) {
   const id = cryptoRandomId();
   await txQuery(
     tx,
-    `INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, business_id, email_verified, password_change_required)
-     VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, 1, 0)`,
+    `INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, business_id, email_verified, password_change_required, terms_version, terms_accepted_at)
+     VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, 0, 0, ?, ?)`,
     [
       id,
       owner.username,
@@ -3490,6 +3554,8 @@ async function upsertOwnerAccount(tx, owner, businessId) {
       hash,
       owner.role || "BUSINESS_ADMIN",
       businessId,
+      owner.termsVersion || CURRENT_TERMS_VERSION,
+      new Date().toISOString(),
     ],
   );
 
@@ -3547,6 +3613,8 @@ app.post("/api/auth/register", async (req, res) => {
     phone,
     address,
     avatarUrl,
+    termsAccepted,
+    termsVersion,
   } = req.body || {};
   const cleanPassword = normalizePassword(password);
   if (!email || !cleanPassword) {
@@ -3566,6 +3634,13 @@ app.post("/api/auth/register", async (req, res) => {
       code: "VALIDATION_ERROR",
       message: "La dirección es obligatoria para crear la cuenta.",
       errors: { address: "La dirección es obligatoria." },
+    });
+  }
+  if (termsAccepted !== true) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Debes aceptar los Términos y condiciones para crear la cuenta.",
+      errors: { termsAccepted: "Debes aceptar los Términos y condiciones." },
     });
   }
 
@@ -3593,6 +3668,8 @@ app.post("/api/auth/register", async (req, res) => {
     address,
     avatarUrl,
     role: "CLIENT",
+    termsAccepted: true,
+    termsVersion,
   });
   if (avatarUrl && String(avatarUrl).startsWith("data:")) {
     newUser.avatar_url = await persistUserAvatar(newUser.id, avatarUrl, newUser.id);
@@ -3624,18 +3701,12 @@ app.post("/api/auth/send-verification-email", async (req, res) => {
     });
   }
 
-  const code = buildVerificationCode();
-  await setUserVerificationCode(user.id, code);
-  const emailDelivery = await sendVerificationEmail({
-    email: user.email,
-    fullName: user.full_name || user.username || "usuario",
-    code,
-  });
+  const emailDelivery = await issueVerificationEmail(user);
 
   res.json({
     success: true,
     sent: emailDelivery.sent,
-    code: emailDelivery.sent ? undefined : code,
+    code: emailDelivery.sent ? undefined : emailDelivery.code,
     message: emailDelivery.sent
       ? "Código de verificación enviado al correo."
       : "Código generado para pruebas locales.",
@@ -3720,6 +3791,18 @@ app.post("/api/auth/login", async (req, res) => {
     return res
       .status(401)
       .json({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" });
+  }
+
+  const isEmailVerified =
+    user.email_verified === 1 ||
+    user.email_verified === true ||
+    Boolean(user.email_verified_at);
+  if (requiresEmailVerification(user.role) && !isEmailVerified) {
+    return res.status(403).json({
+      code: "EMAIL_NOT_VERIFIED",
+      message: "Debes verificar tu correo electrónico antes de activar la cuenta.",
+      email: user.email,
+    });
   }
 
   const requiresPasswordChange = Boolean(
@@ -4235,6 +4318,14 @@ app.post("/api/users", requireAuth, async (req, res) => {
     }
   }
 
+  if (
+    ["PLATFORM_COURIER", "BUSINESS_COURIER"].includes(role) &&
+    body.termsAccepted !== true
+  ) {
+    errors.termsAccepted =
+      "El repartidor debe aceptar los términos específicos para repartidores.";
+  }
+
   if (!["PENDING", "BUSINESS_EMAIL", "SUPERADMIN"].includes(courierConfirmation)) {
     errors.courierConfirmation =
       "La confirmación del repartidor no es válida.";
@@ -4325,19 +4416,37 @@ app.post("/api/users", requireAuth, async (req, res) => {
       role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
         ? accountNumber || null
         : null,
+    termsAccepted: body.termsAccepted === true,
+    termsVersion: body.termsVersion,
   });
   const avatarUrl = cleanString(body.avatarUrl || body.avatar_url);
   if (avatarUrl.startsWith("data:")) {
     user.avatar_url = await persistUserAvatar(user.id, avatarUrl, sessionUser.id);
   }
 
-  // Bienvenida con la plantilla de marca, sin bloquear la respuesta.
-  if (user.email) {
+  const verification = requiresEmailVerification(role)
+    ? await issueVerificationEmail(user)
+    : null;
+
+  // Bienvenida con la plantilla de marca, sin bloquear la respuesta. Las
+  // cuentas de negocio y repartidor reciben primero el correo de activación.
+  if (user.email && !verification) {
     void sendWelcomeEmail({ email: user.email, fullName: user.full_name, role: user.role })
       .catch(() => {});
   }
 
-  res.status(201).json({ success: true, user: sanitizeUser(user) });
+  res.status(201).json({
+    success: true,
+    user: sanitizeUser(user),
+    requiresEmailVerification: Boolean(verification),
+    verificationSent: Boolean(verification?.sent),
+    verificationCode: verification?.sent ? undefined : verification?.code,
+    message: verification
+      ? verification.sent
+        ? "Cuenta creada. Se ha enviado un código al correo para activar la cuenta."
+        : "Cuenta creada. Se ha generado un código de verificación para pruebas locales."
+      : "Cuenta creada correctamente.",
+  });
 });
 
 app.put("/api/users/:id", requireAuth, async (req, res) => {
@@ -4863,6 +4972,10 @@ app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
     return { business: rows[0], ownerAccount };
   });
 
+  const verification = ownerAccount
+    ? await issueVerificationEmail(ownerAccount)
+    : null;
+
   res.status(201).json({
     success: true,
     business,
@@ -4876,6 +4989,12 @@ app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
       // La contraseña NUNCA se devuelve: la escribió el superadmin en el
       // formulario y en la base de datos sólo vive su hash bcrypt.
     },
+    requiresEmailVerification: true,
+    verificationSent: Boolean(verification?.sent),
+    verificationCode: verification?.sent ? undefined : verification?.code,
+    message: verification?.sent
+      ? "Negocio creado. Se ha enviado un código al correo del responsable para activar su cuenta."
+      : "Negocio creado. Se ha generado un código de verificación para pruebas locales.",
   });
 });
 
@@ -5020,7 +5139,26 @@ app.put("/api/businesses/:id", requireAuth, async (req, res) => {
     throw httpError(404, "NOT_FOUND", "El negocio no existe.");
   }
 
-  res.json({ success: true, business: updatedBusiness });
+  let verification = null;
+  if (ownerValidation) {
+    const ownerAccount = await findOwnerAccount(ownerValidation.value);
+    if (ownerAccount) verification = await issueVerificationEmail(ownerAccount);
+  }
+
+  res.json({
+    success: true,
+    business: updatedBusiness,
+    ...(verification
+      ? {
+          requiresEmailVerification: true,
+          verificationSent: Boolean(verification.sent),
+          verificationCode: verification.sent ? undefined : verification.code,
+          message: verification.sent
+            ? "Negocio actualizado. Se ha enviado un código al correo del responsable para activar su cuenta."
+            : "Negocio actualizado. Se ha generado un código de verificación para pruebas locales.",
+        }
+      : {}),
+  });
 });
 
 // Se conserva el historial de ventas: si el negocio tiene pedidos no se borra,

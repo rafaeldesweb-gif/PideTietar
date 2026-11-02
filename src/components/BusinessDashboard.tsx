@@ -50,6 +50,7 @@ import {
   toBusinessFieldErrors,
 } from './FormErrors';
 import { MediaView } from './MediaView';
+import { COURIER_TERMS_ANCHOR, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
 import {
   MEDIA_ACCEPT,
   isMediaUrl,
@@ -176,6 +177,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     phone: '',
     address: '',
     dni: '',
+    termsAccepted: false,
   });
   const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
   const [courierSubmitting, setCourierSubmitting] = useState(false);
@@ -239,6 +241,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     adminUsername: '',
     adminEmail: '',
     adminPassword: '',
+    ownerTermsAccepted: false,
     bannerUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
     logoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
     deliveryFeeCents: '2',
@@ -371,6 +374,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       errors.password = 'La contraseña debe tener al menos 8 caracteres.';
     }
     Object.assign(errors, validateCourierContact(courierForm, { required: true }));
+    if (!courierForm.termsAccepted) {
+      errors.termsAccepted = 'El repartidor debe aceptar los términos específicos para repartidores.';
+    }
 
     setCourierFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -388,6 +394,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       businessId: business?.id,
       courierBusinessIds: business?.id ? [business.id] : [],
       courierConfirmation: 'PENDING',
+      termsAccepted: true,
+      termsVersion: TERMS_VERSION,
     });
     setCourierSubmitting(false);
 
@@ -400,6 +408,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         phone: '',
         address: '',
         dni: '',
+        termsAccepted: false,
       });
       setCourierFormErrors({});
       await refreshCouriers();
@@ -1051,6 +1060,9 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     else if (newBusinessForm.adminPassword.trim().length < 8) {
       localErrors.adminPassword = 'La clave inicial debe tener al menos 8 caracteres.';
     }
+    if (!newBusinessForm.ownerTermsAccepted) {
+      localErrors.ownerTermsAccepted = 'El responsable debe aceptar los términos y condiciones.';
+    }
 
     if (Object.keys(localErrors).length) {
       setBusinessFormErrors(localErrors);
@@ -1088,6 +1100,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
         fullName: `${newBusinessForm.managerName.trim() || newBusinessForm.name.trim()} (${newBusinessForm.name.trim()})`,
         email: newBusinessForm.adminEmail.trim(),
         password: newBusinessForm.adminPassword.trim(),
+        termsAccepted: newBusinessForm.ownerTermsAccepted,
+        termsVersion: TERMS_VERSION,
       },
       (errors) => setBusinessFormErrors(toBusinessFieldErrors(errors)),
     );
@@ -1102,7 +1116,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     // La clave no se muestra en la notificación: ya la conoce quien la acaba
     // de escribir y las notificaciones se quedan en pantalla.
     showNotification(
-      `Negocio ${createdBusiness.name} creado y acceso asignado a ${newBusinessForm.adminUsername.trim()} (rol BUSINESS_ADMIN).`,
+      `Negocio ${createdBusiness.name} creado. El responsable debe verificar su correo para activar el acceso.`,
       'success',
     );
 
@@ -1121,6 +1135,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       adminUsername: '',
       adminEmail: '',
       adminPassword: '',
+      ownerTermsAccepted: false,
       bannerUrl: 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
       logoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
       deliveryFeeCents: '2',
@@ -2065,6 +2080,27 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                     <FieldError message={courierFormErrors.address} />
                   </div>
                   <div className="sm:col-span-2">
+                    <label className="mb-3 flex items-start gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 text-xs text-stone-600">
+                      <input
+                        type="checkbox"
+                        checked={courierForm.termsAccepted}
+                        onChange={(e) => setCourierForm({ ...courierForm, termsAccepted: e.target.checked })}
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+                      />
+                      <span className="leading-5">
+                        El repartidor acepta los{' '}
+                        <a
+                          href={COURIER_TERMS_ANCHOR}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]"
+                        >
+                          términos y condiciones para repartidores
+                        </a>{' '}
+                        de PideTiétar.
+                        <FieldError message={courierFormErrors.termsAccepted} />
+                      </span>
+                    </label>
                     <button
                       type="submit"
                       disabled={courierSubmitting}
@@ -2907,6 +2943,22 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                   />
                   <FieldError message={businessFormErrors.adminPassword} />
                 </div>
+                <label className="flex items-start gap-3 rounded-xl border border-[#e6d7c5] bg-white p-3 text-xs text-stone-600 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={newBusinessForm.ownerTermsAccepted}
+                    onChange={(event) => setNewBusinessForm((prev) => ({ ...prev, ownerTermsAccepted: event.target.checked }))}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
+                  />
+                  <span className="leading-5">
+                    El responsable del negocio acepta los{' '}
+                    <a href={TERMS_ANCHOR} target="_blank" rel="noreferrer" className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]">
+                      términos y condiciones de uso
+                    </a>{' '}
+                    y recibirá un correo para verificar y activar su cuenta.
+                    <FieldError message={businessFormErrors.ownerTermsAccepted} />
+                  </span>
+                </label>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

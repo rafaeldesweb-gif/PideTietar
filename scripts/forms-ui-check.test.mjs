@@ -11,10 +11,14 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
   const token = admin.token;
   const zone = (await api('/localities', { method: 'POST', token, body: { name: 'Zona UI', postalCode: '05400' }, status: 201 })).data.locality;
   const category = (await api('/categories', { method: 'POST', token, body: { name: 'Categoría UI', slug: 'categoria-ui' }, status: 201 })).data.category;
-  const business = (await api('/businesses', { method: 'POST', token, body: businessInput('ui', zone.id, category.id, password), status: 201 })).data.business;
+  const businessResponse = await api('/businesses', { method: 'POST', token, body: businessInput('ui', zone.id, category.id, password), status: 201 });
+  const business = businessResponse.data.business;
+  await api('/auth/verify-email', { method: 'POST', body: { email: 'propietarioui@example.com', code: businessResponse.data.verificationCode }, status: 200 });
   const owner = await login('propietario_ui');
-  const client = (await api('/auth/register', { method: 'POST', body: { username: 'cliente_ui', email: 'clienteui@example.com', fullName: 'Cliente UI', password, address: 'Calle UI 1', phone: '600111222', localityId: zone.id }, status: 201 })).data;
-  const courier = (await api('/users', { method: 'POST', token, body: { username: 'courier_ui', email: 'courierui@example.com', fullName: 'Repartidor UI', password, role: 'PLATFORM_COURIER', courierConfirmation: 'SUPERADMIN', phone: '600111222', address: 'Calle UI 2', dni: '12345678Z' }, status: 201 })).data.user;
+  const client = (await api('/auth/register', { method: 'POST', body: { username: 'cliente_ui', email: 'clienteui@example.com', fullName: 'Cliente UI', password, address: 'Calle UI 1', phone: '600111222', localityId: zone.id, termsAccepted: true, termsVersion: 'v1' }, status: 201 })).data;
+  const courierResponse = await api('/users', { method: 'POST', token, body: { username: 'courier_ui', email: 'courierui@example.com', fullName: 'Repartidor UI', password, role: 'PLATFORM_COURIER', courierBusinessIds: [business.id], courierConfirmation: 'SUPERADMIN', phone: '600111222', address: 'Calle UI 2', dni: '12345678Z', termsAccepted: true, termsVersion: 'v1' }, status: 201 });
+  const courier = courierResponse.data.user;
+  await api('/auth/verify-email', { method: 'POST', body: { email: 'courierui@example.com', code: courierResponse.data.verificationCode }, status: 200 });
   const courierLogin = await login('courier_ui');
   const product = (await api('/products', { method: 'POST', token, body: { businessId: business.id, categoryId: category.id, name: 'Plato UI', priceCents: 1000, ingredients: ['Pan'], removableIngredients: ['Pan'], additionalIngredients: [{ name: 'Queso', priceCents: 100 }] }, status: 201 })).data;
   const fixture = `
@@ -80,6 +84,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       await page.locator('select').selectOption(zone.id);
       await page.getByPlaceholder('tu@email.com', { exact: true }).fill('registradoui@example.com');
       await page.getByPlaceholder('••••••••').fill(password);
+      await page.locator('label').filter({ hasText: 'Términos y condiciones de uso' }).locator('input[type=checkbox]').check();
       await savedResponse(page, '/auth/register', 'POST', () => page.getByRole('button', { name: 'CREAR CUENTA', exact: true }).click());
       await page.waitForFunction(() => window.testApp.currentUser?.address === 'Calle UI registro 10');
       await page.getByRole('button', { name: 'Cerrar Sesión', exact: true }).click();
@@ -159,6 +164,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       for (const [label, value] of Object.entries({ 'Nombre Comercial': 'Comercio formulario UI', 'Razón Social': 'Comercio formulario UI', 'CIF / NIF': 'B12345678', 'Dirección': 'Calle UI negocio 1', 'Teléfono': '600123456', 'Email': 'comerciocreado@example.com', 'Nombre del Responsable': 'Responsable UI', 'DNI/NIE del Responsable': '12345678Z', 'Usuario de acceso': 'propietario_creado_ui', 'Email de acceso': 'propietariocreado@example.com', 'Clave inicial': password })) await field(form, label).fill(value);
       await field(form, 'Localidad').selectOption(zone.id);
       await field(form, 'Categoría').selectOption(category.id);
+      await form.locator('label').filter({ hasText: 'términos y condiciones de uso' }).locator('input[type=checkbox]').check();
       await savedResponse(page, '/businesses', 'POST', () => page.getByRole('button', { name: 'Guardar Comercio y Crear Usuario', exact: true }).click());
       assert.ok((await api('/businesses')).data.some((item) => item.name === 'Comercio formulario UI'));
     } finally { await close(); }
@@ -172,6 +178,9 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
         const form = page.locator('form').filter({ has: page.locator('input[placeholder="Mínimo 8 caracteres"]') });
         for (const [label, value] of Object.entries({ 'Nombre completo': `Repartidor UI ${suffix}`, 'Usuario de acceso': `repartidor_ui_${suffix}`, 'Email': `repartidorui${suffix}@example.com`, 'Clave inicial': password, 'Teléfono': '600123456', 'DNI / NIE': '12345678Z', 'Dirección': 'Calle UI repartidor 1' })) await field(form, label).fill(value);
         if (view === 'admin') await field(form, 'Tipo de repartidor').selectOption('PLATFORM_COURIER');
+        const checkboxes = form.locator('input[type=checkbox]');
+        if (view === 'admin') await checkboxes.first().check();
+        await checkboxes.last().check();
         await savedResponse(page, '/users', 'POST', () => form.locator('button[type=submit]').click());
       } finally { await close(); }
     }
@@ -211,6 +220,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       for (const [label, value] of Object.entries({ 'Nombre del negocio': 'Negocio creado desde cocina', 'Razón social': 'Negocio creado desde cocina', 'CIF': 'B12345678', 'Teléfono': '600123456', 'Dirección': 'Calle cocina UI 1', 'Email': 'cocinacreada@example.com', 'Persona responsable': 'Responsable cocina', 'DNI / NIE responsable': '12345678Z', 'Usuario': 'propietario_cocina_ui', 'Email de acceso': 'propietariococina@example.com', 'Contraseña temporal': password, 'Gasto de envío (€)': '0' })) await field(businessForm, label).fill(value);
       await field(businessForm, 'Categoría').selectOption(category.id);
       await businessForm.locator('select').nth(1).selectOption(zone.id);
+      await businessForm.locator('label').filter({ hasText: 'términos y condiciones de uso' }).locator('input[type=checkbox]').check();
       await savedResponse(page, '/businesses', 'POST', () => businessForm.locator('button[type=submit]').click());
       assert.equal((await api('/businesses')).data.find((item) => item.name === 'Negocio creado desde cocina').delivery_fee_cents, 0);
     } finally { await close(); }

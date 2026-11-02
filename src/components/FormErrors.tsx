@@ -32,6 +32,7 @@ const BUSINESS_ERROR_FIELD_MAP: Record<string, string> = {
   ownerEmail: 'adminEmail',
   ownerPassword: 'adminPassword',
   owner: 'adminUsername',
+  ownerTermsAccepted: 'ownerTermsAccepted',
 };
 
 // El alta de repartidores usa los nombres del backend (courierBusinessIds,
@@ -57,6 +58,8 @@ const COURIER_ERROR_FIELD_MAP: Record<string, string> = {
   account_number: 'accountNumber',
   courierConfirmation: 'courierConfirmation',
   courier_confirmation: 'courierConfirmation',
+  termsAccepted: 'termsAccepted',
+  terms_accepted: 'termsAccepted',
 };
 
 export const extractFieldErrors = (error: unknown): FieldErrors => {
