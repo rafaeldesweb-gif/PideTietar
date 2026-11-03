@@ -63,6 +63,7 @@ interface AppContextType {
       password: string;
       phone?: string;
       address?: string;
+      localityId?: string;
       dni?: string;
       role: User['role'];
       businessId?: string;
@@ -1552,6 +1553,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       password: string;
       phone?: string;
       address?: string;
+      localityId?: string;
       dni?: string;
       role: User['role'];
       businessId?: string;
@@ -1573,6 +1575,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           password: data.password,
           phone: data.phone,
           address: data.address,
+          localityId: data.localityId,
           dni: data.dni,
           role: data.role,
           businessId: data.businessId,

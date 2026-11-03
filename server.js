@@ -146,6 +146,7 @@ const sqliteSchema = `
     role TEXT NOT NULL DEFAULT 'CLIENT',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     business_id TEXT,
+    locality_id TEXT,
     account_number TEXT,
     email_verified INTEGER DEFAULT 0,
     email_verified_at TEXT,
@@ -336,6 +337,7 @@ const mysqlSchema = `
     role VARCHAR(40) NOT NULL DEFAULT 'CLIENT',
     status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
     business_id CHAR(36) NULL,
+    locality_id CHAR(36) NULL,
     account_number VARCHAR(255) NULL,
     email_verified TINYINT(1) NOT NULL DEFAULT 0,
     email_verified_at DATETIME(3) NULL,
@@ -647,6 +649,7 @@ async function ensureMySqlSchemaShape(pool) {
 
   await ensureMysqlColumns(pool, "app_users", [
     ["business_id", "CHAR(36) NULL"],
+    ["locality_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
     ["phone", "VARCHAR(30) NULL"],
     ["address", "TEXT NULL"],
@@ -721,6 +724,15 @@ async function ensureMySqlSchemaShape(pool) {
     tableName: "businesses",
     columnNames: ["owner_user_id"],
     refTable: "app_users",
+    refColumns: ["id"],
+    onDelete: "SET NULL",
+  });
+
+  await ensureMysqlForeignKey(pool, {
+    constraintName: "fk_app_users_locality",
+    tableName: "app_users",
+    columnNames: ["locality_id"],
+    refTable: "localities",
     refColumns: ["id"],
     onDelete: "SET NULL",
   });
@@ -813,6 +825,7 @@ function ensureSqliteSchemaShape() {
   ensureColumn("categories", "show_additional_ingredients", "INTEGER NOT NULL DEFAULT 1");
 
   ensureColumn("app_users", "business_id", "TEXT");
+  ensureColumn("app_users", "locality_id", "TEXT");
   ensureColumn("app_users", "is_online", "INTEGER NOT NULL DEFAULT 0");
   // Confirmación del alta de repartidores: PENDING (sin aprobar),
   // BUSINESS_EMAIL (aprobado por el negocio) o SUPERADMIN (aprobado por la
@@ -1396,6 +1409,7 @@ function sanitizeUser(row) {
     status: row.status || "ACTIVE",
     businessId: businessId,
     accountNumber: row.account_number || row.accountNumber || "",
+    localityId: row.locality_id || row.localityId || "",
     isEmailVerified: isEmailVerified,
     emailVerified: isEmailVerified,
     createdAt: row.created_at || new Date().toISOString(),
@@ -2329,6 +2343,7 @@ async function createUser({
   avatarUrl,
   role = "CLIENT",
   businessId = null,
+  localityId = null,
   courierConfirmation = "PENDING",
   courierBusinessIds = [],
   accountNumber = null,
@@ -2366,6 +2381,7 @@ async function createUser({
     ? String(accountNumber).replace(/\s+/g, "").toUpperCase()
     : null;
   const cleanAddress = address ? String(address).trim() : null;
+  const cleanLocalityId = localityId ? String(localityId).trim() : null;
   const cleanTermsVersion = cleanString(termsVersion) || CURRENT_TERMS_VERSION;
   const termsAcceptedAt = termsAccepted ? new Date().toISOString() : null;
   const cleanDni = dni
@@ -2378,7 +2394,7 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         id,
         cleanUsername,
@@ -2392,6 +2408,7 @@ async function createUser({
         role,
         initialStatus,
         businessId || null,
+        cleanLocalityId,
         cleanAccountNumber,
         initialEmailVerified,
         cleanCourierConfirmation,
@@ -2410,7 +2427,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     cleanUsername,
@@ -2424,6 +2441,7 @@ async function createUser({
     role,
     initialStatus,
     businessId || null,
+    cleanLocalityId,
     cleanAccountNumber,
     initialEmailVerified,
     cleanCourierConfirmation,
@@ -3724,7 +3742,8 @@ async function upsertOwnerAccount(tx, owner, businessId) {
       tx,
       `UPDATE app_users
           SET full_name = ?,
-              business_id = ?,
+               business_id = ?,
+               locality_id = (SELECT locality_id FROM businesses WHERE id = ?),
               password_hash = ?,
                status = 'PENDING',
                email_verified = 0,
@@ -3738,6 +3757,7 @@ async function upsertOwnerAccount(tx, owner, businessId) {
         WHERE id = ?`,
       [
         owner.fullName,
+        businessId,
         businessId,
         hash,
         owner.termsVersion || CURRENT_TERMS_VERSION,
@@ -3756,8 +3776,10 @@ async function upsertOwnerAccount(tx, owner, businessId) {
   const id = cryptoRandomId();
   await txQuery(
     tx,
-    `INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, business_id, email_verified, password_change_required, terms_version, terms_accepted_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, 0, 0, ?, ?)`,
+    `INSERT INTO app_users (id, username, full_name, email, password_hash, role, status, business_id, locality_id, email_verified, password_change_required, terms_version, terms_accepted_at)
+     SELECT ?, ?, ?, ?, ?, ?, 'PENDING', b.id, b.locality_id, 0, 0, ?, ?
+       FROM businesses b
+      WHERE b.id = ?`,
     [
       id,
       owner.username,
@@ -3765,9 +3787,9 @@ async function upsertOwnerAccount(tx, owner, businessId) {
       owner.email,
       hash,
       owner.role || "BUSINESS_ADMIN",
-      businessId,
       owner.termsVersion || CURRENT_TERMS_VERSION,
       new Date().toISOString(),
+      businessId,
     ],
   );
 
@@ -3954,6 +3976,7 @@ app.post("/api/auth/register", async (req, res) => {
     password: cleanPassword,
     phone,
     address,
+    localityId,
     avatarUrl,
     role: "CLIENT",
     termsAccepted: true,
@@ -4543,6 +4566,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
   )
     .replace(/\s+/g, "")
     .toUpperCase();
+  const localityId = cleanString(body.localityId || body.locality_id);
   const phone = cleanString(body.phone);
   const address = cleanString(body.address);
   const dni = cleanString(
@@ -4624,6 +4648,13 @@ app.post("/api/users", requireAuth, async (req, res) => {
   if (!email || !EMAIL_REGEX.test(email)) {
     errors.email = "El email no es válido.";
   }
+  if (localityId) {
+    const localityExists = await countRows(
+      "SELECT COUNT(*) AS c FROM localities WHERE id = ?",
+      [localityId],
+    );
+    if (!localityExists) errors.localityId = "Selecciona una localidad válida.";
+  }
   if (!username || !USERNAME_REGEX.test(username)) {
     errors.username =
       "El usuario debe tener entre 3 y 64 caracteres y solo admite letras, números, punto, guion bajo o guion.";
@@ -4688,6 +4719,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
     password,
     phone: phone || null,
     address: address || null,
+    localityId: localityId || null,
     dni: dni || null,
     avatarUrl: cleanString(body.avatarUrl || body.avatar_url) || null,
     role,
@@ -4922,6 +4954,24 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
     } else {
       updates.push("address = ?");
       values.push(address || null);
+    }
+  }
+  if (body.localityId !== undefined || body.locality_id !== undefined) {
+    const localityId = cleanString(body.localityId ?? body.locality_id);
+    if (localityId) {
+      const localityExists = await countRows(
+        "SELECT COUNT(*) AS c FROM localities WHERE id = ?",
+        [localityId],
+      );
+      if (!localityExists) {
+        errors.localityId = "Selecciona una localidad válida.";
+      } else {
+        updates.push("locality_id = ?");
+        values.push(localityId);
+      }
+    } else {
+      updates.push("locality_id = ?");
+      values.push(null);
     }
   }
   if (

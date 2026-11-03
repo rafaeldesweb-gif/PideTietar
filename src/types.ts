@@ -15,6 +15,7 @@ export interface User {
   password?: string;
   phone?: string;
   address?: string;
+  localityId?: string;
   dni?: string; // DNI o NIE del repartidor
   accountNumber?: string;
   role: UserRole;
