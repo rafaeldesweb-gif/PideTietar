@@ -1,12 +1,37 @@
 {
-  "name": "PideTiétar",
+  "name": "PideTiétar - Todo el valle a tu puerta",
   "short_name": "PideTiétar",
-  "description": "Plataforma de delivery y comercio local en el Valle del Tiétar.",
+  "description": "Plataforma de delivery y comercio local en el Valle del Tiétar con gestión de pedidos, negocios, repartidores, pagos y sincronización.",
   "start_url": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#fffaf5",
   "theme_color": "#ff4e00",
   "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192-maskable.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/icon-512-maskable.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
     {
       "src": "/PideTietar-app-icon.ico",
       "sizes": "any",
