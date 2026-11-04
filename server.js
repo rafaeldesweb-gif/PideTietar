@@ -8,6 +8,7 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypt
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
+import Stripe from "stripe";
 import {
   normalizeAddressPart,
   prepareAddressForGeocoding,
@@ -25,6 +26,18 @@ import {
 
 dotenv.config();
 process.env.NODE_ENV ||= "development";
+
+// Stripe Connect: clave secreta solo disponible en el backend. Nunca se envía
+// al frontend; el frontend recibe clientSecret para confirmar el pago en el
+// navegador con la clave publicable.
+let stripe = null;
+if (process.env.STRIPE_SECRET_KEY) {
+  stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
+    apiVersion: "2024-12-18.acacia",
+  });
+} else {
+  console.warn("STRIPE_SECRET_KEY no configurado: los endpoints de Stripe Connect devolverán error.");
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -6566,6 +6579,307 @@ app.get("/api/debug/config", requireSuperAdmin, (_req, res) => {
     ),
   });
 });
+
+// =========================================================
+// STRIPE CONNECT – cobros, desgloses y pagos a negocios
+// =========================================================
+
+function requireStripeConfigured(_req, _res, next) {
+  if (!stripe) {
+    return next(httpError(503, "STRIPE_NOT_CONFIGURED", "Stripe no está configurado en el servidor. Define STRIPE_SECRET_KEY."));
+  }
+  next();
+}
+
+/**
+ * POST /api/stripe/create-account
+ * Crea una cuenta conectada de tipo Express para un negocio y devuelve el
+ * enlace de onboarding para que el negocio complete sus datos bancarios.
+ * Solo SUPERADMIN o BUSINESS_ADMIN (para su propio negocio).
+ */
+app.post(
+  "/api/stripe/create-account",
+  requireAuth,
+  requireStripeConfigured,
+  async (req, res, next) => {
+    try {
+      const user = req.user;
+      const {
+        businessId,
+        businessName,
+        businessEmail,
+        businessCountry = "ES",
+        accountNumber,
+      } = req.body || {};
+
+      if (!businessId || !businessName || !businessEmail) {
+        throw httpError(400, "VALIDATION_ERROR", "Faltan datos obligatorios del negocio.", {
+          businessId: !businessId ? "required" : undefined,
+          businessName: !businessName ? "required" : undefined,
+          businessEmail: !businessEmail ? "required" : undefined,
+        });
+      }
+
+      // Solo superadmin puede crear para cualquier negocio; el admin de negocio
+      // solo para su propio negocio.
+      if (user.role !== "SUPERADMIN" && user.businessId !== businessId) {
+        throw httpError(403, "FORBIDDEN", "No puedes crear una cuenta de cobro para este negocio.");
+      }
+
+      const account = await stripe.accounts.create({
+        type: "express",
+        country: businessCountry,
+        email: businessEmail,
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+        business_type: "company",
+        company: {
+          name: businessName,
+        },
+        settings: {
+          payouts: {
+            statement_descriptor: "PIDE TIETAR",
+          },
+        },
+        metadata: {
+          pidetietar_business_id: businessId,
+          pidetietar_owner_user_id: user.id || "",
+        },
+      });
+
+      const accountLink = await stripe.accountLinks.create({
+        account: account.id,
+        refresh_url: `${process.env.APP_URL || "http://localhost:3000"}/business-dashboard`,
+        return_url: `${process.env.APP_URL || "http://localhost:3000"}/business-dashboard`,
+        type: "account_onboarding",
+      });
+
+      res.json({
+        accountId: account.id,
+        accountLinkUrl: accountLink.url,
+        status: account.status,
+        chargesEnabled: account.charges_enabled,
+        payoutsEnabled: account.payouts_enabled,
+        detailsSubmitted: account.details_submitted,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/stripe/account-link
+ * Crea un enlace de onboarding para una cuenta conectada existente.
+ */
+app.post(
+  "/api/stripe/account-link",
+  requireAuth,
+  requireStripeConfigured,
+  async (req, res, next) => {
+    try {
+      const { accountId } = req.body || {};
+      if (!accountId) {
+        throw httpError(400, "VALIDATION_ERROR", "accountId es obligatorio.", { accountId: "required" });
+      }
+
+      const accountLink = await stripe.accountLinks.create({
+        account: accountId,
+        refresh_url: `${process.env.APP_URL || "http://localhost:3000"}/business-dashboard`,
+        return_url: `${process.env.APP_URL || "http://localhost:3000"}/business-dashboard`,
+        type: "account_onboarding",
+      });
+
+      res.json({ accountLinkUrl: accountLink.url });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * GET /api/stripe/account-status?accountId=...
+ * Consulta si la cuenta conectada ya puede cobrar y recibir transferencias.
+ */
+app.get(
+  "/api/stripe/account-status",
+  requireAuth,
+  requireStripeConfigured,
+  async (req, res, next) => {
+    try {
+      const { accountId } = req.query;
+      if (!accountId || typeof accountId !== "string") {
+        throw httpError(400, "VALIDATION_ERROR", "accountId es obligatorio.", { accountId: "required" });
+      }
+
+      const account = await stripe.accounts.retrieve(accountId);
+
+      res.json({
+        chargesEnabled: account.charges_enabled,
+        payoutsEnabled: account.payouts_enabled,
+        detailsSubmitted: account.details_submitted,
+        status: account.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/stripe/payment-intent
+ * Crea un Payment Intent con lógica de marketplace:
+ * - El cliente paga el importe total.
+ * - PideTiétar retiene su comisión (application_fee_amount).
+ * - El resto se transfiere a la cuenta conectada del negocio (transfer_data).
+ */
+app.post(
+  "/api/stripe/payment-intent",
+  requireAuth,
+  requireStripeConfigured,
+  async (req, res, next) => {
+    try {
+      const {
+        orderId,
+        amountCents,
+        currency = "eur",
+        customerEmail,
+        businessId,
+        applicationFeeCents,
+        transferDestination,
+        transferAmountCents,
+      } = req.body || {};
+
+      if (!orderId || !amountCents || !customerEmail || !businessId) {
+        throw httpError(400, "VALIDATION_ERROR", "Faltan datos obligatorios del pago.", {
+          orderId: !orderId ? "required" : undefined,
+          amountCents: !amountCents ? "required" : undefined,
+          customerEmail: !customerEmail ? "required" : undefined,
+          businessId: !businessId ? "required" : undefined,
+        });
+      }
+
+      // El superadmin o el admin del negocio pueden crear el payment intent.
+      const user = req.user;
+      if (user.role !== "SUPERADMIN" && user.businessId !== businessId && user.role !== "CLIENT") {
+        throw httpError(403, "FORBIDDEN", "No tienes permiso para crear pagos para este negocio.");
+      }
+
+      const paymentIntentParams = {
+        amount: Math.round(amountCents),
+        currency,
+        automatic_payment_methods: { enabled: true },
+        metadata: {
+          pidetietar_order_id: orderId,
+          pidetietar_business_id: businessId,
+          pidetietar_customer_email: customerEmail,
+        },
+        description: `Pedido ${orderId} - PideTiétar`,
+      };
+
+      // Si se indica una cuenta de destino y un importe de transferencia, se
+      // configura el pagamento directo con aplicación de comisión.
+      if (transferDestination && transferAmountCents) {
+        paymentIntentParams.application_fee_amount = Math.round(applicationFeeCents || 0);
+        paymentIntentParams.transfer_data = {
+          destination: transferDestination,
+          amount: Math.round(transferAmountCents),
+        };
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create(paymentIntentParams);
+
+      res.json({
+        clientSecret: paymentIntent.client_secret,
+        paymentIntentId: paymentIntent.id,
+        status: paymentIntent.status,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/stripe/payout
+ * Crea una transferencia desde la cuenta conectada de Stripe hacia el IBAN
+ * del negocio o del repartidor. Solo SUPERADMIN.
+ */
+app.post(
+  "/api/stripe/payout",
+  requireSuperAdmin,
+  requireStripeConfigured,
+  async (req, res, next) => {
+    try {
+      const { accountId, amountCents, currency = "eur", description } = req.body || {};
+
+      if (!accountId || !amountCents) {
+        throw httpError(400, "VALIDATION_ERROR", "Faltan datos de la transferencia.", {
+          accountId: !accountId ? "required" : undefined,
+          amountCents: !amountCents ? "required" : undefined,
+        });
+      }
+
+      const payout = await stripe.payouts.create({
+        amount: Math.round(amountCents),
+        currency,
+        description: description || "Payout PideTiétar",
+        method: "instant",
+      });
+
+      res.json({
+        payoutId: payout.id,
+        status: payout.status,
+        amountCents: payout.amount,
+      });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+/**
+ * POST /api/stripe/webhook
+ * Recibe eventos de Stripe (pagos completados, transferencias, etc.).
+ * Debe configurarse en el Dashboard de Stripe con este endpoint.
+ */
+app.post(
+  "/api/stripe/webhook",
+  requireStripeConfigured,
+  express.raw({ type: "application/json" }),
+  async (req, res, next) => {
+    try {
+      const sig = req.headers["stripe-signature"];
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+      let event;
+      if (sig && webhookSecret) {
+        event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret);
+      } else {
+        // Sin webhook secret: acepta el cuerpo como evento (solo desarrollo).
+        event = req.body;
+      }
+
+      // Manejo de eventos relevantes
+      if (event.type === "payment_intent.succeeded") {
+        const pi = event.data.object;
+        console.log(`Stripe: pago exitoso ${pi.id} para pedido ${pi.metadata?.pidetietar_order_id}`);
+      }
+
+      if (event.type === "account.updated" || event.type === "account.application.deauthorized") {
+        const acct = event.data.object;
+        console.log(`Stripe: cuenta actualizada ${acct.id}`);
+      }
+
+      res.json({ received: true });
+    } catch (error) {
+      console.error("Stripe webhook error:", error.message);
+      return res.status(400).json({ error: `Webhook error: ${error.message}` });
+    }
+  },
+);
 
 // Ninguna ruta desconocida de API debe caer al HTML de la SPA ni al 404 HTML
 // predeterminado de Express, independientemente de que exista dist/.

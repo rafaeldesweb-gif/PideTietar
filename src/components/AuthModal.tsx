@@ -11,7 +11,14 @@ import {
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
 import { verifyAddress, type AddressVerificationResult } from '../services/addressValidation';
-import { openTermsInNewTab, TERMS_ACCEPTED_MESSAGE, TERMS_ANCHOR, TERMS_VERSION } from '../data/legalTerms';
+import {
+  openTermsInNewTab,
+  TERMS_ACCEPTED_MESSAGE,
+  TERMS_CLIENT_ANCHOR,
+  PRIVACY_POLICY_ANCHOR,
+  COOKIE_POLICY_ANCHOR,
+  TERMS_VERSION,
+} from '../data/legalTerms';
 import { extractFieldErrors, FieldError, fieldClass, type FieldErrors } from './FormErrors';
 import { 
   X, LogOut, ArrowLeft, Loader2
@@ -108,7 +115,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       if (
         event.origin !== window.location.origin ||
         event.data?.type !== TERMS_ACCEPTED_MESSAGE ||
-        event.data.anchor !== TERMS_ANCHOR
+        event.data.anchor !== TERMS_CLIENT_ANCHOR
       ) {
         return;
       }
@@ -908,11 +915,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     <span className="leading-5">
                       Acepto los{' '}
                       <a
-                        href={TERMS_ANCHOR}
-                        onClick={(event) => openTermsInNewTab(event, TERMS_ANCHOR)}
+                        href={TERMS_CLIENT_ANCHOR}
+                        onClick={(event) => openTermsInNewTab(event, TERMS_CLIENT_ANCHOR)}
                         className="font-bold text-[#ff8a5c] underline decoration-[#ff4e00] underline-offset-2 hover:text-white"
                       >
-                        Términos y condiciones de uso
+                        Términos y condiciones para clientes
+                      </a>{' '}
+                      y la{' '}
+                      <a
+                        href={PRIVACY_POLICY_ANCHOR}
+                        onClick={(event) => openTermsInNewTab(event, PRIVACY_POLICY_ANCHOR)}
+                        className="font-bold text-[#ff8a5c] underline decoration-[#ff4e00] underline-offset-2 hover:text-white"
+                      >
+                        Política de privacidad
                       </a>{' '}
                       de PideTiétar.
                     </span>

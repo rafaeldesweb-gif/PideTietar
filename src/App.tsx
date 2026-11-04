@@ -26,7 +26,12 @@ const readResetTokenFromHash = (): string | null => {
 };
 
 const isTermsHash = (hash: string): boolean =>
-  hash === '#terminos-y-condiciones' || hash === '#terminos-repartidores';
+  hash === '#terminos-y-condiciones' ||
+  hash === '#terminos-repartidores' ||
+  hash === '#terminos-clientes' ||
+  hash === '#terminos-negocios' ||
+  hash === '#politica-privacidad' ||
+  hash === '#politica-cookies';
 
 const readInitialView = (): string =>
   isTermsHash(window.location.hash) ? 'terms' : 'home';
@@ -285,12 +290,28 @@ export default function App() {
             <span>Verificación por correo</span>
             <span>Integración con Google Calendar</span>
             <span>Pagos en modo de prueba</span>
-            <a
-              href="#terminos-y-condiciones"
-              className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
-            >
-              Términos y condiciones
-            </a>
+            <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-500">
+              <a
+                href="#terminos-clientes"
+                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+              >
+                Términos clientes
+              </a>
+              <span className="text-stone-400">|</span>
+              <a
+                href="#politica-privacidad"
+                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+              >
+                Privacidad
+              </a>
+              <span className="text-stone-400">|</span>
+              <a
+                href="#politica-cookies"
+                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+              >
+                Cookies
+              </a>
+            </div>
             <button
               onClick={() => {
                 setPageError('Simulación intencionada de error del servidor para validar la página de error personalizada.');

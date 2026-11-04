@@ -98,7 +98,7 @@ export async function processSubscriptionCheckout(
   userEmail: string
 ): Promise<{ success: boolean; subscriptionId: string; nextBillingDate: string; provider: string }> {
   await new Promise(r => setTimeout(r, 1500));
-  
+
   const nextMonth = new Date();
   nextMonth.setDate(nextMonth.getDate() + 30);
 
@@ -108,4 +108,146 @@ export async function processSubscriptionCheckout(
     nextBillingDate: nextMonth.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
     provider
   };
+}
+
+/*─────────────────────────────────────────────────────────────────────────────
+  Stripe Connect – preparación para cobros reales, desgloses y pagos
+  a negocios y repartidores.
+
+  Estas funciones se llaman desde el frontend y delegan en los endpoints
+  del backend (server.js) que a su vez usan la clave secreta de Stripe.
+  Nunca se expone STRIPE_SECRET_KEY en el navegador.
+  ─────────────────────────────────────────────────────────────────────────────*/
+
+export interface StripeConnectAccountInput {
+  businessId: string;
+  businessName: string;
+  businessEmail: string;
+  businessCountry: string; // 'ES'
+  accountNumber?: string; // IBAN para transferencias
+}
+
+export interface StripeConnectAccountResult {
+  accountId: string;
+  accountLinkUrl: string;
+  status: string;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+}
+
+export interface StripePaymentIntentInput {
+  orderId: string;
+  amountCents: number;
+  currency: string;
+  customerEmail: string;
+  businessId: string;
+  applicationFeeCents: number;
+  transferData?: {
+    destination: string; // Stripe connected account ID (business)
+    amountCents: number; // amount to transfer to business (business payout)
+  };
+}
+
+export interface StripePaymentIntentResult {
+  clientSecret: string;
+  paymentIntentId: string;
+  status: string;
+}
+
+export interface StripePayoutInput {
+  accountId: string; // Stripe connected account ID
+  amountCents: number;
+  currency: string;
+  description?: string;
+}
+
+export interface StripePayoutResult {
+  payoutId: string;
+  status: string;
+  amountCents: number;
+}
+
+/**
+ * Crea una cuenta conectada de Stripe Express para un negocio y devuelve
+ * el enlace de onboarding para que el negocio complete sus datos bancarios.
+ */
+export async function createStripeConnectAccount(
+  input: StripeConnectAccountInput
+): Promise<StripeConnectAccountResult> {
+  const response = await fetch('/api/stripe/create-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'No se pudo crear la cuenta de Stripe Connect.');
+  }
+
+  return data;
+}
+
+/**
+ * Crea un Payment Intent en Stripe con la lógica de marketplace:
+ * - El cliente paga el importe total.
+ * - PideTiétar retiene su comisión (application_fee).
+ * - El resto se transfiere automáticamente a la cuenta conectada del negocio.
+ */
+export async function createStripePaymentIntent(
+  input: StripePaymentIntentInput
+): Promise<StripePaymentIntentResult> {
+  const response = await fetch('/api/stripe/payment-intent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'No se pudo crear el intento de pago.');
+  }
+
+  return data;
+}
+
+/**
+ * Solicita una transferencia (payout) desde la cuenta conectada de Stripe
+ * hacia el IBAN del negocio o del repartidor.
+ */
+export async function createStripePayout(
+  input: StripePayoutInput
+): Promise<StripePayoutResult> {
+  const response = await fetch('/api/stripe/payout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'No se pudo crear la transferencia.');
+  }
+
+  return data;
+}
+
+/**
+ * Consulta el estado de una cuenta conectada de Stripe (si ya puede cobrar
+ * y si ya puede recibir transferencias).
+ */
+export async function getStripeAccountStatus(
+  accountId: string
+): Promise<{
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+}> {
+  const response = await fetch(`/api/stripe/account-status?accountId=${encodeURIComponent(accountId)}`);
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data?.error || 'No se pudo consultar el estado de la cuenta.');
+  }
+  return data;
 }

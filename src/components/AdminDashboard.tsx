@@ -19,7 +19,7 @@ import {
   COURIER_TERMS_ANCHOR,
   openTermsInNewTab,
   TERMS_ACCEPTED_MESSAGE,
-  TERMS_ANCHOR,
+  TERMS_BUSINESS_ANCHOR,
   TERMS_VERSION,
 } from '../data/legalTerms';
 import {
@@ -283,7 +283,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       if (event.data.anchor === COURIER_TERMS_ANCHOR) {
         setCourierForm((previous) => ({ ...previous, termsAccepted: event.data.accepted === true }));
       }
-      if (event.data.anchor === TERMS_ANCHOR) {
+      if (event.data.anchor === TERMS_BUSINESS_ANCHOR) {
         setNewBusinessForm((previous) => ({ ...previous, ownerTermsAccepted: event.data.accepted === true }));
       }
     };
@@ -1074,13 +1074,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 type="checkbox"
                 checked={courierForm.termsAccepted}
                 onChange={(e) => setCourierForm({ ...courierForm, termsAccepted: e.target.checked })}
+                required
                 className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
               />
               <span className="leading-5">
                 El repartidor acepta los{' '}
                 <a
                   href={COURIER_TERMS_ANCHOR}
-                    onClick={(event) => openTermsInNewTab(event, COURIER_TERMS_ANCHOR)}
+                  onClick={(event) => openTermsInNewTab(event, COURIER_TERMS_ANCHOR)}
                   className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]"
                 >
                   términos y condiciones para repartidores
@@ -1434,12 +1435,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                     type="checkbox"
                     checked={newBusinessForm.ownerTermsAccepted}
                     onChange={(e) => setNewBusinessForm({ ...newBusinessForm, ownerTermsAccepted: e.target.checked })}
+                    required
                     className="mt-0.5 h-4 w-4 shrink-0 accent-[#FF4E00]"
                   />
                   <span className="leading-5">
                     El responsable del negocio acepta los{' '}
-                    <a href={TERMS_ANCHOR} onClick={(event) => openTermsInNewTab(event, TERMS_ANCHOR)} className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]">
-                      términos y condiciones de uso
+                    <a
+                      href={TERMS_BUSINESS_ANCHOR}
+                      onClick={(event) => openTermsInNewTab(event, TERMS_BUSINESS_ANCHOR)}
+                      className="font-bold text-[#E64600] underline underline-offset-2 hover:text-[#FF4E00]"
+                    >
+                      términos y condiciones para negocios
                     </a>{' '}
                     y recibirá un correo para verificar y activar su cuenta.
                     <FieldError message={businessFormErrors.ownerTermsAccepted} />
