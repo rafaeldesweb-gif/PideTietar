@@ -497,9 +497,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     ordersZoneFilter === 'all'
       ? businesses
       : businesses.filter((b) => b.localityId === ordersZoneFilter);
-  const localityBusinesses = isSuperAdmin
-    ? zoneBusinessesForFilter
-    : businesses.filter((b) => b.localityId === business.localityId);
   const deliveryOrders = businessOrders.filter((order) => order.deliveryType === 'DELIVERY');
   const pickupOrders = businessOrders.filter((order) => order.deliveryType === 'PICKUP');
   const deliverySalesCents = deliveryOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
@@ -1893,59 +1890,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl border border-[#eadcc7] overflow-hidden shadow-sm">
-                <div className="p-4 border-b border-[#f0e2d5] flex items-center justify-between text-xs text-stone-600">
-                  <span className="font-bold text-stone-800 text-sm">Negocios de la misma zona</span>
-                  <span>{selectedLocality?.name || 'Sin localidad'}</span>
-                </div>
-
-                <div className="divide-y divide-[#f3e8dd]">
-                  {localityBusinesses.length === 0 ? (
-                    <div className="p-6 text-center text-sm text-stone-600">No hay negocios registrados en esta localidad.</div>
-                  ) : (
-                    localityBusinesses.map((biz) => (
-                      <button
-                        type="button"
-                        key={biz.id}
-                        onClick={() => {
-                          setSelectedBusinessId(biz.id);
-                          setEditingProductId(null);
-                          setCatalogForm({
-                            name: '',
-                            description: '',
-                            tag: '',
-                            ingredients: '',
-                            removableIngredients: '',
-                            additionalIngredients: '',
-                            priceCents: '0',
-                            imageUrl: '/PideTietar_logo_animado.gif',
-                            categoryId: categories.some((category) => category.id === biz.category)
-                              ? biz.category
-                              : categories[0]?.id || '',
-                            isAvailable: true,
-                            allergens: '',
-                          });
-                        }}
-                        className={`w-full p-4 flex items-center justify-between gap-4 text-left transition cursor-pointer ${
-                          biz.id === business.id ? 'bg-orange-50/60' : 'hover:bg-[#fff7f2]'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="font-bold text-stone-900 text-sm truncate">{biz.name}</div>
-                          <div className="text-xs text-stone-500 truncate">{biz.address}</div>
-                        </div>
-                        {isSuperAdmin && (
-                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-                            biz.isShiftOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                          }`}>
-                            {biz.isShiftOpen ? 'Abierto' : 'Cerrado'}
-                          </span>
-                        )}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
             </div>
           )}
 
