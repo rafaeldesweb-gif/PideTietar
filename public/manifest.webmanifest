@@ -9,33 +9,33 @@
   "theme_color": "#ff4e00",
   "icons": [
     {
-      "src": "/icons/icon-192.svg",
+      "src": "/Logo.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.svg",
+      "src": "/Logo.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-192-maskable.svg",
+      "src": "/Logo.png",
       "sizes": "192x192",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/icons/icon-512-maskable.svg",
+      "src": "/Logo.png",
       "sizes": "512x512",
-      "type": "image/svg+xml",
+      "type": "image/png",
       "purpose": "maskable"
     },
     {
-      "src": "/PideTietar_logo_animado.gif",
+      "src": "/Logo.png",
       "sizes": "any",
-      "type": "image/gif"
+      "type": "image/png"
     }
   ]
 }
