@@ -264,13 +264,13 @@ const ProductCustomizerContent: React.FC<ProductCustomizerContentProps> = ({
           {/* Customer Note */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">
-              Instrucciones para la cocina (máx. 250 car.)
+              NOTA
             </label>
             <textarea
               value={customerNote}
               maxLength={250}
               onChange={(e) => setCustomerNote(e.target.value)}
-              placeholder="Ejemplo: Por favor bien tostado o la salsa en envase aparte..."
+              placeholder="Máximo 250 Caracteres"
               className="w-full text-xs p-3 rounded-xl border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800 text-stone-900 dark:text-stone-100 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
               rows={2}
             />

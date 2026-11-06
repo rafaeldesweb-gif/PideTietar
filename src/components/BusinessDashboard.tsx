@@ -2438,12 +2438,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
               })}
 
               <div className="space-y-1.5">
-                <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">Instrucciones para la cocina (máx. 250 car.)</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-stone-400">NOTA</label>
                 <textarea
                   value={manualCustomizerNote}
                   maxLength={250}
                   onChange={(event) => setManualCustomizerNote(event.target.value)}
-                  placeholder="Ejemplo: Bien tostado, salsa aparte..."
+                  placeholder="Máximo 250 Caracteres"
                   className="w-full text-xs p-3 rounded-xl border border-stone-200 bg-stone-50 text-stone-900 focus:outline-none focus:ring-2 focus:ring-[#FF4E00]"
                   rows={2}
                 />
