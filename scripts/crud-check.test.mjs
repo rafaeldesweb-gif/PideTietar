@@ -158,16 +158,25 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal((await login('recuperable@example.com', fresh)).user.id, targetId);
   });
   await t.test('repartidores: alta, consulta, edición y confirmación por su dueño', async () => {
-    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z', avatarUrl: 'https://example.com/repartidor.png', termsAccepted: true, termsVersion: 'v1' }, 201, owner.token);
+    const created = await send('/users', 'POST', { username: 'repartidor_prueba', fullName: 'Repartidor', email: 'repartidor@example.com', password, role: 'BUSINESS_COURIER', businessId: business.id, phone: '600111222', address: 'Calle de pruebas 3', dni: '12345678Z', avatarUrl: 'https://example.com/repartidor.png', courierRateCents: 250, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 15, termsAccepted: true, termsVersion: 'v1' }, 201);
     courier = created.data.user;
     await api('/auth/verify-email', { method: 'POST', body: { email: 'repartidor@example.com', code: created.data.verificationCode }, status: 200 });
     assert.ok(courier.id);
     assert.equal(courier.courierProfile.confirmation, 'PENDING');
+    assert.equal(courier.courierRateCents, 250);
+    assert.equal(courier.courierTicketThresholdCents, 4000);
+    assert.equal(courier.courierDiscountEnabled, true);
+    assert.equal(courier.courierDiscountPercentage, 15);
     const courierDiscount = await send(`/users/${courier.id}`, 'PUT', { courierDiscountEnabled: true, courierRateCents: 200, courierTicketThresholdCents: 4000, courierDiscountPercentage: 25 });
     assert.equal(courierDiscount.data.user.courierDiscountEnabled, true);
     assert.equal(courierDiscount.data.user.courierRateCents, 200);
     assert.equal(courierDiscount.data.user.courierTicketThresholdCents, 4000);
     assert.equal(courierDiscount.data.user.courierDiscountPercentage, 25);
+    const persistedCourier = (await api('/users', { token })).data.find((item) => item.id === courier.id);
+    assert.equal(persistedCourier.courierRateCents, 200);
+    assert.equal(persistedCourier.courierTicketThresholdCents, 4000);
+    assert.equal(persistedCourier.courierDiscountEnabled, true);
+    assert.equal(persistedCourier.courierDiscountPercentage, 25);
     await send(`/users/${courier.id}`, 'PUT', { courierConfirmation: 'BUSINESS_EMAIL' }, 200, owner.token);
     await send(`/users/${courier.id}`, 'PUT', { phone: '611222333', accountNumber: 'ES9121000418450200051332' });
     const courierSession = await login('repartidor_prueba', password);

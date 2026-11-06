@@ -949,6 +949,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               dni: raw.dni || '',
               accountNumber: raw.accountNumber || '',
               courierRateCents: Number(raw.courierRateCents || 0),
+              courierTicketThresholdCents: Number(raw.courierTicketThresholdCents || 4000),
               courierDiscountEnabled: Boolean(raw.courierDiscountEnabled),
               courierDiscountPercentage: Number(raw.courierDiscountPercentage || 0),
               avatarUrl: raw.avatarUrl || '',
