@@ -24,7 +24,7 @@ export const MediaView: React.FC<{
   const onLoad = () => setLoadedSource(effectiveSrc);
   const onError = () => setFailedSources((previous) => [...previous, effectiveSrc]);
   return (
-    <div className={`relative overflow-hidden bg-[#fffaf4] ${className || 'h-full w-full'}`} style={{ width, height, ...style }}>
+    <div className={`relative overflow-hidden bg-[#000000] ${className || 'h-full w-full'}`} style={{ width, height, ...style }}>
       {isVideoUrl(effectiveSrc) ? (
         <video key={effectiveSrc} src={effectiveSrc} autoPlay muted loop playsInline preload="metadata" onLoadedData={onLoad} onError={onError} className={mediaClass} style={{ borderRadius: 'inherit' }} />
       ) : (
