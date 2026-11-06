@@ -13,6 +13,7 @@ import { AuthModal } from './components/AuthModal';
 import { AvatarEditorModal } from './components/AvatarEditorModal';
 import { ResetPasswordView } from './components/ResetPasswordView';
 import { TermsAndConditionsView } from './components/TermsAndConditionsView';
+import { ContactView } from './components/ContactView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
@@ -33,8 +34,10 @@ const isTermsHash = (hash: string): boolean =>
   hash === '#politica-privacidad' ||
   hash === '#politica-cookies';
 
+const isContactHash = (hash: string): boolean => hash === '#contacto';
+
 const readInitialView = (): string =>
-  isTermsHash(window.location.hash) ? 'terms' : 'home';
+  isTermsHash(window.location.hash) ? 'terms' : isContactHash(window.location.hash) ? 'contact' : 'home';
 
 export default function App() {
   const { 
@@ -72,6 +75,7 @@ export default function App() {
     const handleHashChange = () => {
       setResetToken(readResetTokenFromHash());
       if (isTermsHash(window.location.hash)) setCurrentView('terms');
+      if (isContactHash(window.location.hash)) setCurrentView('contact');
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -168,6 +172,14 @@ export default function App() {
                     return;
                   }
                   window.history.back();
+                  setCurrentView('home');
+                }}
+              />
+            )}
+            {currentView === 'contact' && (
+              <ContactView
+                onBack={() => {
+                  window.history.replaceState(null, '', window.location.pathname + window.location.search);
                   setCurrentView('home');
                 }}
               />
@@ -291,6 +303,13 @@ export default function App() {
             <span>Integración con Google Calendar</span>
             <span>Pagos en modo de prueba</span>
             <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-500">
+              <a
+                href="#contacto"
+                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+              >
+                Contáctame
+              </a>
+              <span className="text-stone-400">|</span>
               <a
                 href="#terminos-clientes"
                 className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
