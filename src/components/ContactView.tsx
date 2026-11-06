@@ -62,11 +62,11 @@ export const ContactView: React.FC<ContactViewProps> = ({ onBack }) => (
           Para consultas sobre la aplicación, pedidos o colaboración con PideTiétar, escríbenos a:
         </p>
         <a
-          href="mailto:contacto@pidetietar.es"
+          href="mailto:correopidetietar.com"
           className="mt-6 inline-flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-bold text-[#d63d00] transition hover:border-[#ff4e00] hover:bg-orange-100 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-[#ffb08f] dark:hover:bg-orange-950/50"
         >
           <Mail className="h-5 w-5 shrink-0" />
-          contacto@pidetietar.es
+          correopidetietar.com
         </a>
       </div>
     </div>
