@@ -1,13 +1,25 @@
 import React from 'react';
 import { ArrowLeft, Info, Mail, MapPin } from 'lucide-react';
+import { useApp } from '../context/AppContext';
 import { ProjectLogo } from './ProjectLogo';
+
+const CONTACT_EMAIL = 'correo@pidetietar.com';
+const CONTACT_SUBJECT = 'Consulta desde PideTiétar';
 
 interface ContactViewProps {
   onBack: () => void;
 }
 
-export const ContactView: React.FC<ContactViewProps> = ({ onBack }) => (
-  <section className="mx-auto w-full max-w-4xl space-y-6 pb-8">
+export const ContactView: React.FC<ContactViewProps> = ({ onBack }) => {
+  const { currentUser } = useApp();
+  const userEmail = currentUser?.email?.trim() || '';
+  const contactBody = userEmail
+    ? `Correo del usuario: ${userEmail}\n\n`
+    : '';
+  const contactMailto = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(CONTACT_SUBJECT)}&body=${encodeURIComponent(contactBody)}`;
+
+  return (
+    <section className="mx-auto w-full max-w-4xl space-y-6 pb-8">
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-3xl bg-[#121214] p-5 text-white shadow-lg sm:p-7">
       <div className="flex items-center gap-4">
         <ProjectLogo variant="badge" className="h-12 w-auto" />
@@ -62,13 +74,14 @@ export const ContactView: React.FC<ContactViewProps> = ({ onBack }) => (
           Para consultas sobre la aplicación, pedidos o colaboración con PideTiétar, escríbenos a:
         </p>
         <a
-          href="mailto:correopidetietar.com"
+          href={contactMailto}
           className="mt-6 inline-flex items-center gap-3 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-bold text-[#d63d00] transition hover:border-[#ff4e00] hover:bg-orange-100 dark:border-orange-900/60 dark:bg-orange-950/30 dark:text-[#ffb08f] dark:hover:bg-orange-950/50"
         >
           <Mail className="h-5 w-5 shrink-0" />
-          correopidetietar.com
+          {CONTACT_EMAIL}
         </a>
       </div>
     </div>
-  </section>
-);
+    </section>
+  );
+};
