@@ -39,6 +39,12 @@ const IBAN_REGEX = /^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$/;
 const normalizeIban = (value: string) =>
   value.replace(/\s+/g, '').toUpperCase();
 
+const eurosToCents = (value: string): number | null => {
+  const parsed = Number(String(value || '0').replace(',', '.'));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10000) return null;
+  return Math.round(parsed * 100);
+};
+
 const maskIban = (value?: string) => {
   const clean = normalizeIban(value || '');
   if (!clean) return 'Sin IBAN';
@@ -115,6 +121,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     legalName: '',
     cif: '',
     accountNumber: '',
+    discountEnabled: false,
+    discountPercentage: '0',
     category: '',
     localityId: '',
     phone: '',
@@ -216,6 +224,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setNewBusinessBannerUrlText('');
     setNewBusinessForm({
       name: '', legalName: '', cif: '', accountNumber: '', category: '', localityId: '', phone: '', email: '', address: '', managerName: '', managerDni: '', bannerUrl: '',
+      discountEnabled: false,
+      discountPercentage: '0',
       adminUsername: '',
       adminEmail: '',
       adminPassword: '',
@@ -272,6 +282,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
     businessIds: [] as string[],
     accountNumber: '',
+    courierDiscountEnabled: false,
+    courierRateEuros: '0',
+    courierTicketThresholdEuros: '40',
+    courierDiscountPercentage: '0',
     termsAccepted: false,
   });
   const [courierFormErrors, setCourierFormErrors] = useState<FieldErrors>({});
@@ -300,6 +314,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     address: '',
     dni: '',
     accountNumber: '',
+    courierDiscountEnabled: false,
+    courierRateEuros: '0',
+    courierTicketThresholdEuros: '40',
+    courierDiscountPercentage: '0',
   });
   const [courierEditErrors, setCourierEditErrors] = useState<FieldErrors>({});
   const [courierEditSaving, setCourierEditSaving] = useState(false);
@@ -373,6 +391,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const handleCreateCourier = async (e: React.FormEvent) => {
     e.preventDefault();
     const errors: FieldErrors = {};
+    const courierRateCents = eurosToCents(courierForm.courierRateEuros);
+    const courierTicketThresholdCents = eurosToCents(courierForm.courierTicketThresholdEuros);
+    const courierDiscountPercentage = Number(courierForm.courierDiscountPercentage.replace(',', '.'));
 
     if (!courierForm.fullName.trim()) {
       errors.fullName = 'El nombre es obligatorio.';
@@ -400,6 +421,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierForm.accountNumber,
       ),
     );
+    if (courierRateCents === null) {
+      errors.courierRateEuros = 'El monto debe estar entre 0 y 10.000,00 €.';
+    }
+    if (courierTicketThresholdCents === null) {
+      errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
+    }
+    if (!Number.isFinite(courierDiscountPercentage) || courierDiscountPercentage < 0 || courierDiscountPercentage > 100) {
+      errors.courierDiscountPercentage = 'El porcentaje debe estar entre 0 y 100.';
+    }
     if (!courierForm.termsAccepted) {
       errors.termsAccepted = 'El repartidor debe aceptar los términos específicos para repartidores.';
     }
@@ -422,6 +452,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         businessId: courierForm.businessIds[0],
         courierBusinessIds: courierForm.businessIds,
         accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
+        courierDiscountEnabled: courierForm.courierDiscountEnabled,
+        courierRateCents: courierRateCents || 0,
+        courierTicketThresholdCents: courierTicketThresholdCents || 0,
+        courierDiscountPercentage,
         courierConfirmation: 'PENDING',
         termsAccepted: true,
         termsVersion: TERMS_VERSION,
@@ -444,6 +478,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         role: 'PLATFORM_COURIER',
         businessIds: [],
         accountNumber: '',
+        courierDiscountEnabled: false,
+        courierRateEuros: '0',
+        courierTicketThresholdEuros: '40',
+        courierDiscountPercentage: '0',
         termsAccepted: false,
       });
       setCourierFormErrors({});
@@ -467,6 +505,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       address: courier.address || '',
       dni: courier.dni || '',
       accountNumber: courier.accountNumber || '',
+      courierDiscountEnabled: courier.courierDiscountEnabled === true,
+      courierRateEuros: ((courier.courierRateCents || 0) / 100).toFixed(2),
+      courierTicketThresholdEuros: ((courier.courierTicketThresholdCents ?? 4000) / 100).toFixed(2),
+      courierDiscountPercentage: String(courier.courierDiscountPercentage ?? 0),
     });
     setCourierEditErrors({});
     // La lista de checkboxes debe venir del servidor, igual que en el alta.
@@ -500,6 +542,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const handleSaveCourierDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCourier) return;
+    const courierRateCents = eurosToCents(courierEditForm.courierRateEuros);
+    const courierTicketThresholdCents = eurosToCents(courierEditForm.courierTicketThresholdEuros);
+    const courierDiscountPercentage = Number(courierEditForm.courierDiscountPercentage.replace(',', '.'));
 
     const errors = {
       ...validateCourierContact(courierEditForm),
@@ -509,6 +554,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierEditForm.accountNumber,
       ),
     };
+    if (courierRateCents === null) {
+      errors.courierRateEuros = 'El monto debe estar entre 0 y 10.000,00 €.';
+    }
+    if (courierTicketThresholdCents === null) {
+      errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
+    }
+    if (!Number.isFinite(courierDiscountPercentage) || courierDiscountPercentage < 0 || courierDiscountPercentage > 100) {
+      errors.courierDiscountPercentage = 'El porcentaje debe estar entre 0 y 100.';
+    }
     setCourierEditErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -521,6 +575,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         address: courierEditForm.address.trim(),
         dni: normalizeDni(courierEditForm.dni),
         accountNumber: normalizeIban(courierEditForm.accountNumber),
+        courierDiscountEnabled: courierEditForm.courierDiscountEnabled,
+        courierRateCents: courierRateCents || 0,
+        courierTicketThresholdCents: courierTicketThresholdCents || 0,
+        courierDiscountPercentage,
       },
       (serverErrors) => setCourierEditErrors(toCourierFieldErrors(serverErrors)),
     );
@@ -580,6 +638,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     // Comprobaciones del cliente, con el mismo criterio que el servidor y con
     // el campo marcado, para no depender sólo del rechazo del backend.
     const localErrors: FieldErrors = {};
+    const discountPercentage = Number(newBusinessForm.discountPercentage.replace(',', '.'));
+    if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
+      localErrors.discountPercentage = 'El porcentaje debe estar entre 0 y 100.';
+    }
     if (!newBusinessForm.name.trim()) localErrors.name = 'El nombre del negocio es obligatorio.';
     if (!newBusinessForm.localityId) localErrors.localityId = 'Selecciona la zona donde está el negocio.';
     if (!newBusinessForm.category) localErrors.category = 'Selecciona la categoría del negocio.';
@@ -609,6 +671,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         estimatedTimeMin: 20,
         estimatedTimeMax: 40,
         deliveryFeeCents: 250,
+        discountEnabled: newBusinessForm.discountEnabled,
+        discountPercentage,
         minOrderCents: 1000,
         bannerUrl: newBusinessForm.bannerUrl || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
         logoUrl: 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
@@ -670,6 +734,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       managerName: business.managerName || '',
       managerDni: business.managerDni || '',
       bannerUrl: business.bannerUrl || '',
+      discountEnabled: business.discountEnabled === true,
+      discountPercentage: String(business.discountPercentage ?? 0),
       adminUsername: '',
       // El acceso del propietario es opcional al editar. Dejar el email
       // prellenado hacía que el formulario creyera que se quería cambiar el
@@ -716,6 +782,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
 
     // El horario: los días abiertos necesitan hora de apertura y cierre.
     const scheduleErrors: FieldErrors = {};
+    const discountPercentage = Number(newBusinessForm.discountPercentage.replace(',', '.'));
+    if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
+      scheduleErrors.discountPercentage = 'El porcentaje debe estar entre 0 y 100.';
+    }
     validateSchedule(scheduleErrors);
     if (Object.keys(scheduleErrors).length) {
       setBusinessFormErrors(scheduleErrors);
@@ -738,6 +808,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         managerName: newBusinessForm.managerName,
         managerDni: newBusinessForm.managerDni,
         bannerUrl: newBusinessForm.bannerUrl,
+        discountEnabled: newBusinessForm.discountEnabled,
+        discountPercentage,
         schedule: newBusinessForm.schedule,
       },
       hasOwnerCredentials
@@ -1068,6 +1140,62 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             </p>
             <FieldError message={courierFormErrors.accountNumber} />
           </div>
+          <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
+            <label className="flex items-center gap-2 text-xs font-bold text-stone-700 dark:text-stone-200">
+              <input
+                type="checkbox"
+                checked={courierForm.courierDiscountEnabled}
+                onChange={(e) => setCourierForm({ ...courierForm, courierDiscountEnabled: e.target.checked })}
+                className="h-4 w-4 accent-[#FF4E00]"
+              />
+              Activar descuento para este repartidor
+            </label>
+            <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+              Monto por reparto (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="10000"
+              step="0.01"
+              value={courierForm.courierRateEuros}
+              onChange={(e) => setCourierForm({ ...courierForm, courierRateEuros: e.target.value })}
+              className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierFormErrors.courierRateEuros))}
+              placeholder="0,00"
+            />
+            <FieldError message={courierFormErrors.courierRateEuros} />
+            <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+              Ticket base hasta (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="10000"
+              step="0.01"
+              value={courierForm.courierTicketThresholdEuros}
+              onChange={(e) => setCourierForm({ ...courierForm, courierTicketThresholdEuros: e.target.value })}
+              className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierFormErrors.courierTicketThresholdEuros))}
+              placeholder="40,00"
+            />
+            <FieldError message={courierFormErrors.courierTicketThresholdEuros} />
+            <p className="mt-1 text-[10px] text-stone-500">Desde el siguiente euro se suma 1,00 €; después, cada 10 € más añade otro euro.</p>
+            <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+              Porcentaje a descontar de lo que cobra (%)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.01"
+              disabled={!courierForm.courierDiscountEnabled}
+              value={courierForm.courierDiscountPercentage}
+              onChange={(e) => setCourierForm({ ...courierForm, courierDiscountPercentage: e.target.value })}
+              className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:opacity-60', Boolean(courierFormErrors.courierDiscountPercentage))}
+              placeholder="0"
+            />
+            <FieldError message={courierFormErrors.courierDiscountPercentage} />
+            <p className="mt-1 text-[10px] text-stone-500">El porcentaje sólo se cobra si activas el descuento.</p>
+          </div>
           <div className="col-span-full pt-1">
             <label className="mb-3 flex items-start gap-3 rounded-xl border border-stone-200 bg-white p-3 text-xs text-stone-600 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-300">
               <input
@@ -1171,6 +1299,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       {courier.accountNumber
                         ? `IBAN ${maskIban(courier.accountNumber)}`
                         : 'Sin IBAN configurado'}
+                    </p>
+                    <p className="mt-0.5 text-xs text-stone-400">
+                      Reparto: {((courier.courierRateCents || 0) / 100).toFixed(2)}€ · Descuento: {courier.courierDiscountEnabled
+                        ? `${courier.courierDiscountPercentage || 0}%`
+                        : 'Desactivado'} · Extra: +1€ / 10€ sobre {((courier.courierTicketThresholdCents ?? 4000) / 100).toFixed(2)}€
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -1338,6 +1471,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <p className="mt-1 text-[11px] text-stone-400">Opcional. Formato IBAN: ES + 20 dígitos (sin espacios ni letras).</p>
             <FieldError message={businessFormErrors.accountNumber} />
           </div>
+          <div className="col-span-1 sm:col-span-2 rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
+            <label className="flex items-center gap-2 text-xs font-bold text-stone-700 dark:text-stone-200">
+              <input
+                type="checkbox"
+                checked={newBusinessForm.discountEnabled}
+                onChange={(e) => setNewBusinessForm({ ...newBusinessForm, discountEnabled: e.target.checked })}
+                className="h-4 w-4 accent-[#FF4E00]"
+              />
+              Activar descuento para este negocio
+            </label>
+            <div className="mt-3 max-w-xs">
+              <label className="mb-1 block text-xs font-semibold text-stone-500">
+                Porcentaje a descontar de cada ticket
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={newBusinessForm.discountPercentage}
+                  onChange={(e) => setNewBusinessForm({ ...newBusinessForm, discountPercentage: e.target.value })}
+                  className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 pr-10 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(businessFormErrors.discountPercentage))}
+                  placeholder="0"
+                />
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-stone-400">%</span>
+              </div>
+              <FieldError message={businessFormErrors.discountPercentage} />
+              <p className="mt-1 text-[10px] text-stone-500">Se descuenta de la liquidación del negocio y se suma a los ingresos de plataforma.</p>
+            </div>
+          </div>
           <div className="col-span-1 sm:col-span-2">
             <label className="block text-xs font-semibold text-stone-500 mb-1">Foto para Banner</label>
             <div className="flex flex-col gap-2">
@@ -1486,6 +1650,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 <th className="pb-3">CIF</th>
                 <th className="pb-3">Estado Turno</th>
                 <th className="pb-3">Catálogo Base</th>
+                <th className="pb-3">Descuento</th>
                 <th className="pb-3 text-right">Acciones</th>
               </tr>
             </thead>
@@ -1519,6 +1684,15 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                      >
                        Enlace Admin
                      </button>
+                  </td>
+                  <td className="py-3">
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                      biz.discountEnabled
+                        ? 'bg-orange-100 text-orange-800'
+                        : 'bg-stone-100 text-stone-500'
+                    }`}>
+                      {biz.discountEnabled ? `${biz.discountPercentage}% por ticket` : 'Desactivado'}
+                    </span>
                   </td>
                   <td className="py-3 text-right">
                     <div className="inline-flex items-center gap-3">
@@ -1559,7 +1733,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               ))}
               {businesses.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-xs text-stone-400">
+                  <td colSpan={7} className="py-6 text-center text-xs text-stone-400">
                     {businessesLoading
                       ? 'Cargando comercios...'
                       : 'No hay comercios registrados. Crea el primero con el botón de arriba.'}
@@ -1763,6 +1937,82 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   Déjalo vacío para quitar la cuenta. Sólo el superadmin puede modificar este dato.
                 </p>
                 <FieldError message={courierEditErrors.accountNumber} />
+              </div>
+              <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 dark:border-orange-900/50 dark:bg-orange-950/20">
+                <label className="flex items-center gap-2 text-xs font-bold text-stone-700 dark:text-stone-200">
+                  <input
+                    type="checkbox"
+                    checked={courierEditForm.courierDiscountEnabled}
+                    onChange={(e) =>
+                      setCourierEditForm((previous) => ({
+                        ...previous,
+                        courierDiscountEnabled: e.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 accent-[#FF4E00]"
+                  />
+                  Activar descuento para este repartidor
+                </label>
+                <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+                  Monto por reparto (€)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.01"
+                  value={courierEditForm.courierRateEuros}
+                  onChange={(e) =>
+                    setCourierEditForm((previous) => ({
+                      ...previous,
+                      courierRateEuros: e.target.value,
+                    }))
+                  }
+                  className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierEditErrors.courierRateEuros))}
+                  placeholder="0,00"
+                />
+                <FieldError message={courierEditErrors.courierRateEuros} />
+                <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+                  Ticket base hasta (€)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="10000"
+                  step="0.01"
+                  value={courierEditForm.courierTicketThresholdEuros}
+                  onChange={(e) =>
+                    setCourierEditForm((previous) => ({
+                      ...previous,
+                      courierTicketThresholdEuros: e.target.value,
+                    }))
+                  }
+                  className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierEditErrors.courierTicketThresholdEuros))}
+                  placeholder="40,00"
+                />
+                <FieldError message={courierEditErrors.courierTicketThresholdEuros} />
+                <p className="mt-1 text-[10px] text-stone-500">Desde el siguiente euro se suma 1,00 €; después, cada 10 € más añade otro euro.</p>
+                <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
+                  Porcentaje a descontar de lo que cobra (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  disabled={!courierEditForm.courierDiscountEnabled}
+                  value={courierEditForm.courierDiscountPercentage}
+                  onChange={(e) =>
+                    setCourierEditForm((previous) => ({
+                      ...previous,
+                      courierDiscountPercentage: e.target.value,
+                    }))
+                  }
+                  className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:opacity-60', Boolean(courierEditErrors.courierDiscountPercentage))}
+                  placeholder="0"
+                />
+                <FieldError message={courierEditErrors.courierDiscountPercentage} />
+                <p className="mt-1 text-[10px] text-stone-500">El porcentaje sólo se cobra si activas el descuento.</p>
               </div>
 
               <div className="flex flex-col-reverse gap-2 pt-2 sm:flex-row sm:justify-end">

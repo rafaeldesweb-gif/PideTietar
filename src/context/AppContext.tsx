@@ -69,6 +69,10 @@ interface AppContextType {
       businessId?: string;
       courierBusinessIds?: string[];
       accountNumber?: string;
+      courierRateCents?: number;
+      courierTicketThresholdCents?: number;
+      courierDiscountEnabled?: boolean;
+      courierDiscountPercentage?: number;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
       termsAccepted?: boolean;
       termsVersion?: string;
@@ -88,6 +92,10 @@ interface AppContextType {
       address?: string;
       dni?: string;
       accountNumber?: string;
+      courierRateCents?: number;
+      courierTicketThresholdCents?: number;
+      courierDiscountEnabled?: boolean;
+      courierDiscountPercentage?: number;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
@@ -259,6 +267,8 @@ const normalizeBusiness = (item: any): Business => {
     estimatedTimeMax: Number(item.estimatedTimeMax ?? item.estimated_time_max ?? 40),
     deliveryFeeCents: Number(item.deliveryFeeCents ?? item.delivery_fee_cents ?? 250),
     minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
+    discountEnabled: Boolean(item.discountEnabled ?? item.discount_enabled ?? false),
+    discountPercentage: Number(item.discountPercentage ?? item.discount_percentage ?? 0),
     bannerUrl: item.bannerUrl || item.banner_url || 'https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=1000&auto=format&fit=crop&q=80',
     logoUrl: item.logoUrl || item.logo_url || 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=200&auto=format&fit=crop&q=80',
     isShiftOpen: Boolean(item.isShiftOpen ?? item.is_shift_open ?? true),
@@ -432,6 +442,10 @@ const normalizeOrder = (item: any): Order => {
       Number(item?.deliveryFeeCents ?? item?.delivery_fee_cents ?? 0) || 0,
     platformFeeCents:
       Number(item?.platformFeeCents ?? item?.platform_fee_cents ?? 0) || 0,
+    businessDiscountCents:
+      Number(item?.businessDiscountCents ?? item?.business_discount_cents ?? 0) || 0,
+    courierDiscountCents:
+      Number(item?.courierDiscountCents ?? item?.courier_discount_cents ?? 0) || 0,
     businessPayoutCents:
       Number(item?.businessPayoutCents ?? item?.business_payout_cents ?? 0) || 0,
     courierPayoutCents:
@@ -934,6 +948,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               address: raw.address || '',
               dni: raw.dni || '',
               accountNumber: raw.accountNumber || '',
+              courierRateCents: Number(raw.courierRateCents || 0),
+              courierDiscountEnabled: Boolean(raw.courierDiscountEnabled),
+              courierDiscountPercentage: Number(raw.courierDiscountPercentage || 0),
               avatarUrl: raw.avatarUrl || '',
               isEmailVerified: Boolean(raw.isEmailVerified),
               businessId: raw.businessId || undefined,
@@ -1367,6 +1384,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       estimated_time_min: businessData.estimatedTimeMin ?? 20,
       estimated_time_max: businessData.estimatedTimeMax ?? 40,
       delivery_fee_cents: businessData.deliveryFeeCents ?? 0,
+      discount_enabled: businessData.discountEnabled ?? false,
+      discount_percentage: businessData.discountPercentage ?? 0,
       min_order_cents: businessData.minOrderCents ?? 0,
       delivery_radius_km: businessData.deliveryRadiusKm ?? 5,
       delivery_modes: businessData.deliveryModes || ['PICKUP'],
@@ -1456,6 +1475,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           estimated_time_min: updatedBusiness.estimatedTimeMin,
           estimated_time_max: updatedBusiness.estimatedTimeMax,
           delivery_fee_cents: updatedBusiness.deliveryFeeCents,
+          ...(currentUser?.role === 'SUPERADMIN'
+            ? {
+                discount_enabled: updatedBusiness.discountEnabled,
+                discount_percentage: updatedBusiness.discountPercentage,
+              }
+            : {}),
           min_order_cents: updatedBusiness.minOrderCents,
           delivery_radius_km: updatedBusiness.deliveryRadiusKm,
           delivery_modes: updatedBusiness.deliveryModes,
@@ -1559,6 +1584,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       businessId?: string;
       courierBusinessIds?: string[];
       accountNumber?: string;
+      courierRateCents?: number;
+      courierTicketThresholdCents?: number;
+      courierDiscountEnabled?: boolean;
+      courierDiscountPercentage?: number;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
       termsAccepted?: boolean;
       termsVersion?: string;
@@ -1581,6 +1610,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           businessId: data.businessId,
           courierBusinessIds: data.courierBusinessIds,
           accountNumber: data.accountNumber,
+          courierRateCents: data.courierRateCents,
+          courierTicketThresholdCents: data.courierTicketThresholdCents,
+          courierDiscountEnabled: data.courierDiscountEnabled,
+          courierDiscountPercentage: data.courierDiscountPercentage,
           courierConfirmation: data.courierConfirmation,
           termsAccepted: data.termsAccepted,
           termsVersion: data.termsVersion,
@@ -1634,6 +1667,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             role: row.role,
             businessId: row.businessId || undefined,
             accountNumber: row.accountNumber || '',
+            courierRateCents: Number(row.courierRateCents || 0),
+            courierTicketThresholdCents: Number(row.courierTicketThresholdCents || 4000),
+            courierDiscountEnabled: Boolean(row.courierDiscountEnabled),
+            courierDiscountPercentage: Number(row.courierDiscountPercentage || 0),
             isEmailVerified: Boolean(row.isEmailVerified),
             addresses: [],
             createdAt: row.createdAt || new Date().toISOString(),
@@ -1681,6 +1718,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       address?: string;
       dni?: string;
       accountNumber?: string;
+      courierRateCents?: number;
+      courierTicketThresholdCents?: number;
+      courierDiscountEnabled?: boolean;
+      courierDiscountPercentage?: number;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ): Promise<boolean> => {
@@ -1693,6 +1734,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           address: data.address ?? '',
           dni: data.dni ?? '',
           accountNumber: data.accountNumber ?? '',
+          courierRateCents: data.courierRateCents ?? 0,
+          courierTicketThresholdCents: data.courierTicketThresholdCents ?? 4000,
+          courierDiscountEnabled: data.courierDiscountEnabled ?? false,
+          courierDiscountPercentage: data.courierDiscountPercentage ?? 0,
         }),
       });
       showNotification('Repartidor actualizado correctamente.', 'success');
@@ -1994,10 +2039,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: `El pedido mínimo para este local es de ${(business.minOrderCents / 100).toFixed(2)}€` };
     }
 
+    const businessDiscountCents = business.discountEnabled
+      ? Math.min(
+          subtotalCents,
+          Math.max(0, Math.round(subtotalCents * business.discountPercentage / 100)),
+        )
+      : 0;
     const platformProductFee = Math.round(subtotalCents * 0.05);
     const platformDeliveryFee = Math.round(effectiveDeliveryFee * 0.20);
-    const totalPlatformFee = platformProductFee + platformDeliveryFee;
-    const businessPayout = subtotalCents - platformProductFee;
+    const totalPlatformFee = platformProductFee + platformDeliveryFee + businessDiscountCents;
+    const businessPayout = Math.max(0, subtotalCents - platformProductFee - businessDiscountCents);
     const courierPayout = effectiveDeliveryFee - platformDeliveryFee;
     const totalCents = subtotalCents + effectiveDeliveryFee + data.tipCents;
 
@@ -2044,6 +2095,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       subtotalCents,
       deliveryFeeCents: effectiveDeliveryFee,
       platformFeeCents: totalPlatformFee,
+      businessDiscountCents,
+      courierDiscountCents: 0,
       businessPayoutCents: businessPayout,
       courierPayoutCents: courierPayout,
       tipCents: data.tipCents,
@@ -2274,6 +2327,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const orderNum = 'PT-' + Math.floor(1000 + Math.random() * 9000);
     const pin = Math.floor(1000 + Math.random() * 9000).toString();
 
+    const manualBusiness = businesses.find((business) => business.id === orderData.businessId);
+    const manualBusinessDiscountCents = manualBusiness?.discountEnabled
+      ? Math.min(
+          orderData.subtotalCents || 0,
+          Math.max(0, Math.round((orderData.subtotalCents || 0) * manualBusiness.discountPercentage / 100)),
+        )
+      : 0;
+
     const newOrder: Order = {
       id: 'ord-' + Date.now(),
       orderNumber: orderNum,
@@ -2294,8 +2355,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })),
       subtotalCents: orderData.subtotalCents || 0,
       deliveryFeeCents: orderData.deliveryFeeCents || 0,
-      platformFeeCents: 0,
-      businessPayoutCents: orderData.subtotalCents || 0,
+      platformFeeCents: manualBusinessDiscountCents,
+      businessDiscountCents: manualBusinessDiscountCents,
+      courierDiscountCents: 0,
+      businessPayoutCents: Math.max(0, (orderData.subtotalCents || 0) - manualBusinessDiscountCents),
       courierPayoutCents: 0,
       tipCents: 0,
       totalCents: orderData.totalCents || orderData.subtotalCents || 0,

@@ -18,6 +18,10 @@ export interface User {
   localityId?: string;
   dni?: string; // DNI o NIE del repartidor
   accountNumber?: string;
+  courierRateCents?: number;
+  courierTicketThresholdCents?: number;
+  courierDiscountEnabled?: boolean;
+  courierDiscountPercentage?: number;
   role: UserRole;
   businessId?: string; // If bound to a business
   isEmailVerified: boolean;
@@ -110,6 +114,8 @@ export interface Business {
   estimatedTimeMax: number;
   deliveryFeeCents: number;
   minOrderCents: number;
+  discountEnabled: boolean;
+  discountPercentage: number;
   bannerUrl: string;
   logoUrl: string;
   isShiftOpen: boolean; // Active operational shift
@@ -247,6 +253,8 @@ export interface Order {
   subtotalCents: number;
   deliveryFeeCents: number;
   platformFeeCents: number; // 5% subtotal + 20% delivery
+  businessDiscountCents?: number;
+  courierDiscountCents?: number;
   businessPayoutCents: number;
   courierPayoutCents: number;
   tipCents: number;

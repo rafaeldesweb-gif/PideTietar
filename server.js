@@ -161,6 +161,10 @@ const sqliteSchema = `
     business_id TEXT,
     locality_id TEXT,
     account_number TEXT,
+    courier_discount_enabled INTEGER NOT NULL DEFAULT 0,
+    courier_rate_cents INTEGER NOT NULL DEFAULT 0,
+    courier_ticket_threshold_cents INTEGER NOT NULL DEFAULT 4000,
+    courier_discount_percentage REAL NOT NULL DEFAULT 0,
     email_verified INTEGER DEFAULT 0,
     email_verified_at TEXT,
     password_change_required INTEGER DEFAULT 0,
@@ -224,6 +228,8 @@ const sqliteSchema = `
     estimated_time_min INTEGER DEFAULT 20,
     estimated_time_max INTEGER DEFAULT 60,
     delivery_fee_cents INTEGER DEFAULT 0,
+    discount_enabled INTEGER NOT NULL DEFAULT 0,
+    discount_percentage REAL NOT NULL DEFAULT 0,
     min_order_cents INTEGER DEFAULT 0,
     banner_url MEDIUMTEXT,
     logo_url MEDIUMTEXT,
@@ -288,6 +294,8 @@ const sqliteSchema = `
     subtotal_cents INTEGER DEFAULT 0,
     delivery_fee_cents INTEGER DEFAULT 0,
     platform_fee_cents INTEGER DEFAULT 0,
+    business_discount_cents INTEGER DEFAULT 0,
+    courier_discount_cents INTEGER DEFAULT 0,
     business_payout_cents INTEGER DEFAULT 0,
     courier_payout_cents INTEGER DEFAULT 0,
     tip_cents INTEGER DEFAULT 0,
@@ -352,6 +360,10 @@ const mysqlSchema = `
     business_id CHAR(36) NULL,
     locality_id CHAR(36) NULL,
     account_number VARCHAR(255) NULL,
+    courier_discount_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    courier_rate_cents INT NOT NULL DEFAULT 0,
+    courier_ticket_threshold_cents INT NOT NULL DEFAULT 4000,
+    courier_discount_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
     email_verified TINYINT(1) NOT NULL DEFAULT 0,
     email_verified_at DATETIME(3) NULL,
     password_change_required TINYINT(1) NOT NULL DEFAULT 0,
@@ -422,6 +434,8 @@ const mysqlSchema = `
     estimated_time_min INT NOT NULL DEFAULT 20,
     estimated_time_max INT NOT NULL DEFAULT 60,
     delivery_fee_cents INT NOT NULL DEFAULT 0,
+    discount_enabled TINYINT(1) NOT NULL DEFAULT 0,
+    discount_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
     min_order_cents INT NOT NULL DEFAULT 0,
     banner_url MEDIUMTEXT NULL,
     logo_url MEDIUMTEXT NULL,
@@ -502,6 +516,8 @@ const mysqlSchema = `
     subtotal_cents INT NOT NULL DEFAULT 0,
     delivery_fee_cents INT NOT NULL DEFAULT 0,
     platform_fee_cents INT NOT NULL DEFAULT 0,
+    business_discount_cents INT NOT NULL DEFAULT 0,
+    courier_discount_cents INT NOT NULL DEFAULT 0,
     business_payout_cents INT NOT NULL DEFAULT 0,
     courier_payout_cents INT NOT NULL DEFAULT 0,
     tip_cents INT NOT NULL DEFAULT 0,
@@ -664,6 +680,10 @@ async function ensureMySqlSchemaShape(pool) {
     ["business_id", "CHAR(36) NULL"],
     ["locality_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
+    ["courier_discount_enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["courier_rate_cents", "INT NOT NULL DEFAULT 0"],
+    ["courier_ticket_threshold_cents", "INT NOT NULL DEFAULT 4000"],
+    ["courier_discount_percentage", "DECIMAL(5,2) NOT NULL DEFAULT 0.00"],
     ["phone", "VARCHAR(30) NULL"],
     ["address", "TEXT NULL"],
     ["dni", "VARCHAR(20) NULL"],
@@ -689,6 +709,8 @@ async function ensureMySqlSchemaShape(pool) {
     ["manager_dni", "VARCHAR(40) NULL"],
     ["owner_user_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
+    ["discount_enabled", "TINYINT(1) NOT NULL DEFAULT 0"],
+    ["discount_percentage", "DECIMAL(5,2) NOT NULL DEFAULT 0.00"],
     ["rating", "DECIMAL(3,2) NOT NULL DEFAULT 0.00"],
     ["review_count", "INT NOT NULL DEFAULT 0"],
     ["latitude", "DECIMAL(9,6) NULL"],
@@ -707,6 +729,8 @@ async function ensureMySqlSchemaShape(pool) {
     ["subtotal_cents", "INT NOT NULL DEFAULT 0"],
     ["delivery_fee_cents", "INT NOT NULL DEFAULT 0"],
     ["platform_fee_cents", "INT NOT NULL DEFAULT 0"],
+    ["business_discount_cents", "INT NOT NULL DEFAULT 0"],
+    ["courier_discount_cents", "INT NOT NULL DEFAULT 0"],
     ["business_payout_cents", "INT NOT NULL DEFAULT 0"],
     ["courier_payout_cents", "INT NOT NULL DEFAULT 0"],
     ["tip_cents", "INT NOT NULL DEFAULT 0"],
@@ -817,6 +841,8 @@ function ensureSqliteSchemaShape() {
   };
 
   ensureColumn("businesses", "account_number", "TEXT");
+  ensureColumn("businesses", "discount_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("businesses", "discount_percentage", "REAL NOT NULL DEFAULT 0");
   ensureColumn("businesses", "rating", "REAL DEFAULT 0");
   ensureColumn("businesses", "review_count", "INTEGER DEFAULT 0");
   ensureColumn("businesses", "latitude", "REAL");
@@ -840,6 +866,10 @@ function ensureSqliteSchemaShape() {
   ensureColumn("app_users", "business_id", "TEXT");
   ensureColumn("app_users", "locality_id", "TEXT");
   ensureColumn("app_users", "is_online", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("app_users", "courier_discount_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("app_users", "courier_rate_cents", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn("app_users", "courier_ticket_threshold_cents", "INTEGER NOT NULL DEFAULT 4000");
+  ensureColumn("app_users", "courier_discount_percentage", "REAL NOT NULL DEFAULT 0");
   // Confirmación del alta de repartidores: PENDING (sin aprobar),
   // BUSINESS_EMAIL (aprobado por el negocio) o SUPERADMIN (aprobado por la
   // plataforma). Es lo que desbloquea el panel del repartidor.
@@ -873,6 +903,8 @@ function ensureSqliteSchemaShape() {
   ensureColumn("orders", "subtotal_cents", "INTEGER DEFAULT 0");
   ensureColumn("orders", "delivery_fee_cents", "INTEGER DEFAULT 0");
   ensureColumn("orders", "platform_fee_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "business_discount_cents", "INTEGER DEFAULT 0");
+  ensureColumn("orders", "courier_discount_cents", "INTEGER DEFAULT 0");
   ensureColumn("orders", "business_payout_cents", "INTEGER DEFAULT 0");
   ensureColumn("orders", "courier_payout_cents", "INTEGER DEFAULT 0");
   ensureColumn("orders", "tip_cents", "INTEGER DEFAULT 0");
@@ -1020,6 +1052,8 @@ function ensureOrdersBusinessForeignKey() {
     "subtotal_cents",
     "delivery_fee_cents",
     "platform_fee_cents",
+    "business_discount_cents",
+    "courier_discount_cents",
     "business_payout_cents",
     "courier_payout_cents",
     "tip_cents",
@@ -1072,6 +1106,8 @@ function ensureOrdersBusinessForeignKey() {
       subtotal_cents INTEGER DEFAULT 0,
       delivery_fee_cents INTEGER DEFAULT 0,
       platform_fee_cents INTEGER DEFAULT 0,
+      business_discount_cents INTEGER DEFAULT 0,
+      courier_discount_cents INTEGER DEFAULT 0,
       business_payout_cents INTEGER DEFAULT 0,
       courier_payout_cents INTEGER DEFAULT 0,
       tip_cents INTEGER DEFAULT 0,
@@ -1422,6 +1458,18 @@ function sanitizeUser(row) {
     status: row.status || "ACTIVE",
     businessId: businessId,
     accountNumber: row.account_number || row.accountNumber || "",
+    courierRateCents: Number(
+      row.courier_rate_cents ?? row.courierRateCents ?? 0,
+    ) || 0,
+    courierTicketThresholdCents: Number(
+      row.courier_ticket_threshold_cents ?? row.courierTicketThresholdCents ?? 4000,
+    ) || 4000,
+    courierDiscountEnabled: Boolean(
+      row.courier_discount_enabled ?? row.courierDiscountEnabled,
+    ),
+    courierDiscountPercentage: Number(
+      row.courier_discount_percentage ?? row.courierDiscountPercentage ?? 0,
+    ) || 0,
     localityId: row.locality_id || row.localityId || "",
     isEmailVerified: isEmailVerified,
     emailVerified: isEmailVerified,
@@ -1855,6 +1903,20 @@ async function listBusinesses() {
   }));
 }
 
+async function getBusinessById(businessId) {
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      "SELECT * FROM businesses WHERE id = ? LIMIT 1",
+      [String(businessId)],
+    );
+    return rows[0] || null;
+  }
+
+  return getSqliteDb()
+    .prepare("SELECT * FROM businesses WHERE id = ? LIMIT 1")
+    .get(String(businessId)) || null;
+}
+
 async function listProducts() {
   // Cada pedido entregado aporta una valoración a cada producto que contiene,
   // sin duplicarla por unidades ni por líneas con opciones distintas.
@@ -2147,6 +2209,10 @@ function normalizeOrderRow(row, items = []) {
       Number(row.delivery_fee_cents ?? row.deliveryFeeCents ?? 0) || 0,
     platformFeeCents:
       Number(row.platform_fee_cents ?? row.platformFeeCents ?? 0) || 0,
+    businessDiscountCents:
+      Number(row.business_discount_cents ?? row.businessDiscountCents ?? 0) || 0,
+    courierDiscountCents:
+      Number(row.courier_discount_cents ?? row.courierDiscountCents ?? 0) || 0,
     businessPayoutCents:
       Number(row.business_payout_cents ?? row.businessPayoutCents ?? 0) || 0,
     courierPayoutCents:
@@ -2360,6 +2426,10 @@ async function createUser({
   courierConfirmation = "PENDING",
   courierBusinessIds = [],
   accountNumber = null,
+  courierRateCents = 0,
+  courierTicketThresholdCents = 4000,
+  courierDiscountEnabled = false,
+  courierDiscountPercentage = 0,
   termsAccepted = false,
   termsVersion = CURRENT_TERMS_VERSION,
 }) {
@@ -2393,6 +2463,22 @@ async function createUser({
   const cleanAccountNumber = accountNumber
     ? String(accountNumber).replace(/\s+/g, "").toUpperCase()
     : null;
+  const cleanCourierDiscountEnabled =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+      ? asBooleanFlag(courierDiscountEnabled, 0)
+      : 0;
+  const cleanCourierRateCents =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+      ? Math.max(0, Math.trunc(Number(courierRateCents) || 0))
+      : 0;
+  const cleanCourierTicketThresholdCents =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+      ? Math.max(0, Math.trunc(Number(courierTicketThresholdCents) || 0))
+      : 4000;
+  const cleanCourierDiscountPercentage =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+      ? Math.max(0, Math.min(100, Number(courierDiscountPercentage) || 0))
+      : 0;
   const cleanAddress = address ? String(address).trim() : null;
   const cleanLocalityId = localityId ? String(localityId).trim() : null;
   const cleanTermsVersion = cleanString(termsVersion) || CURRENT_TERMS_VERSION;
@@ -2407,7 +2493,7 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
         id,
         cleanUsername,
@@ -2423,6 +2509,10 @@ async function createUser({
         businessId || null,
         cleanLocalityId,
         cleanAccountNumber,
+        cleanCourierRateCents,
+        cleanCourierTicketThresholdCents,
+        cleanCourierDiscountEnabled,
+        cleanCourierDiscountPercentage,
         initialEmailVerified,
         cleanCourierConfirmation,
         JSON.stringify(cleanCourierBusinessIds),
@@ -2440,7 +2530,7 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     id,
     cleanUsername,
@@ -2456,6 +2546,10 @@ async function createUser({
     businessId || null,
     cleanLocalityId,
     cleanAccountNumber,
+    cleanCourierRateCents,
+    cleanCourierTicketThresholdCents,
+    cleanCourierDiscountEnabled,
+    cleanCourierDiscountPercentage,
     initialEmailVerified,
     cleanCourierConfirmation,
     JSON.stringify(cleanCourierBusinessIds),
@@ -2745,6 +2839,7 @@ const MIN_BUSINESS_NAME_LENGTH = 2;
 const MAX_BUSINESS_NAME_LENGTH = 180;
 const MAX_TIME_MINUTES = 240;
 const MAX_FEE_CENTS = 1000000;
+const COURIER_TICKET_EXTRA_PAYOUT_CENTS = 100;
 
 const cleanString = (value) => String(value ?? "").trim();
 const asInteger = (value) => {
@@ -3246,6 +3341,28 @@ function validateBusiness(body, { partial = false } = {}) {
     }
   } else if (!partial) {
     value.delivery_fee_cents = 0;
+  }
+
+  if (exists("discount_enabled", "discountEnabled")) {
+    const enabled = asBooleanFlag(get("discount_enabled", "discountEnabled"), null);
+    if (enabled === null) {
+      errors.discount_enabled = "Indica si el descuento del negocio está activo.";
+    } else {
+      value.discount_enabled = enabled;
+    }
+  } else if (!partial) {
+    value.discount_enabled = 0;
+  }
+
+  if (exists("discount_percentage", "discountPercentage")) {
+    const percentage = Number(get("discount_percentage", "discountPercentage"));
+    if (!Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      errors.discount_percentage = "El porcentaje debe estar entre 0 y 100.";
+    } else {
+      value.discount_percentage = Math.round(percentage * 100) / 100;
+    }
+  } else if (!partial) {
+    value.discount_percentage = 0;
   }
 
   if (exists("min_order_cents", "minOrderCents")) {
@@ -4553,6 +4670,24 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const isSuperAdmin = sessionRole === "SUPERADMIN";
   const isBusinessAdmin = sessionRole === "BUSINESS_ADMIN";
 
+  if (
+    isBusinessAdmin &&
+    (body.courierDiscountEnabled !== undefined ||
+      body.courier_discount_enabled !== undefined ||
+      body.courierDiscountPercentage !== undefined ||
+      body.courier_discount_percentage !== undefined ||
+      body.courierRateCents !== undefined ||
+      body.courier_rate_cents !== undefined ||
+      body.courierTicketThresholdCents !== undefined ||
+      body.courier_ticket_threshold_cents !== undefined)
+  ) {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "Sólo el superadmin puede configurar el descuento del repartidor.",
+    );
+  }
+
   if (!isSuperAdmin && !isBusinessAdmin) {
     throw httpError(
       403,
@@ -4579,6 +4714,19 @@ app.post("/api/users", requireAuth, async (req, res) => {
   )
     .replace(/\s+/g, "")
     .toUpperCase();
+  const courierDiscountEnabled = asBooleanFlag(
+    body.courierDiscountEnabled ?? body.courier_discount_enabled,
+    0,
+  );
+  const courierRateCents = asInteger(
+    body.courierRateCents ?? body.courier_rate_cents,
+  ) ?? 0;
+  const courierTicketThresholdCents = asInteger(
+    body.courierTicketThresholdCents ?? body.courier_ticket_threshold_cents,
+  ) ?? 4000;
+  const courierDiscountPercentage = Number(
+    body.courierDiscountPercentage ?? body.courier_discount_percentage ?? 0,
+  );
   const localityId = cleanString(body.localityId || body.locality_id);
   const phone = cleanString(body.phone);
   const address = cleanString(body.address);
@@ -4705,6 +4853,22 @@ app.post("/api/users", requireAuth, async (req, res) => {
   if (accountNumber && !IBAN_REGEX.test(accountNumber)) {
     errors.accountNumber = "El número de cuenta (IBAN) no es válido.";
   }
+  if (courierRateCents < 0 || courierRateCents > MAX_FEE_CENTS) {
+    errors.courierRateCents = "El monto por reparto no es válido.";
+  }
+  if (
+    courierTicketThresholdCents < 0 ||
+    courierTicketThresholdCents > MAX_FEE_CENTS
+  ) {
+    errors.courierTicketThresholdCents = "El importe base del ticket no es válido.";
+  }
+  if (
+    !Number.isFinite(courierDiscountPercentage) ||
+    courierDiscountPercentage < 0 ||
+    courierDiscountPercentage > 100
+  ) {
+    errors.courierDiscountPercentage = "El porcentaje debe estar entre 0 y 100.";
+  }
   if (phone) {
     const digits = phone.replace(/\D/g, "");
     if (
@@ -4749,6 +4913,22 @@ app.post("/api/users", requireAuth, async (req, res) => {
       role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
         ? accountNumber || null
         : null,
+    courierDiscountEnabled:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierDiscountEnabled === 1
+        : false,
+    courierRateCents:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierRateCents
+        : 0,
+    courierTicketThresholdCents:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierTicketThresholdCents
+        : 4000,
+    courierDiscountPercentage:
+      role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+        ? courierDiscountPercentage
+        : 0,
     termsAccepted: body.termsAccepted === true,
     termsVersion: body.termsVersion,
   });
@@ -5034,6 +5214,69 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
     }
   }
   if (
+    body.courierDiscountEnabled !== undefined ||
+    body.courier_discount_enabled !== undefined ||
+    body.courierDiscountPercentage !== undefined ||
+    body.courier_discount_percentage !== undefined ||
+    body.courierRateCents !== undefined ||
+    body.courier_rate_cents !== undefined ||
+    body.courierTicketThresholdCents !== undefined ||
+    body.courier_ticket_threshold_cents !== undefined
+  ) {
+    if (!isSuperAdmin) {
+      errors.courierDiscountEnabled =
+        "Sólo el superadmin puede configurar el descuento del repartidor.";
+    } else if (!isCourierRole) {
+      errors.courierDiscountEnabled =
+        "Sólo los repartidores pueden tener un descuento por reparto.";
+    } else {
+      const discountEnabled = asBooleanFlag(
+        body.courierDiscountEnabled ?? body.courier_discount_enabled,
+        0,
+      );
+      const rateCents = asInteger(
+        body.courierRateCents ?? body.courier_rate_cents,
+      ) ?? 0;
+      const ticketThresholdCents = asInteger(
+        body.courierTicketThresholdCents ?? body.courier_ticket_threshold_cents,
+      ) ?? 4000;
+      const discountPercentage = Number(
+        body.courierDiscountPercentage ?? body.courier_discount_percentage ?? 0,
+      );
+      if (rateCents < 0 || rateCents > MAX_FEE_CENTS) {
+        errors.courierRateCents = "El monto por reparto no es válido.";
+      }
+      if (ticketThresholdCents < 0 || ticketThresholdCents > MAX_FEE_CENTS) {
+        errors.courierTicketThresholdCents = "El importe base del ticket no es válido.";
+      }
+      if (
+        !Number.isFinite(discountPercentage) ||
+        discountPercentage < 0 ||
+        discountPercentage > 100
+      ) {
+        errors.courierDiscountPercentage = "El porcentaje debe estar entre 0 y 100.";
+      }
+      if (
+        rateCents >= 0 &&
+        rateCents <= MAX_FEE_CENTS &&
+        ticketThresholdCents >= 0 &&
+        ticketThresholdCents <= MAX_FEE_CENTS &&
+        Number.isFinite(discountPercentage) &&
+        discountPercentage >= 0 &&
+        discountPercentage <= 100
+      ) {
+        updates.push("courier_rate_cents = ?");
+        values.push(rateCents);
+        updates.push("courier_ticket_threshold_cents = ?");
+        values.push(ticketThresholdCents);
+        updates.push("courier_discount_enabled = ?");
+        values.push(discountEnabled);
+        updates.push("courier_discount_percentage = ?");
+        values.push(Math.round(discountPercentage * 100) / 100);
+      }
+    }
+  }
+  if (
     body.courierBusinessIds !== undefined ||
     body.courier_business_ids !== undefined
   ) {
@@ -5270,10 +5513,10 @@ app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
          id, locality_id, name, legal_name, cif, phone, email, account_number,
          address, latitude, longitude, rating, review_count,
          estimated_time_min, estimated_time_max, delivery_fee_cents,
-         min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes,
+         discount_enabled, discount_percentage, min_order_cents, banner_url, logo_url, is_shift_open, delivery_modes,
          delivery_radius_km, status, category, manager_name, manager_dni,
          owner_user_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
       [
         businessId,
         value.locality_id,
@@ -5291,6 +5534,8 @@ app.post("/api/businesses", requireRole("SUPERADMIN"), async (req, res) => {
         value.estimated_time_min,
         value.estimated_time_max,
         value.delivery_fee_cents,
+        value.discount_enabled,
+        value.discount_percentage,
         value.min_order_cents,
         value.banner_url ?? "",
         value.logo_url ?? "",
@@ -5366,6 +5611,20 @@ app.put("/api/businesses/:id", requireAuth, async (req, res) => {
     );
   }
 
+  if (
+    !isSuperAdmin &&
+    (body.discountEnabled !== undefined ||
+      body.discount_enabled !== undefined ||
+      body.discountPercentage !== undefined ||
+      body.discount_percentage !== undefined)
+  ) {
+    throw httpError(
+      403,
+      "FORBIDDEN",
+      "Sólo el superadmin puede configurar los descuentos del negocio.",
+    );
+  }
+
   const validation = validateBusiness(body, { partial: true });
   assertValid(validation.errors);
 
@@ -5420,6 +5679,8 @@ app.put("/api/businesses/:id", requireAuth, async (req, res) => {
   assign("estimated_time_min", value.estimated_time_min);
   assign("estimated_time_max", value.estimated_time_max);
   assign("delivery_fee_cents", value.delivery_fee_cents);
+  assign("discount_enabled", value.discount_enabled);
+  assign("discount_percentage", value.discount_percentage);
   assign("min_order_cents", value.min_order_cents);
   assign("delivery_radius_km", value.delivery_radius_km);
   assign("is_shift_open", value.is_shift_open);
@@ -6029,7 +6290,8 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   for (const [key, raw] of Object.entries(body)) {
     if ((key.endsWith("Cents") || key.endsWith("_cents")) && (!Number.isSafeInteger(Number(raw)) || Number(raw) < 0)) inputErrors[key] = "Los importes deben ser céntimos enteros mayores o iguales que cero.";
   }
-  if (!businessId || !(await countRows("SELECT COUNT(*) AS c FROM businesses WHERE id = ?", [businessId]))) inputErrors.business_id = "Selecciona un negocio válido.";
+  const businessRow = businessId ? await getBusinessById(businessId) : null;
+  if (!businessId || !businessRow) inputErrors.business_id = "Selecciona un negocio válido.";
   if (role === "CLIENT" && body.status && !["NEW", "PAID"].includes(body.status)) inputErrors.status = "El cliente solo puede crear pedidos nuevos.";
   if (body.status && !ORDER_STATUSES.has(body.status)) inputErrors.status = "El estado del pedido no es válido.";
   assertValid(inputErrors);
@@ -6041,6 +6303,83 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     const number = Number(value);
     return Number.isFinite(number) ? number : 0;
   };
+
+  const deliveryType =
+    pick("deliveryType", "delivery_type") === "PICKUP"
+      ? "PICKUP"
+      : "DELIVERY";
+  const subtotalCents = toCents(pick("subtotalCents", "subtotal_cents"));
+  const basePlatformFeeCents = toCents(
+    pick("platformFeeCents", "platform_fee_cents"),
+  );
+  const baseBusinessPayoutCents = toCents(
+    pick("businessPayoutCents", "business_payout_cents"),
+  );
+  const baseCourierPayoutCents = toCents(
+    pick("courierPayoutCents", "courier_payout_cents"),
+  );
+  const businessDiscountEnabled =
+    asBooleanFlag(
+      businessRow?.discount_enabled ?? businessRow?.discountEnabled,
+      0,
+    ) === 1;
+  const businessDiscountPercentage = Number(
+    businessRow?.discount_percentage ?? businessRow?.discountPercentage ?? 0,
+  );
+  const businessDiscountCents = businessDiscountEnabled
+    ? Math.min(
+        subtotalCents,
+        Math.max(0, Math.round(subtotalCents * businessDiscountPercentage / 100)),
+      )
+    : 0;
+  const courierId = pick("courierId", "courier_id") || null;
+  let courierDiscountCents = 0;
+  let courierPayoutCents = baseCourierPayoutCents;
+  if (courierId) {
+    const courierRow = await loadUserForSession(courierId);
+    const courierDiscountEnabled =
+      asBooleanFlag(
+        courierRow?.courier_discount_enabled ?? courierRow?.courierDiscountEnabled,
+        0,
+      ) === 1;
+    const configuredCourierRateCents = Math.max(
+      0,
+      toCents(courierRow?.courier_rate_cents ?? courierRow?.courierRateCents),
+    );
+    const configuredTicketThresholdCents = Math.max(
+      0,
+      toCents(
+        courierRow?.courier_ticket_threshold_cents ??
+          courierRow?.courierTicketThresholdCents ??
+          4000,
+      ),
+    );
+    const ticketWholeEuros = Math.floor(subtotalCents / 100);
+    const thresholdWholeEuros = Math.floor(configuredTicketThresholdCents / 100);
+    const extraTicketSteps =
+      ticketWholeEuros > thresholdWholeEuros
+        ? Math.floor((ticketWholeEuros - thresholdWholeEuros - 1) / 10) + 1
+        : 0;
+    const extraCourierPayoutCents =
+      extraTicketSteps * COURIER_TICKET_EXTRA_PAYOUT_CENTS;
+    const courierGrossPayoutCents =
+      configuredCourierRateCents > 0
+        ? configuredCourierRateCents + extraCourierPayoutCents
+        : baseCourierPayoutCents + extraCourierPayoutCents;
+    const courierDiscountPercentage = Number(
+      courierRow?.courier_discount_percentage ?? courierRow?.courierDiscountPercentage ?? 0,
+    );
+    if (courierDiscountEnabled) {
+      courierDiscountCents = Math.min(
+        courierGrossPayoutCents,
+        Math.max(
+          0,
+          Math.round(courierGrossPayoutCents * courierDiscountPercentage / 100),
+        ),
+      );
+    }
+    courierPayoutCents = Math.max(0, courierGrossPayoutCents - courierDiscountCents);
+  }
 
   const now = new Date().toISOString();
   const createdAt = pick("createdAt", "created_at") || now;
@@ -6072,28 +6411,27 @@ app.post("/api/orders", requireRole(), async (req, res) => {
       pick("customerEmail", "customer_email") ||
       "cliente@pidetietar.local",
     customer_phone: pick("customerPhone", "customer_phone") || null,
-    delivery_type:
-      pick("deliveryType", "delivery_type") === "PICKUP"
-        ? "PICKUP"
-        : "DELIVERY",
+    delivery_type: deliveryType,
     delivery_address: serializeJsonField(
       pick("deliveryAddress", "delivery_address"),
       null,
     ),
     scheduled_time: pick("scheduledTime", "scheduled_time") || null,
-    subtotal_cents: toCents(pick("subtotalCents", "subtotal_cents")),
+    subtotal_cents: subtotalCents,
     delivery_fee_cents: toCents(
       pick("deliveryFeeCents", "delivery_fee_cents"),
     ),
-    platform_fee_cents: toCents(
-      pick("platformFeeCents", "platform_fee_cents"),
+    platform_fee_cents: Math.max(
+      0,
+      basePlatformFeeCents +
+        businessDiscountCents +
+        baseCourierPayoutCents -
+        courierPayoutCents,
     ),
-    business_payout_cents: toCents(
-      pick("businessPayoutCents", "business_payout_cents"),
-    ),
-    courier_payout_cents: toCents(
-      pick("courierPayoutCents", "courier_payout_cents"),
-    ),
+    business_discount_cents: businessDiscountCents,
+    courier_discount_cents: courierDiscountCents,
+    business_payout_cents: Math.max(0, baseBusinessPayoutCents - businessDiscountCents),
+    courier_payout_cents: courierPayoutCents,
     tip_cents: toCents(pick("tipCents", "tip_cents")),
     total_cents: toCents(pick("totalCents", "total_cents")),
     status,
@@ -6294,6 +6632,10 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       "delivery_fee_cents",
       "platformFeeCents",
       "platform_fee_cents",
+      "businessDiscountCents",
+      "business_discount_cents",
+      "courierDiscountCents",
+      "courier_discount_cents",
       "businessPayoutCents",
       "business_payout_cents",
       "courierPayoutCents",
@@ -6391,6 +6733,16 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
         "platform_fee_cents",
         toCents(read("platformFeeCents", "platform_fee_cents")),
       );
+    if (has("businessDiscountCents", "business_discount_cents"))
+      set(
+        "business_discount_cents",
+        toCents(read("businessDiscountCents", "business_discount_cents")),
+      );
+    if (has("courierDiscountCents", "courier_discount_cents"))
+      set(
+        "courier_discount_cents",
+        toCents(read("courierDiscountCents", "courier_discount_cents")),
+      );
     if (has("businessPayoutCents", "business_payout_cents"))
       set(
         "business_payout_cents",
@@ -6426,6 +6778,82 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       set("courier_name", read("courierName", "courier_name") || null);
     if (has("courierPhone", "courier_phone"))
       set("courier_phone", read("courierPhone", "courier_phone") || null);
+
+    // Al asignar o retirar un repartidor se recalculan su tarifa bruta,
+    // descuento porcentual y liquidación sin confiar en importes del cliente.
+    if (has("courierId", "courier_id")) {
+      const previousDiscountCents = Math.max(
+        0,
+        toCents(existing.courier_discount_cents ?? existing.courierDiscountCents),
+      );
+      const previousNetPayoutCents = Math.max(
+        0,
+        toCents(existing.courier_payout_cents ?? existing.courierPayoutCents),
+      );
+      const previousGrossPayoutCents = previousNetPayoutCents + previousDiscountCents;
+      const nextCourierId = read("courierId", "courier_id") || null;
+      let nextDiscountCents = 0;
+      let nextGrossPayoutCents = previousGrossPayoutCents;
+      if (nextCourierId) {
+        const courierRow = await loadUserForSession(nextCourierId);
+        const enabled = asBooleanFlag(
+          courierRow?.courier_discount_enabled ?? courierRow?.courierDiscountEnabled,
+          0,
+        ) === 1;
+        const configuredRateCents = Math.max(
+          0,
+          toCents(courierRow?.courier_rate_cents ?? courierRow?.courierRateCents),
+        );
+        const configuredTicketThresholdCents = Math.max(
+          0,
+          toCents(
+            courierRow?.courier_ticket_threshold_cents ??
+              courierRow?.courierTicketThresholdCents ??
+              4000,
+          ),
+        );
+        const existingSubtotalCents = Math.max(
+          0,
+          toCents(existing.subtotal_cents ?? existing.subtotalCents),
+        );
+        const ticketWholeEuros = Math.floor(existingSubtotalCents / 100);
+        const thresholdWholeEuros = Math.floor(configuredTicketThresholdCents / 100);
+        const extraTicketSteps =
+          ticketWholeEuros > thresholdWholeEuros
+            ? Math.floor((ticketWholeEuros - thresholdWholeEuros - 1) / 10) + 1
+            : 0;
+        const extraCourierPayoutCents =
+          extraTicketSteps * COURIER_TICKET_EXTRA_PAYOUT_CENTS;
+        nextGrossPayoutCents =
+          (configuredRateCents > 0
+            ? configuredRateCents
+            : previousGrossPayoutCents) + extraCourierPayoutCents;
+        const percentage = Number(
+          courierRow?.courier_discount_percentage ?? courierRow?.courierDiscountPercentage ?? 0,
+        );
+        if (enabled) {
+          nextDiscountCents = Math.min(
+            nextGrossPayoutCents,
+            Math.max(0, Math.round(nextGrossPayoutCents * percentage / 100)),
+          );
+        }
+      }
+      const nextNetPayoutCents = Math.max(
+        0,
+        nextGrossPayoutCents - nextDiscountCents,
+      );
+      set("courier_discount_cents", nextDiscountCents);
+      set("courier_payout_cents", nextNetPayoutCents);
+      set(
+        "platform_fee_cents",
+        Math.max(
+          0,
+          toCents(existing.platform_fee_cents ?? existing.platformFeeCents) +
+            previousNetPayoutCents -
+            nextNetPayoutCents,
+        ),
+      );
+    }
     if (has("deliveryPin", "delivery_pin")) {
       const pin = read("deliveryPin", "delivery_pin");
       if (role === "SUPERADMIN") set("delivery_pin", pin === null || pin === undefined ? null : String(pin));

@@ -51,6 +51,11 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     const saved = (await api('/businesses')).data.find((item) => item.id === business.id);
     assert.equal(saved.phone, '666555444');
     assert.equal(saved.account_number, 'ES9121000418450200051332');
+    await send(`/businesses/${business.id}`, 'PUT', { discountEnabled: true, discountPercentage: 10 }, 200, token);
+    const discountedBusiness = (await api('/businesses')).data.find((item) => item.id === business.id);
+    assert.equal(Number(discountedBusiness.discount_percentage), 10);
+    assert.equal(Number(discountedBusiness.discount_enabled), 1);
+    await send(`/businesses/${business.id}`, 'PUT', { discountEnabled: false }, 403, owner.token);
     assert.equal(saved.schedule.find((item) => (item.dayOfWeek ?? item.day_of_week) === 1).open_time, '09:30');
     await send(`/businesses/${business.id}`, 'PUT', { name: 'Sin permiso' }, 403, secondOwner.token);
     await send(`/businesses/${business.id}`, 'PUT', { schedule: [{ dayOfWeek: 1, openTime: '25:00', closeTime: '23:00' }] }, 400);
@@ -158,6 +163,11 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await api('/auth/verify-email', { method: 'POST', body: { email: 'repartidor@example.com', code: created.data.verificationCode }, status: 200 });
     assert.ok(courier.id);
     assert.equal(courier.courierProfile.confirmation, 'PENDING');
+    const courierDiscount = await send(`/users/${courier.id}`, 'PUT', { courierDiscountEnabled: true, courierRateCents: 200, courierTicketThresholdCents: 4000, courierDiscountPercentage: 25 });
+    assert.equal(courierDiscount.data.user.courierDiscountEnabled, true);
+    assert.equal(courierDiscount.data.user.courierRateCents, 200);
+    assert.equal(courierDiscount.data.user.courierTicketThresholdCents, 4000);
+    assert.equal(courierDiscount.data.user.courierDiscountPercentage, 25);
     await send(`/users/${courier.id}`, 'PUT', { courierConfirmation: 'BUSINESS_EMAIL' }, 200, owner.token);
     await send(`/users/${courier.id}`, 'PUT', { phone: '611222333', accountNumber: 'ES9121000418450200051332' });
     const courierSession = await login('repartidor_prueba', password);
@@ -215,6 +225,33 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send('/orders', 'POST', { id: orderId, businessId: business.id, customerId: client.user.id, customerName: 'Cliente', customerEmail: client.user.email, customerPhone: '666555444', deliveryType: 'DELIVERY', deliveryAddress: 'Calle de pruebas 2', deliveryPin: '4321', subtotalCents: 1200, deliveryFeeCents: 200, platformFeeCents: 100, businessPayoutCents: 1140, courierPayoutCents: 160, totalCents: 1400, status: 'NEW', items: [{ productId: product.id, productName: 'Plato editado', quantity: 1, unitPriceCents: 1200, totalCents: 1200 }] }, 201, client.token);
     await send(`/orders/${orderId}`, 'PUT', { courierId: courier.id, courierName: courier.name, courierPhone: '611222333' });
     const clientOrder = (await api('/orders', { token: client.token })).data.find((item) => item.id === orderId);
+    assert.equal(clientOrder.businessDiscountCents, 120);
+    assert.equal(clientOrder.courierDiscountCents, 50);
+    assert.equal(clientOrder.businessPayoutCents, 1020);
+    assert.equal(clientOrder.courierPayoutCents, 150);
+    assert.equal(clientOrder.platformFeeCents, 230);
+    await send('/orders', 'POST', {
+      id: 'pedido-ticket-extra',
+      businessId: business.id,
+      customerId: client.user.id,
+      customerName: 'Cliente',
+      customerEmail: client.user.email,
+      deliveryType: 'DELIVERY',
+      deliveryAddress: 'Calle de pruebas 2',
+      deliveryPin: '4321',
+      subtotalCents: 4800,
+      deliveryFeeCents: 200,
+      platformFeeCents: 100,
+      businessPayoutCents: 4560,
+      courierPayoutCents: 160,
+      totalCents: 4820,
+      status: 'NEW',
+      items: [{ productId: product.id, productName: 'Plato editado', quantity: 4, unitPriceCents: 1200, totalCents: 4800 }],
+    }, 201, client.token);
+    await send('/orders/pedido-ticket-extra', 'PUT', { courierId: courier.id }, 200, owner.token);
+    const extraTicketOrder = (await api('/orders', { token: client.token })).data.find((item) => item.id === 'pedido-ticket-extra');
+    assert.equal(extraTicketOrder.courierDiscountCents, 75);
+    assert.equal(extraTicketOrder.courierPayoutCents, 225);
     assert.equal(clientOrder.courierAvatarUrl, 'https://example.com/repartidor.png');
     assert.ok((await api('/orders', { token: client.token })).data.some((item) => item.id === orderId));
     assert.ok((await api('/orders', { token: owner.token })).data.some((item) => item.id === orderId));
@@ -223,6 +260,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send(`/orders/${orderId}`, 'PUT', { status: 'DELIVERED', deliveryPin: '0000' }, 400, owner.token);
     await send(`/orders/${orderId}`, 'PUT', { status: 'DELIVERED', deliveryPin: '4321' }, 200, owner.token);
     await send(`/orders/${orderId}`, 'PUT', { reviewScore: 5 }, 200, client.token);
+    await send('/orders/pedido-ticket-extra', 'DELETE');
     const ratedProduct = (await api('/products')).data.find((item) => item.id === product.id);
     assert.equal(Number(ratedProduct.rating), 5);
     assert.equal(Number(ratedProduct.ratingCount), 1);
