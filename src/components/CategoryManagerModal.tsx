@@ -15,7 +15,7 @@ interface CategoryManagerModalProps {
   onClose: () => void;
 }
 
-const DEFAULT_CATEGORY_IMAGE = '/Logo.png';
+const DEFAULT_CATEGORY_IMAGE = '/PideTietar_logo_animado.gif';
 
 export const CategoryManagerModal: React.FC<CategoryManagerModalProps> = ({
   open,

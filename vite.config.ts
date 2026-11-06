@@ -41,7 +41,7 @@ export default defineConfig(() => {
             },
           ],
         },
-        includeAssets: ['/icons/*', '/PideTietar-app-icon.ico', '/Logo.png'],
+        includeAssets: ['/icons/*', '/PideTietar-app-icon.ico', '/Logo.png', '/PideTietar_logo_animado.gif'],
         manifest: false,
       }),
     ],

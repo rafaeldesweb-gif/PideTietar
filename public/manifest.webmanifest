@@ -33,9 +33,9 @@
       "purpose": "maskable"
     },
     {
-      "src": "/PideTietar-app-icon.ico",
+      "src": "/PideTietar_logo_animado.gif",
       "sizes": "any",
-      "type": "image/x-icon"
+      "type": "image/gif"
     }
   ]
 }

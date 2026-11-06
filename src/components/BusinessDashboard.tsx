@@ -221,7 +221,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     removableIngredients: '',
     additionalIngredients: '',
     priceCents: '0',
-    imageUrl: '/Logo.png',
+    imageUrl: '/PideTietar_logo_animado.gif',
     categoryId: '',
     isAvailable: true,
     allergens: '',
@@ -743,7 +743,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       removableIngredients: '',
       additionalIngredients: '',
       priceCents: '0',
-      imageUrl: '/Logo.png',
+      imageUrl: '/PideTietar_logo_animado.gif',
       categoryId: defaultCategoryIdForBusiness(),
       isAvailable: true,
       allergens: '',
@@ -800,7 +800,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
           .map(parseExtraIngredient)
           .filter(Boolean) as Array<{ name: string; priceCents: number }>,
       priceCents: Math.round(normalizedPrice * 100),
-      imageUrl: catalogForm.imageUrl || '/Logo.png',
+      imageUrl: catalogForm.imageUrl || '/PideTietar_logo_animado.gif',
       categoryId: catalogForm.categoryId,
       taxPercentage: 10,
       isAvailable: catalogForm.isAvailable,
@@ -1852,7 +1852,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       </div>
                       <MediaView
                         src={catalogForm.imageUrl || undefined}
-                        defaultSrc="/Logo.png"
+                        defaultSrc="/PideTietar_logo_animado.gif"
                         alt={catalogForm.name}
                         className="mt-2 w-full h-24 rounded-xl border border-[#e6d7c5]"
                         showLoading
@@ -1918,7 +1918,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                             removableIngredients: '',
                             additionalIngredients: '',
                             priceCents: '0',
-                            imageUrl: '/Logo.png',
+                            imageUrl: '/PideTietar_logo_animado.gif',
                             categoryId: categories.some((category) => category.id === biz.category)
                               ? biz.category
                               : categories[0]?.id || '',
@@ -1934,11 +1934,13 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                           <div className="font-bold text-stone-900 text-sm truncate">{biz.name}</div>
                           <div className="text-xs text-stone-500 truncate">{biz.address}</div>
                         </div>
-                        <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
-                          biz.isShiftOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
-                        }`}>
-                          {biz.isShiftOpen ? 'Abierto' : 'Cerrado'}
-                        </span>
+                        {isSuperAdmin && (
+                          <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full shrink-0 ${
+                            biz.isShiftOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-600'
+                          }`}>
+                            {biz.isShiftOpen ? 'Abierto' : 'Cerrado'}
+                          </span>
+                        )}
                       </button>
                     ))
                   )}

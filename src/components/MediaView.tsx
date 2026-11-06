@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { isVideoUrl } from '../utils/mediaUpload';
-import brandLogo from '../assets/logo.png';
+
+// Logo animado de la app (public). Se usa como placeholder/default de MediaView.
+const BRAND_LOGO = '/PideTietar_logo_animado.gif';
 
 // El tamaño se aplica al contenedor para no cubrir otros controles durante la carga.
 export const MediaView: React.FC<{
@@ -13,10 +15,10 @@ export const MediaView: React.FC<{
   style?: React.CSSProperties;
   fit?: 'contain' | 'cover';
   showLoading?: boolean;
-}> = ({ src, defaultSrc = brandLogo, alt, className, width, height, style, fit = 'contain', showLoading = false }) => {
+}> = ({ src, defaultSrc = BRAND_LOGO, alt, className, width, height, style, fit = 'contain', showLoading = false }) => {
   const [failedSources, setFailedSources] = useState<string[]>([]);
   const [loadedSource, setLoadedSource] = useState('');
-  const effectiveSrc = [src, defaultSrc, brandLogo].find((source) => source && !failedSources.includes(source));
+  const effectiveSrc = [src, defaultSrc, BRAND_LOGO].find((source) => source && !failedSources.includes(source));
   if (!effectiveSrc) return null;
   const mediaClass = `block h-full w-full object-center ${fit === 'cover' ? 'object-cover' : 'object-contain'}`;
   const onLoad = () => setLoadedSource(effectiveSrc);
