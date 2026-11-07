@@ -8,6 +8,10 @@ const viewports = [
   { width: 390, height: 844 },
   { width: 412, height: 915 },
   { width: 430, height: 932 },
+  { width: 568, height: 320 },
+  { width: 800, height: 360 },
+  { width: 844, height: 390 },
+  { width: 915, height: 412 },
   { width: 768, height: 1024 },
   { width: 1024, height: 768 },
   { width: 1280, height: 800 },
@@ -85,7 +89,21 @@ let page;
 let failures = [];
 
 try {
-  browser = await chromium.launch({ headless: true });
+  const manifestResponse = await fetch(`${targetUrl}manifest.webmanifest`);
+  const manifest = await manifestResponse.json();
+
+  if (manifest.orientation !== "any") {
+    failures.push({
+      manifestOrientation: manifest.orientation ?? null,
+      expected: "any",
+    });
+  }
+
+  const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
+  browser = await chromium.launch({
+    headless: true,
+    ...(executablePath ? { executablePath } : {}),
+  });
   page = await browser.newPage();
 
   for (const viewport of viewports) {
@@ -95,17 +113,21 @@ try {
       innerWidth: window.innerWidth,
       scrollWidth: document.documentElement.scrollWidth,
       bodyWidth: document.body.scrollWidth,
+      isLandscape: window.matchMedia("(orientation: landscape)").matches,
       hasHorizontalOverflow:
         document.documentElement.scrollWidth > window.innerWidth,
     }));
 
-    if (result.hasHorizontalOverflow) {
+    if (
+      result.hasHorizontalOverflow ||
+      result.isLandscape !== (viewport.width > viewport.height)
+    ) {
       failures.push({ viewport, ...result });
     }
   }
 
   if (failures.length > 0) {
-    console.error("Responsive overflow detected:");
+    console.error("Responsive or orientation checks failed:");
     console.error(JSON.stringify(failures, null, 2));
     process.exit(1);
   }
