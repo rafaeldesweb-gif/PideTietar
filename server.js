@@ -7319,6 +7319,14 @@ const distPath = path.join(__dirname, "dist");
 const indexFile = path.join(distPath, "index.html");
 
 if (fs.existsSync(distPath)) {
+  // El manifiesto controla la orientación de la PWA instalada. No debe quedar
+  // retenido por una caché HTTP después de cambiar esa configuración.
+  app.get('/manifest.webmanifest', (_req, res, next) => {
+    const manifestPath = path.join(distPath, 'manifest.webmanifest');
+    if (!fs.existsSync(manifestPath)) return next();
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    res.sendFile(manifestPath);
+  });
   app.use(express.static(distPath));
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
