@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
 import Stripe from "stripe";
+import { buildActivityReport } from './server/activityReports.js';
 import {
   normalizeAddressPart,
   prepareAddressForGeocoding,
@@ -1534,7 +1535,7 @@ function renderBrandEmail({ heading, bodyHtml, preheader = "" }) {
 
 // Envío común de los correos de marca: prueba la configuración SMTP
 // preferente y, si falla, los puertos alternativos (587/465).
-async function sendBrandEmail({ to, subject, text, heading, bodyHtml, preheader }) {
+async function sendBrandEmail({ to, subject, text, heading, bodyHtml, preheader, attachments = [], timeoutMs }) {
   const host = process.env.SMTP_HOST || process.env.EMAIL_HOST || "";
   const user = process.env.SMTP_USER || process.env.EMAIL_USER || "";
   const pass = process.env.SMTP_PASS || process.env.EMAIL_PASS || "";
@@ -1572,6 +1573,7 @@ async function sendBrandEmail({ to, subject, text, heading, bodyHtml, preheader 
         auth: { user, pass },
         requireTLS: !cfg.secure,
         tls: { rejectUnauthorized: false },
+        ...(timeoutMs ? { connectionTimeout: timeoutMs, greetingTimeout: timeoutMs, socketTimeout: timeoutMs } : {}),
       });
 
       await transporter.sendMail({
@@ -1580,15 +1582,16 @@ async function sendBrandEmail({ to, subject, text, heading, bodyHtml, preheader 
         subject,
         text,
         html: renderBrandEmail({ heading, bodyHtml, preheader }),
-        attachments: fs.existsSync(BRAND_EMAIL_LOGO_PATH)
-          ? [
+        attachments: [
+          ...attachments,
+          ...(fs.existsSync(BRAND_EMAIL_LOGO_PATH) ? [
               {
                 filename: "logo.png",
                 path: BRAND_EMAIL_LOGO_PATH,
                 cid: BRAND_EMAIL_LOGO_CID,
               },
-            ]
-          : [],
+            ] : []),
+        ],
       });
 
       return { sent: true };
@@ -2705,6 +2708,7 @@ async function readRequestUser(req) {
   const payload = readSessionToken(token);
   if (!payload) return null;
 
+  req.sessionPayload = payload;
   return loadUserForSession(payload.sub);
 }
 
@@ -4442,6 +4446,42 @@ app.post("/api/auth/reset-password", async (req, res) => {
     success: true,
     message: "Contraseña restablecida. Ya puedes iniciar sesión con la nueva.",
   });
+});
+
+// Evita duplicar envíos si se pulsa dos veces «Cerrar sesión» o la misma
+// petición se reintenta. Nunca se aceptan destinatarios ni pedidos del cliente.
+const logoutReports = new Map();
+app.post('/api/auth/logout', requireAuth, async (req, res) => {
+  const now = Date.now();
+  for (const [key, entry] of logoutReports) {
+    if (entry.expiresAt <= now) logoutReports.delete(key);
+  }
+  const key = createHash('sha256').update(`${req.sessionPayload.sub}:${req.sessionPayload.iat}`).digest('hex');
+  let entry = logoutReports.get(key);
+  if (!entry) {
+    const user = req.user;
+    const pending = (async () => {
+      const [orders, businesses, localities] = await Promise.all([listOrders(user), listBusinesses(), listLocalities()]);
+      const report = buildActivityReport({ user, orders, businesses, localities, now: new Date(now), global: user.role === 'SUPERADMIN' });
+      if (!user.email) return { sent: false, day: report.day, message: 'La cuenta no tiene un correo de destino.' };
+      const delivery = await sendBrandEmail({ ...report.mail, timeoutMs: 8000 });
+      return {
+        sent: delivery.sent,
+        day: report.day,
+        message: delivery.sent ? 'Reporte del día enviado a tu correo.' : 'La sesión se cerró, pero no se pudo enviar el reporte por correo. Contacta con la plataforma.',
+      };
+    })();
+    entry = { expiresAt: req.sessionPayload.exp, pending };
+    logoutReports.set(key, entry);
+  }
+  try {
+    const report = await entry.pending;
+    if (!report.sent) logoutReports.delete(key);
+    res.json({ success: true, report });
+  } catch (error) {
+    logoutReports.delete(key);
+    throw error;
+  }
 });
 
 app.get("/api/auth/me", async (req, res) => {
@@ -6670,6 +6710,15 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       if (String(submittedPin || "") !== String(existing.delivery_pin)) {
         throw httpError(400, "INVALID_DELIVERY_PIN", "El PIN de entrega no es válido.");
       }
+    }
+
+    // El repartidor que confirma con PIN una entrega todavía sin asignar
+    // queda registrado como responsable para su historial y su reporte.
+    if (['BUSINESS_COURIER', 'PLATFORM_COURIER'].includes(role) &&
+        has('status', 'status') && nextStatus === 'DELIVERED' && !existing.courier_id) {
+      body.courierId = req.user.id;
+      body.courierName = req.user.full_name || req.user.username;
+      body.courierPhone = req.user.phone || '';
     }
 
     if (has("businessId", "business_id"))

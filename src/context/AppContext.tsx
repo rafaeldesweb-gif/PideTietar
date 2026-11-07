@@ -3,6 +3,7 @@ import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours,
 import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
 import { isSingleBusinessOrder } from '../utils/orderValidation';
+import { getSessionStartedAt } from '../utils/courierHistory';
 
 interface AppContextType {
   // Theme
@@ -851,6 +852,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       businessId: extraData?.businessId,
       isEmailVerified: extraData?.isEmailVerified ?? false,
       createdAt: extraData?.createdAt || new Date().toISOString(),
+      sessionStartedAt: getSessionStartedAt(getSessionToken()) || new Date().toISOString(),
       addresses: extraData?.addresses ?? [],
       subscriptionPlan: extraData?.subscriptionPlan ?? 'FREE',
       subscriptionStatus: extraData?.subscriptionStatus ?? 'active',
@@ -872,7 +874,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const logoutInProgress = useRef<string | null>(null);
   const logout = async (): Promise<void> => {
+    const logoutToken = getSessionToken();
+    if (!currentUser || !logoutToken || logoutInProgress.current === logoutToken) return;
+    logoutInProgress.current = logoutToken;
     const sessionUser = currentUser;
     const businessId = sessionUser?.role === 'BUSINESS_ADMIN' ? sessionUser.businessId : undefined;
     const previousShift = businessId
@@ -909,6 +915,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
+    // apiFetch captura el token antes de limpiarlo. El envío no impide que la
+    // interfaz cierre la sesión y su estado nunca se anuncia como enviado
+    // hasta que el servidor confirma que el transporte SMTP lo aceptó.
+    const reportRequest = apiFetch('/auth/logout', { method: 'POST', keepalive: true });
     setSessionToken(null);
     setCurrentUser(null);
     setOrders([]);
@@ -916,6 +926,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('pidetietar_orders');
     localStorage.removeItem('pidetietar_cart');
     if (!shiftCloseFailed) showNotification('Has cerrado la sesión.', 'info');
+    try {
+      const result = await reportRequest as { report?: { sent: boolean; message: string } };
+      if (result?.report && !getSessionToken()) showNotification(result.report.message, result.report.sent ? 'success' : 'error');
+    } catch {
+      if (!getSessionToken()) showNotification('Has cerrado la sesión, pero no se pudo solicitar el reporte del día.', 'error');
+    } finally {
+      if (logoutInProgress.current === logoutToken) logoutInProgress.current = null;
+    }
   };
 
   // La sesión vive sólo en memoria: si nadie la restaura del token al cargar
@@ -2195,6 +2213,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return {
         ...ord,
         status: newStatus,
+        ...(newStatus === 'DELIVERED' && !ord.courierId && currentUser && ['BUSINESS_COURIER', 'PLATFORM_COURIER'].includes(currentUser.role)
+          ? { courierId: currentUser.id, courierName: currentUser.name, courierPhone: currentUser.phone }
+          : {}),
         reviewRequested: newStatus === 'DELIVERED' ? true : ord.reviewRequested,
         updatedAt: changedAt,
         statusHistory: [...(ord.statusHistory || []), historyEntry],

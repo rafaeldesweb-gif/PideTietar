@@ -28,6 +28,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
     import {CategoryManagerModal} from './src/components/CategoryManagerModal';import {AuthModal} from './src/components/AuthModal';
     import {ProductCustomizerModal} from './src/components/ProductCustomizerModal';import {CartDrawer} from './src/components/CartDrawer';
     import {CourierDashboard} from './src/components/CourierDashboard';import './src/index.css';
+    import {Header} from './src/components/Header';
     import {OrdersView} from './src/components/OrdersView';
     function Fixture(){const app=useApp();const ready=useRef(false);window.testApp=app;const view=window.testView;
       const product=app.products.find(p=>p.id===${JSON.stringify(product.id)});
@@ -38,7 +39,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
         {view==='category'&&<CategoryManagerModal open onClose={()=>{}}/>}{view==='auth'&&<AuthModal isOpen onClose={()=>{}}/>}
         {view==='product'&&<ProductCustomizerModal isOpen product={product||null} businessId=${JSON.stringify(business.id)} onClose={()=>{}}/>}
         {view==='cart'&&<CartDrawer isOpen onClose={()=>{}} onOrderSuccess={id=>{window.savedOrderId=id;}}/>}
-        {view==='courier'&&<CourierDashboard/>}{view==='orders'&&<OrdersView/>}</>;
+        {view==='courier'&&<><Header setCurrentView={()=>{}} openCart={()=>{}} openAuthModal={()=>{}}/><CourierDashboard/></>}{view==='orders'&&<OrdersView/>}</>;
     }createRoot(document.getElementById('root')).render(<AppProvider><Fixture/></AppProvider>);`;
   const bundle = await build({ logLevel: 'error', plugins: [{ name: 'formularios-fixture',
     resolveId(id) { if (id === 'formularios-fixture.tsx') return '\0formularios-fixture.tsx'; if (id.startsWith('./src/')) return path.resolve(id) + (path.extname(id) ? '' : '.tsx'); },
@@ -305,14 +306,34 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       assert.equal(order.customer_phone ?? order.customerPhone, '611222333');
     } finally { await close(); }
   });
-  await t.test('repartidor: PIN válido confirmado por la API', async () => {
+  await t.test('repartidor: nombre, historial por sesión y reporte al cerrar sesión', async () => {
+    const oldDate = new Date(Date.now() - 86400000).toISOString();
+    await api('/orders', { method: 'POST', token, body: { id: 'entrega-anterior-ui', businessId: business.id, courierId: courier.id, status: 'DELIVERED', deliveryType: 'DELIVERY', createdAt: oldDate, updatedAt: oldDate, statusHistory: [{ status: 'DELIVERED', timestamp: oldDate }], items: [{ productId: product.id, quantity: 1, unitPriceCents: 1000, totalCents: 1000 }], subtotalCents: 1000, totalCents: 1000 }, status: 201 });
     await api('/orders', { method: 'POST', token, body: { id: 'entrega-ui', businessId: business.id, courierId: courier.id, status: 'READY', deliveryType: 'DELIVERY', deliveryPin: '4321', items: [{ productId: product.id, quantity: 1, unitPriceCents: 1000, totalCents: 1000 }], subtotalCents: 1000, totalCents: 1000 }, status: 201 });
     const { page, close } = await open('courier', courierLogin, 375);
     try {
+      await page.getByRole('button', { name: 'Historial (0)', exact: true }).waitFor();
       await page.locator('input').fill('4321');
       await savedResponse(page, '/orders/entrega-ui', 'PUT', () => page.getByRole('button', { name: /Validar|Confirmar/i }).click());
       assert.equal((await api('/orders', { token })).data.find((item) => item.id === 'entrega-ui').status, 'DELIVERED');
+      await page.getByRole('button', { name: 'Historial (1)', exact: true }).click();
+      await page.reload();
+      await page.addScriptTag({ content: code });
+      await page.getByRole('button', { name: 'Historial (1)', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Abrir menú', exact: true }).click();
+      assert.equal(await page.locator('header').getByRole('button', { name: 'Repartidor UI', exact: true }).isVisible(), true);
+      const logoutResponse = page.waitForResponse((response) => response.url().endsWith('/api/auth/logout'));
+      await page.getByRole('button', { name: 'Cerrar sesión', exact: true }).click();
+      assert.equal((await logoutResponse).status(), 200);
+      await page.waitForFunction(() => window.testApp.currentUser === null);
+      assert.equal(await page.evaluate(() => localStorage.getItem('pidetietar_token')), null);
     } finally { await close(); }
+    const newSession = await login('courier_ui');
+    const reopened = await open('courier', newSession, 375);
+    try {
+      await reopened.page.getByRole('button', { name: 'Historial (0)', exact: true }).waitFor();
+      assert.ok((await api('/orders', { token })).data.some((item) => item.id === 'entrega-ui'));
+    } finally { await reopened.close(); }
   });
   await t.test('cliente: enviar una valoración y conservarla al recargar', async () => {
     await api('/orders', { method: 'POST', token, body: { id: 'valoracion-ui', businessId: business.id, customerId: client.user.id, customerEmail: client.user.email, status: 'DELIVERED', deliveryType: 'PICKUP', items: [{ productId: product.id, quantity: 1, unitPriceCents: 1000, totalCents: 1000 }], subtotalCents: 1000, totalCents: 1000 }, status: 201 });
@@ -330,6 +351,18 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       for (const [view, session] of [['admin', admin], ['business', owner], ['category', admin], ['auth', client], ['product', client], ['cart', client], ['courier', courierLogin]]) {
         const { page, close } = await open(view, session, width);
         try {
+          if (view === 'courier' && width >= 768) {
+            const overlaps = await page.evaluate(() => {
+              const logo = document.querySelector('.project-logo-split').getBoundingClientRect();
+              return [...document.querySelectorAll('header button')].filter((button) => !button.contains(document.querySelector('.project-logo-split'))).filter((button) => {
+                const rect = button.getBoundingClientRect();
+                return rect.width > 0 && rect.height > 0 && rect.left < logo.right && rect.right > logo.left && rect.top < logo.bottom && rect.bottom > logo.top;
+              }).map((button) => button.id || button.textContent);
+            });
+            assert.deepEqual(overlaps, [], `El logo se solapa con las acciones del repartidor en ${width}px`);
+            assert.equal(await page.locator('#user-profile-btn').getByText('Repartidor UI', { exact: true }).isVisible(), true);
+          }
+          if (view === 'courier' && process.env.UI_SCREENSHOT_DIR) await page.screenshot({ path: path.join(process.env.UI_SCREENSHOT_DIR, `repartidor-${width}.png`), fullPage: true });
           const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
           if (scrollWidth > width) overflows.push({ view, width, scrollWidth, elements: await page.evaluate(() => [...document.querySelectorAll('input,button,select,h1,h2,p,form')].filter((el) => el.getBoundingClientRect().right > innerWidth).map((el) => ({ tag: el.tagName, text: el.textContent?.slice(0, 50), class: el.className })).slice(0, 6)) });
         } finally { await close(); }

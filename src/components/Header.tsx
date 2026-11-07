@@ -39,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const cartItemsCount = cart ? cart.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
+  const isCourier = currentUser?.role === 'PLATFORM_COURIER' || currentUser?.role === 'BUSINESS_COURIER';
   const canAccessCourierPanel = !!currentUser && (currentUser.role === 'PLATFORM_COURIER' || currentUser.role === 'BUSINESS_COURIER') && currentUser.isEmailVerified && (currentUser.courierProfile?.confirmation === 'SUPERADMIN' || currentUser.courierProfile?.confirmation === 'BUSINESS_EMAIL');
   const canSeeOrdersPage = canViewOrdersPage(currentUser);
 
@@ -115,7 +116,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="orders-trigger-btn"
                 onClick={() => setCurrentView('orders')}
-                className="hidden rounded-full border border-stone-200 bg-stone-100 px-3 py-1.5 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:inline-flex"
+                className={`hidden rounded-full border border-stone-200 bg-stone-100 px-3 py-1.5 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 ${isCourier ? 'lg:inline-flex' : 'sm:inline-flex'}`}
               >
                 {currentUser?.role === 'SUPERADMIN' ? 'Seguimiento' : (currentUser?.role === 'BUSINESS_ADMIN' ? 'Pedidos del negocio' : 'Mis pedidos')}
               </button>
@@ -135,7 +136,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="courier-dashboard-btn"
                 onClick={() => setCurrentView('courier-dashboard')}
-                className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70 sm:inline-flex"
+                className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold text-emerald-700 transition hover:bg-emerald-100 dark:border-emerald-900/50 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70 lg:inline-flex"
               >
                 Panel repartidor
               </button>
@@ -156,7 +157,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   id="user-profile-btn"
                   onClick={handleAvatarPress}
-                  className="hidden items-center gap-2 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] sm:flex"
+                  className={`hidden items-center gap-2 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] ${isCourier ? 'md:flex' : 'sm:flex'}`}
                   aria-label="Editar mi avatar"
                 >
                   <MediaView
@@ -165,6 +166,11 @@ export const Header: React.FC<HeaderProps> = ({
                     className="h-9 w-9 rounded-full border-2 border-stone-200 dark:border-stone-700"
                     fit="contain"
                   />
+                  {isCourier && (
+                    <span className="max-w-20 truncate pr-1 text-xs font-semibold lg:max-w-32" title={currentUser.name}>
+                      {currentUser.name}
+                    </span>
+                  )}
                 </button>
                 <button
                   id="logout-btn"
@@ -174,7 +180,7 @@ export const Header: React.FC<HeaderProps> = ({
                     setCurrentView('home');
                     setMobileNavOpen(false);
                   }}
-                  className="hidden items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70 sm:inline-flex"
+                  className={`hidden items-center justify-center rounded-lg border border-red-200 bg-red-50 p-2 text-red-600 transition hover:bg-red-100 dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/70 ${isCourier ? 'md:inline-flex' : 'sm:inline-flex'}`}
                   aria-label="Cerrar sesión"
                   title="Cerrar sesión"
                 >
@@ -193,7 +199,7 @@ export const Header: React.FC<HeaderProps> = ({
 
             <button
               onClick={() => setMobileNavOpen(!mobileNavOpen)}
-              className="rounded-lg p-2 text-stone-700 dark:text-stone-300 md:hidden"
+              className={`rounded-lg p-2 text-stone-700 dark:text-stone-300 ${isCourier ? 'lg:hidden' : 'md:hidden'}`}
               aria-label="Abrir menú"
             >
               {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -203,7 +209,7 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {mobileNavOpen && (
-        <div className="border-t border-stone-200 bg-white px-4 pb-6 pt-3 dark:border-stone-800 dark:bg-stone-900 md:hidden">
+        <div className={`border-t border-stone-200 bg-white px-4 pb-6 pt-3 dark:border-stone-800 dark:bg-stone-900 ${isCourier ? 'lg:hidden' : 'md:hidden'}`}>
           <div className="space-y-2">
             <button onClick={() => { setCurrentView('home'); setMobileNavOpen(false); }} className="w-full py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200">Comercios del Valle</button>
             {canSeeOrdersPage && (
@@ -226,9 +232,15 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <button
                   onClick={() => { handleAvatarPress(); setMobileNavOpen(false); }}
-                  className="w-full py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200"
+                  aria-label={isCourier ? currentUser.name : 'Mi perfil'}
+                  className="flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200"
                 >
-                  Mi perfil
+                  {isCourier ? (
+                    <>
+                      <MediaView src={currentUser.avatarUrl} alt={currentUser.name} className="h-9 w-9 shrink-0 rounded-full" fit="contain" />
+                      <span className="min-w-0 break-words">{currentUser.name}</span>
+                    </>
+                  ) : 'Mi perfil'}
                 </button>
                 <button
                   type="button"

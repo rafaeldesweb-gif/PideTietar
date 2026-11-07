@@ -28,6 +28,7 @@ export interface User {
   addresses: Address[];
   createdAt: string;
   avatarUrl?: string;
+  sessionStartedAt?: string;
   subscriptionPlan?: 'FREE' | 'PRO_MONTHLY' | 'PREMIUM_PARTNER';
   subscriptionStatus?: 'active' | 'inactive' | 'past_due';
   courierProfile?: {

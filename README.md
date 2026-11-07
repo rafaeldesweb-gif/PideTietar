@@ -63,6 +63,23 @@ npm start
 
 `npm start` sirve la API y el contenido de `dist/` desde el puerto indicado en `PORT` (4000 por defecto). Si usas un proxy inverso, apunta al puerto del backend.
 
+## Reportes al cerrar sesión
+
+Cada cierre de sesión solicitado desde la interfaz llama a `POST /api/auth/logout`
+antes de retirar el token del navegador. La plataforma envía al correo de la cuenta
+un reporte de los pedidos con movimientos durante el día de Madrid hasta ese momento,
+con desglose, estados y un CSV adjunto. El cliente recibe sus compras, el negocio
+los pedidos de su negocio y el repartidor únicamente sus repartos. El SuperAdmin
+recibe el reporte global al cerrar su propia sesión, agrupado por zona y negocio,
+incluidos los comercios sin movimientos y los totales de cada zona.
+
+El historial visible del repartidor empieza de cero con cada nuevo inicio de sesión;
+recargar la página conserva la sesión actual. No se borran pedidos de la base de datos,
+y el correo sigue cubriendo el día completo. Para enviarlo deben estar configurados
+`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` y los datos de remitente de `.env.example`.
+La interfaz comunica los fallos de SMTP y no los presenta como envíos realizados.
+Cerrar una pestaña o dejar caducar el token no solicita un reporte.
+
 ## Base de datos
 
 - El backend intenta conectar con MySQL usando las variables `MYSQL_*` o `DB_*`.

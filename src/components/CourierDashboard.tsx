@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { Order, getDeliveryAddressString } from '../types';
 import { SensitiveInput } from './SensitiveInput';
+import { getCourierSessionHistory } from '../utils/courierHistory';
 
 export const CourierDashboard: React.FC = () => {
   const { orders, verifyDeliveryPin, showNotification, currentUser, toggleCourierAvailability } = useApp();
@@ -32,11 +33,7 @@ export const CourierDashboard: React.FC = () => {
          canServeBusiness(o.businessId)
   );
 
-  const completedDeliveries = orders.filter(
-    o => o.deliveryType === 'DELIVERY' && 
-         o.status === 'DELIVERED' &&
-         canServeBusiness(o.businessId)
-  );
+  const completedDeliveries = getCourierSessionHistory(orders, currentUser.id, currentUser.sessionStartedAt);
 
   const handleVerifyPin = async (orderId: string) => {
     const pin = inputPins[orderId] || '';
@@ -203,6 +200,11 @@ export const CourierDashboard: React.FC = () => {
       {/* Tab 2: Completed */}
       {activeTab === 'completed' && (
         <div className="space-y-3">
+          {completedDeliveries.length === 0 && (
+            <p className="rounded-2xl border border-stone-200 bg-white p-6 text-center text-sm text-stone-500 dark:border-stone-800 dark:bg-stone-900">
+              Todavía no has completado entregas en esta sesión.
+            </p>
+          )}
           {completedDeliveries.map(ord => (
             <div
               key={ord.id}
