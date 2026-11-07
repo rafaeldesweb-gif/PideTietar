@@ -52,7 +52,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
           
-          <div className="absolute top-4 left-4 flex flex-wrap gap-2">
+          <div className="absolute top-4 left-4 flex flex-wrap items-center gap-2">
             {business.isShiftOpen ? (
               <span className="inline-flex items-center space-x-1.5 bg-emerald-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md">
                 <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
@@ -65,7 +65,7 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
             )}
 
             {courierActiveForBusiness && (
-              <Bike className="h-5 w-5 text-white drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
+              <Bike className="h-[30px] w-[30px] shrink-0 text-emerald-500 drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
             )}
           </div>
         </div>
