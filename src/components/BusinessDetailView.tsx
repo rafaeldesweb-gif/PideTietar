@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  ArrowLeft, Star, Clock, Bike, MapPin, Phone, 
+  ArrowLeft, Star, Clock, Motorbike, MapPin, Phone,
   Info, ShieldCheck, Plus, CheckCircle2, AlertCircle
 } from 'lucide-react';
 import { Business, Product } from '../types';
@@ -65,15 +65,14 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
             )}
 
             {courierActiveForBusiness && (
-              business.onlineCourierAvatarUrl ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-white/95 px-1.5 py-1 shadow-md dark:bg-stone-900/95">
                 <img
-                  src={business.onlineCourierAvatarUrl}
+                  src={business.onlineCourierAvatarUrl || '/Logo.png'}
                   alt="Repartidor disponible"
-                  className="h-[30px] w-[30px] shrink-0 rounded-full border-2 border-emerald-400 object-cover shadow-md"
+                  className="h-7 w-7 shrink-0 rounded-full border-2 border-emerald-400 object-cover"
                 />
-              ) : (
-                <Bike className="h-[30px] w-[30px] shrink-0 text-emerald-500 drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
-              )
+                <Motorbike className="h-6 w-6 shrink-0 text-emerald-600" aria-label="Moto de reparto disponible" role="img" />
+              </span>
             )}
           </div>
         </div>

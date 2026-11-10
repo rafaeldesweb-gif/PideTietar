@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
-  Star, Clock, Bike, Store, ArrowRight, 
+  Star, Clock, Motorbike, Store, ArrowRight,
   Sparkles, CheckCircle2, ChevronRight, AlertCircle, 
   Filter, Utensils, Flame, ChevronLeft
 } from 'lucide-react';
@@ -466,15 +466,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
 
                     <div className="flex items-center space-x-1">
                       {biz.hasOnlineCourier && (
-                        biz.onlineCourierAvatarUrl ? (
+                        <>
                           <img
-                            src={biz.onlineCourierAvatarUrl}
+                            src={biz.onlineCourierAvatarUrl || '/Logo.png'}
                             alt="Repartidor disponible"
                             className="h-5 w-5 rounded-full border border-emerald-500 object-cover"
                           />
-                        ) : (
-                          <Bike className="w-3.5 h-3.5 text-emerald-600" aria-label="Repartidor en línea" role="img" />
-                        )
+                          <Motorbike className="h-4 w-4 text-emerald-600" aria-label="Moto de reparto disponible" role="img" />
+                        </>
                       )}
                       <span>
                         {(biz.courierDeliveryFeeCents ?? biz.deliveryFeeCents) === 0 ? (
