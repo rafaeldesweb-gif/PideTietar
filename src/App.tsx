@@ -116,7 +116,7 @@ export default function App() {
       
       {/* Global Notifications Toast (centrado en pantalla, por encima del modal) */}
       {notification && (
-        <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[80] animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[120] animate-in fade-in zoom-in-95 duration-200">
           <div className={`flex items-center space-x-2 px-5 py-4 rounded-2xl shadow-2xl border text-sm font-semibold max-w-md ${
             notification.type === 'success'
               ? 'bg-emerald-50 dark:bg-emerald-950 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100'
