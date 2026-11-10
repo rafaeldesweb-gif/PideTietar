@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://pidetietar.es/sitemap.xml

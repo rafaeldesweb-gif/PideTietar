@@ -10,6 +10,9 @@ import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
 import Stripe from "stripe";
 import { WebSocketServer } from 'ws';
+import helmet from "helmet";
+import cors from "cors";
+import rateLimit from "express-rate-limit";
 import { buildActivityReport } from './server/activityReports.js';
 import {
   normalizeAddressPart,
@@ -44,6 +47,74 @@ if (process.env.STRIPE_SECRET_KEY) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+
+// =========================================================
+// CABECERAS DE SEGURIDAD (Helmet) — sin alterar la lógica de negocio
+// =========================================================
+app.use(helmet());
+
+// Content Security Policy restrictiva: permite propios, fuentes Google y la API del mismo origen.
+app.use(
+  helmet.contentSecurityPolicy({
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "http://localhost:4000", "ws://localhost:4000"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: [],
+    },
+  })
+);
+
+// Evita que el navegador interprete archivos como otro MIME.
+app.use(helmet.xContentTypeOptions());
+// Evita clickjacking.
+app.use(helmet.frameguard({ action: "deny" }));
+// Referrer policy.
+app.use(helmet.referrerPolicy({ policy: "strict-origin-when-cross-origin" }));
+
+// =========================================================
+// CORS — mismo origen en producción, proxy de Vite en desarrollo.
+// =========================================================
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+app.use(
+  cors({
+    origin: allowedOrigins.length
+      ? allowedOrigins
+      : ["http://localhost:3000", "http://127.0.0.1:3000"],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "x-auth-token"],
+  })
+);
+
+// =========================================================
+// RATE LIMITING — endpoints sensibles sin alterar lógica existente
+// =========================================================
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 20, // 20 intentos por ventana
+  message: { code: "RATE_LIMITED", message: "Demasiados intentos. Intenta de nuevo más tarde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minuto
+  max: 300, // 300 peticiones por minuto por IP
+  message: { code: "RATE_LIMITED", message: "Demasiadas peticiones. Intenta de nuevo más tarde." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Las rutas de abajo son handlers async (p. ej. app.post("/x", async (req, res) => {...})).
 // En Express 4 un rechazo de promesa dentro de un handler async NO se reenvía a next(),
@@ -4255,6 +4326,10 @@ async function upsertOwnerAccount(tx, owner, businessId) {
 }
 
 app.use(express.json({ limit: "2mb" }));
+
+// Rate limiting general para la API y adicional para endpoints de auth.
+app.use("/api", apiLimiter);
+app.use("/api/auth", authLimiter);
 
 app.get("/api/health", async (_req, res) => {
   // Consultar salud no debe cambiar de motor ni crear un pool nuevo.

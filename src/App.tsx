@@ -18,6 +18,8 @@ import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
+import { SeoHead } from './components/SeoHead';
+import { Breadcrumbs, homeBreadcrumb, categoriesBreadcrumb } from './components/Breadcrumbs';
 
 /** Token del enlace de recuperación si la URL trae #restablecer-clave?token=… */
 const readResetTokenFromHash = (): string | null => {
@@ -185,56 +187,110 @@ export default function App() {
               />
             )}
             {currentView === 'home' && (
-              <HomeView
-                onSelectBusiness={handleSelectBusiness}
-                openProductCustomizer={handleOpenProductCustomizer}
-              />
+              <>
+                <SeoHead
+                  title="PideTiétar"
+                  description="Plataforma de delivery y comercio local en el Valle del Tiétar con gestión de pedidos, negocios, repartidores, pagos y sincronización."
+                  type="website"
+                />
+                <Breadcrumbs items={[homeBreadcrumb]} />
+                <HomeView
+                  onSelectBusiness={handleSelectBusiness}
+                  openProductCustomizer={handleOpenProductCustomizer}
+                />
+              </>
             )}
 
             {currentView === 'business-detail' && activeSelectedBusiness && (
-              <BusinessDetailView
-                business={activeSelectedBusiness}
-                onBack={() => {
-                  setSelectedBusiness(null);
-                  setCurrentView('home');
-                }}
-                openProductCustomizer={handleOpenProductCustomizer}
-              />
+              <>
+                <SeoHead
+                  title={activeSelectedBusiness.name}
+                  description={`Conoce ${activeSelectedBusiness.name}, comercio del Valle del Tiétar. Carta, horarios y reparto a domicilio.`}
+                  type="business"
+                  image={activeSelectedBusiness.logoUrl || activeSelectedBusiness.bannerUrl}
+                  url={`/negocio/${activeSelectedBusiness.id}`}
+                  businessName={activeSelectedBusiness.name}
+                />
+                <Breadcrumbs
+                  items={[
+                    homeBreadcrumb,
+                    { label: activeSelectedBusiness.name, href: `#negocio/${activeSelectedBusiness.id}` },
+                  ]}
+                />
+                <BusinessDetailView
+                  business={activeSelectedBusiness}
+                  onBack={() => {
+                    setSelectedBusiness(null);
+                    setCurrentView('home');
+                  }}
+                  openProductCustomizer={handleOpenProductCustomizer}
+                />
+              </>
             )}
 
-            {currentView === 'orders' && <OrdersView />}
+            {currentView === 'orders' && (
+              <>
+                <SeoHead
+                  title="Mis pedidos"
+                  description="Historial y estado de tus pedidos en PideTiétar."
+                  type="website"
+                />
+                <OrdersView />
+              </>
+            )}
 
             {currentView === 'business-dashboard' && (
-              canAccessBusinessDashboard ? (
-                <BusinessDashboard initialBusinessId={selectedBusiness?.id} />
-              ) : (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
-                  No tienes permisos para abrir el dashboard de negocio con este usuario.
-                </div>
-              )
+              <>
+                <SeoHead
+                  title="Panel de negocio"
+                  description="Gestiona tu comercio, carta y pedidos desde el panel de negocio de PideTiétar."
+                  type="website"
+                />
+                {canAccessBusinessDashboard ? (
+                  <BusinessDashboard initialBusinessId={selectedBusiness?.id} />
+                ) : (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                    No tienes permisos para abrir el dashboard de negocio con este usuario.
+                  </div>
+                )}
+              </>
             )}
 
             {currentView === 'courier-dashboard' && (
-              canAccessCourierDashboard ? (
-                <CourierDashboard />
-              ) : (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
-                  No tienes permisos para abrir el dashboard de repartidor con este usuario.
-                </div>
-              )
+              <>
+                <SeoHead
+                  title="Panel de repartidor"
+                  description="Gestiona tus entregas y disponibilidad desde el panel de repartidor de PideTiétar."
+                  type="website"
+                />
+                {canAccessCourierDashboard ? (
+                  <CourierDashboard />
+                ) : (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                    No tienes permisos para abrir el dashboard de repartidor con este usuario.
+                  </div>
+                )}
+              </>
             )}
 
             {currentView === 'admin-dashboard' && (
-              canAccessAdminDashboard ? (
-                <AdminDashboard onNavigateToBusiness={(bizId) => {
-                  setSelectedBusiness(businesses.find(b => b.id === bizId) || null);
-                  setCurrentView('business-dashboard');
-                }} />
-              ) : (
-                <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
-                  Solo el usuario Superadmin puede acceder a este dashboard.
-                </div>
-              )
+              <>
+                <SeoHead
+                  title="Superadministración"
+                  description="Panel de superadministración de PideTiétar: gestión de comercios, repartidores y categorías."
+                  type="website"
+                />
+                {canAccessAdminDashboard ? (
+                  <AdminDashboard onNavigateToBusiness={(bizId) => {
+                    setSelectedBusiness(businesses.find(b => b.id === bizId) || null);
+                    setCurrentView('business-dashboard');
+                  }} />
+                ) : (
+                  <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 text-sm text-amber-800">
+                    Solo el usuario Superadmin puede acceder a este dashboard.
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

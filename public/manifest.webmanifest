@@ -8,6 +8,30 @@
   "orientation": "any",
   "background_color": "#fffaf5",
   "theme_color": "#ff4e00",
+  "categories": ["food", "shopping", "local"],
+  "shortcuts": [
+    {
+      "name": "Ver comercios",
+      "short_name": "Comercios",
+      "description": "Explora los comercios del Valle del Tiétar",
+      "url": "/",
+      "icons": [{ "src": "/Logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Mis pedidos",
+      "short_name": "Pedidos",
+      "description": "Consulta el estado de tus pedidos",
+      "url": "#pedidos",
+      "icons": [{ "src": "/Logo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Contacto",
+      "short_name": "Contacto",
+      "description": "Escríbenos al equipo de PideTiétar",
+      "url": "#contacto",
+      "icons": [{ "src": "/Logo.png", "sizes": "192x192" }]
+    }
+  ],
   "icons": [
     {
       "src": "/Logo.png",
@@ -37,6 +61,14 @@
       "src": "/Logo.png",
       "sizes": "any",
       "type": "image/png"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/og-image.svg",
+      "sizes": "1200x630",
+      "type": "image/svg+xml",
+      "label": "PideTiétar - Portada"
     }
   ]
 }

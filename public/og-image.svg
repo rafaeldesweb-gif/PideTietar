@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a0903;stop-opacity:1" />
+      <stop offset="60%" style="stop-color:#3a1503;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#6b2400;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)" />
+  <text x="600" y="320" font-family="Arial, sans-serif" font-size="56" font-weight="bold" fill="#fffaf5" text-anchor="middle">PideTiétar</text>
+  <text x="600" y="390" font-family="Arial, sans-serif" font-size="28" fill="#f6c594" text-anchor="middle">Valle del Tiétar · Ávila</text>
+  <text x="600" y="450" font-family="Arial, sans-serif" font-size="22" fill="#ffe3d5" text-anchor="middle">Todo el valle a tu puerta</text>
+</svg>
