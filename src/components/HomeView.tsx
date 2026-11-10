@@ -465,14 +465,24 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                     </div>
 
                     <div className="flex items-center space-x-1">
-                      {biz.hasOnlineCourier && <Bike className="w-3.5 h-3.5 text-emerald-600" aria-label="Repartidor en línea" role="img" />}
+                      {biz.hasOnlineCourier && (
+                        biz.onlineCourierAvatarUrl ? (
+                          <img
+                            src={biz.onlineCourierAvatarUrl}
+                            alt="Repartidor disponible"
+                            className="h-5 w-5 rounded-full border border-emerald-500 object-cover"
+                          />
+                        ) : (
+                          <Bike className="w-3.5 h-3.5 text-emerald-600" aria-label="Repartidor en línea" role="img" />
+                        )
+                      )}
                       <span>
-                        {biz.deliveryFeeCents === 0 ? (
+                        {(biz.courierDeliveryFeeCents ?? biz.deliveryFeeCents) === 0 ? (
                           <span className="text-emerald-600 font-bold">GRATIS</span>
                         ) : userSubscription === 'PRO_MONTHLY' ? (
                           <span className="text-emerald-600 font-bold">0€ con Pro</span>
                         ) : (
-                          `${(biz.deliveryFeeCents / 100).toFixed(2)}€ envío`
+                          `${((biz.courierDeliveryFeeCents ?? biz.deliveryFeeCents) / 100).toFixed(2)}€ envío`
                         )}
                       </span>
                     </div>

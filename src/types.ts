@@ -134,6 +134,8 @@ export interface Business {
   isShiftOpen: boolean; // Active operational shift
   deliveryModes: ('OWN_COURIER' | 'PLATFORM_COURIER' | 'PICKUP')[];
   hasOnlineCourier?: boolean;
+  onlineCourierAvatarUrl?: string;
+  courierDeliveryFeeCents?: number;
   deliveryRadiusKm: number;
   status: 'APPROVED' | 'PENDING' | 'SUSPENDED';
   schedule: BusinessHours[];

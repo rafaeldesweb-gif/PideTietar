@@ -273,6 +273,10 @@ const normalizeBusiness = (item: any): Business => {
     estimatedTimeMin: Number(item.estimatedTimeMin ?? item.estimated_time_min ?? 20),
     estimatedTimeMax: Number(item.estimatedTimeMax ?? item.estimated_time_max ?? 40),
     deliveryFeeCents: Number(item.deliveryFeeCents ?? item.delivery_fee_cents ?? 250),
+    courierDeliveryFeeCents: (() => {
+      const value = item.courierDeliveryFeeCents ?? item.courier_delivery_fee_cents;
+      return value === undefined || value === null ? undefined : Number(value);
+    })(),
     minOrderCents: Number(item.minOrderCents ?? item.min_order_cents ?? 1000),
     discountEnabled: Boolean(item.discountEnabled ?? item.discount_enabled ?? false),
     discountPercentage: Number(item.discountPercentage ?? item.discount_percentage ?? 0),
@@ -284,6 +288,8 @@ const normalizeBusiness = (item: any): Business => {
     // vacía, así que se normaliza a recogida en tienda para poder guardarlo.
     deliveryModes: deliveryModes.length ? deliveryModes : ['PICKUP'],
     hasOnlineCourier: Boolean(item.hasOnlineCourier ?? item.has_online_courier),
+    onlineCourierAvatarUrl:
+      item.onlineCourierAvatarUrl ?? item.online_courier_avatar_url ?? '',
     deliveryRadiusKm: Number(item.deliveryRadiusKm ?? item.delivery_radius_km ?? 10),
     status: item.status || 'APPROVED',
     schedule: normalizeSchedule(item.schedule),
@@ -837,7 +843,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       showNotification(error instanceof Error ? error.message : 'No se pudo actualizar tu disponibilidad.', 'error');
       return;
     }
-    showNotification(online ? 'Repartidor activo y disponible para entregas.' : 'Repartidor marcado como fuera de línea.', 'info');
+    showNotification(online ? 'Repartidor activo y disponible para repartos.' : 'Repartidor marcado como fuera de línea.', 'info');
   };
 
   // La sesión se construye con los datos reales del backend. No se rellenan
@@ -2072,7 +2078,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const subtotalCents = cart.items.reduce((acc, i) => acc + i.itemPriceCents * i.quantity, 0);
     const hasFreeDelivery = currentUser.subscriptionPlan === 'PRO_MONTHLY' && subtotalCents >= 1200;
-    const effectiveDeliveryFee = (data.deliveryType === 'PICKUP' || hasFreeDelivery) ? 0 : business.deliveryFeeCents;
+    const configuredCourierDeliveryFee = business.courierDeliveryFeeCents ?? business.deliveryFeeCents;
+    const effectiveDeliveryFee = (data.deliveryType === 'PICKUP' || hasFreeDelivery) ? 0 : configuredCourierDeliveryFee;
 
     // Minimum order check
     if (subtotalCents < business.minOrderCents) {

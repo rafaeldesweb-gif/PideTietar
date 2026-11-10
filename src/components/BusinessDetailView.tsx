@@ -65,7 +65,15 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
             )}
 
             {courierActiveForBusiness && (
-              <Bike className="h-[30px] w-[30px] shrink-0 text-emerald-500 drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
+              business.onlineCourierAvatarUrl ? (
+                <img
+                  src={business.onlineCourierAvatarUrl}
+                  alt="Repartidor disponible"
+                  className="h-[30px] w-[30px] shrink-0 rounded-full border-2 border-emerald-400 object-cover shadow-md"
+                />
+              ) : (
+                <Bike className="h-[30px] w-[30px] shrink-0 text-emerald-500 drop-shadow-md" aria-label="Repartidor en línea y disponible" role="img" />
+              )
             )}
           </div>
         </div>
@@ -100,9 +108,9 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
               <div className="w-px h-8 bg-stone-200 dark:bg-stone-700" />
               <div className="text-center px-2">
                 <div className="font-bold text-stone-900 dark:text-stone-100 text-base">
-                  {business.deliveryFeeCents === 0 ? (
+                  {(business.courierDeliveryFeeCents ?? business.deliveryFeeCents) === 0 ? (
                     <span className="text-emerald-600">GRATIS</span>
-                  ) : userSubscription === 'PRO_MONTHLY' ? '0€' : `${(business.deliveryFeeCents / 100).toFixed(2)}€`}
+                  ) : userSubscription === 'PRO_MONTHLY' ? '0€' : `${((business.courierDeliveryFeeCents ?? business.deliveryFeeCents) / 100).toFixed(2)}€`}
                 </div>
                 <div className="text-[10px] text-stone-400 font-medium">Envío</div>
               </div>

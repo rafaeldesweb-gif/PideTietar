@@ -83,7 +83,7 @@ export const CourierDashboard: React.FC = () => {
           }`}
         >
           <span className={`w-2 h-2 rounded-full ${isAvailable ? 'bg-white animate-pulse' : 'bg-stone-400'}`} />
-          <span>{isAvailable ? 'Disponible para entregas' : 'En pausa'}</span>
+          <span>{isAvailable ? 'DISPONIBLE PARA REPARTOS' : 'EN PAUSA'}</span>
         </button>
       </div>
 

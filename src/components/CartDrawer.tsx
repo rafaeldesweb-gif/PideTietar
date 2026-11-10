@@ -38,10 +38,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
 
   const subtotalCents = cart ? cart.items.reduce((acc, i) => acc + i.itemPriceCents * i.quantity, 0) : 0;
   const hasFreeDelivery = currentUser?.subscriptionPlan === 'PRO_MONTHLY' && subtotalCents >= 1200;
+  const businessDeliveryFeeCents = currentBusiness?.courierDeliveryFeeCents ?? currentBusiness?.deliveryFeeCents ?? 200;
    
   const ledger = calculateOrderLedger(
     cart ? cart.items : [],
-    currentBusiness?.deliveryFeeCents ?? 200,
+    businessDeliveryFeeCents,
     deliveryType,
     tipCents,
     hasFreeDelivery

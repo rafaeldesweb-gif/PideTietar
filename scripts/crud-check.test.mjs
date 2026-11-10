@@ -180,6 +180,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await send(`/users/${courier.id}`, 'PUT', { courierConfirmation: 'BUSINESS_EMAIL' }, 200, owner.token);
     await send(`/users/${courier.id}`, 'PUT', { phone: '611222333', accountNumber: 'ES9121000418450200051332' });
     const courierSession = await login('repartidor_prueba', password);
+    assert.equal(courierSession.user.courierProfile.isOnline, true);
     await send(`/users/${courier.id}`, 'PUT', { isOnline: true }, 200, courierSession.token);
     const receivingCouriers = (await api('/users', { token })).data;
     assert.equal(receivingCouriers.find((item) => item.id === courier.id).courierProfile.isReceivingDeliveries, true);
@@ -195,6 +196,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     await api('/auth/verify-email', { method: 'POST', body: { email: 'plataforma@example.com', code: platformCreated.data.verificationCode }, status: 200 });
     await send(`/users/${platformCourier.id}`, 'PUT', { courierConfirmation: 'SUPERADMIN' });
     const platformSession = await login('plataforma_prueba', password);
+    assert.equal(platformSession.user.courierProfile.isOnline, true);
     await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: true }, 200, platformSession.token);
     const businessesWithAvailability = (await api('/businesses')).data;
     assert.equal(businessesWithAvailability.find((item) => item.id === business.id).has_online_courier, true);
@@ -211,6 +213,26 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal(perBusinessCourier.data.user.courierBusinessSettings[secondBusiness.id].courierRateCents, 350);
     assert.equal(perBusinessCourier.data.user.courierBusinessSettings[secondBusiness.id].courierPaymentMode, 'SPLIT');
     assert.equal(perBusinessCourier.data.user.courierBusinessSettings[secondBusiness.id].courierClientSharePercentage, 50);
+    await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: true }, 200, platformSession.token);
+    const freeCourierBusiness = (await api('/businesses')).data.find((item) => item.id === business.id);
+    assert.equal(freeCourierBusiness.has_online_courier, true);
+    assert.equal(freeCourierBusiness.courier_delivery_fee_cents, 200);
+    assert.equal(freeCourierBusiness.online_courier_avatar_url, '/Logo.png');
+    await send(`/users/${platformCourier.id}`, 'PUT', {
+      courierBusinessSettings: {
+        [business.id]: { courierRateCents: 200, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25, courierPaymentMode: 'CLIENT', courierClientSharePercentage: 100 },
+        [secondBusiness.id]: { courierRateCents: 0, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25, courierPaymentMode: 'BUSINESS', courierClientSharePercentage: 0 },
+      },
+    });
+    const freeSecondBusiness = (await api('/businesses')).data.find((item) => item.id === secondBusiness.id);
+    assert.equal(freeSecondBusiness.courier_delivery_fee_cents, 0);
+    await send(`/users/${platformCourier.id}`, 'PUT', {
+      courierBusinessSettings: {
+        [business.id]: { courierRateCents: 200, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25, courierPaymentMode: 'CLIENT', courierClientSharePercentage: 100 },
+        [secondBusiness.id]: { courierRateCents: 350, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25, courierPaymentMode: 'SPLIT', courierClientSharePercentage: 50 },
+      },
+    });
+    await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: false }, 200, platformSession.token);
     const ownCouriers = (await api('/users', { token: owner.token })).data;
     assert.ok(ownCouriers.some((item) => item.id === courier.id));
     assert.equal(ownCouriers.find((item) => item.id === courier.id).accountNumber, '');

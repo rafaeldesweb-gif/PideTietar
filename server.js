@@ -2111,19 +2111,40 @@ async function listBusinesses() {
   }
 
   const couriers = await listReceivingCouriers();
-  const onlineBusinessIds = new Set();
+  const onlineCourierByBusinessId = new Map();
   for (const courier of couriers) {
     for (const businessId of parseCourierBusinessIds(courier)) {
-      onlineBusinessIds.add(businessId);
+      if (!onlineCourierByBusinessId.has(String(businessId))) {
+        onlineCourierByBusinessId.set(String(businessId), courier);
+      }
     }
   }
   const scheduled = attachBusinessSchedules(rows, await readBusinessHours());
-  return scheduled.map((business) => ({
-    ...business,
-    has_online_courier:
+  return scheduled.map((business) => {
+    const onlineCourier = onlineCourierByBusinessId.get(String(business.id));
+    const courierCanServe =
       parseStoredList(business.delivery_modes ?? business.deliveryModes).some((mode) => ["OWN_COURIER", "PLATFORM_COURIER"].includes(mode)) &&
-      onlineBusinessIds.has(String(business.id)),
-  }));
+      Boolean(onlineCourier);
+    let courierDeliveryFeeCents = null;
+    if (courierCanServe && hasExplicitCourierBusinessSetting(onlineCourier, business.id)) {
+      const setting = getCourierBusinessSetting(onlineCourier, business.id);
+      const mode = normalizeCourierPaymentMode(setting.courierPaymentMode, "CLIENT");
+      const clientShare = normalizeCourierClientSharePercentage(
+        setting.courierClientSharePercentage,
+        mode,
+      );
+      const grossPayoutCents = Math.max(0, Math.trunc(Number(setting.courierRateCents) || 0));
+      courierDeliveryFeeCents = Math.round(grossPayoutCents * clientShare / 100);
+    }
+    return {
+      ...business,
+      has_online_courier: courierCanServe,
+      online_courier_avatar_url: courierCanServe
+        ? onlineCourier.avatar_url ?? onlineCourier.avatarUrl ?? "/Logo.png"
+        : null,
+      courier_delivery_fee_cents: courierDeliveryFeeCents,
+    };
+  });
 }
 
 async function getBusinessById(businessId) {
@@ -2596,7 +2617,10 @@ async function listOrders(user) {
 async function listReceivingCouriers() {
   const now = Date.now();
   const sql = `
-    SELECT id, role, courier_business_ids, business_id
+    SELECT id, role, courier_business_ids, business_id, avatar_url, full_name,
+           courier_business_settings, courier_rate_cents,
+           courier_ticket_threshold_cents, courier_discount_enabled,
+           courier_discount_percentage
     FROM app_users
     WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER')
       AND status = 'ACTIVE'
@@ -4564,10 +4588,25 @@ app.post("/api/auth/login", async (req, res) => {
     });
   }
 
+  const token = await createSessionToken(user, req.body?.deviceId);
+  // Una cuenta de repartidor confirmada por el negocio o por SuperAdmin
+  // entra disponible al iniciar sesión. Después puede ponerse en pausa desde
+  // su panel; al cerrar sesión el servidor vuelve a apagar is_online.
+  if (
+    ["BUSINESS_COURIER", "PLATFORM_COURIER"].includes(user.role) &&
+    user.status === "ACTIVE" &&
+    (user.email_verified === 1 || user.email_verified === true || user.email_verified_at) &&
+    ["BUSINESS_EMAIL", "SUPERADMIN"].includes(String(user.courier_confirmation || "").toUpperCase()) &&
+    parseCourierBusinessIds(user).length > 0
+  ) {
+    await sessionSql("UPDATE app_users SET is_online = 1 WHERE id = ?", [String(user.id)]);
+    user.is_online = 1;
+  }
+
   res.json({
     success: true,
     user: sanitizeUser(user),
-    token: await createSessionToken(user, req.body?.deviceId),
+    token,
   });
 });
 
