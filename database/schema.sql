@@ -62,6 +62,7 @@ CREATE TABLE users (
   courier_ticket_threshold_cents INTEGER NOT NULL DEFAULT 4000 CHECK (courier_ticket_threshold_cents >= 0),
   courier_discount_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   courier_discount_percentage NUMERIC(5,2) NOT NULL DEFAULT 0 CHECK (courier_discount_percentage >= 0 AND courier_discount_percentage <= 100),
+  courier_business_settings JSONB NOT NULL DEFAULT '{}'::jsonb,
   password_hash TEXT,
   avatar_url TEXT,
   is_email_verified BOOLEAN NOT NULL DEFAULT FALSE,

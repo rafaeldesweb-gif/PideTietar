@@ -8,6 +8,7 @@ declare global {
 }
 
 import { Address, getDeliveryAddressString } from '../types';
+import { sessionStore } from '../utils/browserSession';
 
 export interface GoogleAuthStatus {
   isSignedIn: boolean;
@@ -26,6 +27,12 @@ let tokenClient: any = null;
 let currentAccessToken: string | null = null;
 let currentUserEmail: string | null = null;
 
+export function clearGoogleWorkspaceSession(): void {
+  currentAccessToken = null;
+  currentUserEmail = null;
+  sessionStore.removeItem('pidetietar_google_token');
+}
+
 export function initGoogleIdentityClient(clientId?: string): Promise<boolean> {
   return new Promise((resolve) => {
     // If client ID not provided, check import.meta.env
@@ -39,7 +46,7 @@ export function initGoogleIdentityClient(clientId?: string): Promise<boolean> {
           callback: (tokenResponse: any) => {
             if (tokenResponse.access_token) {
               currentAccessToken = tokenResponse.access_token;
-              localStorage.setItem('pidetietar_google_token', tokenResponse.access_token);
+              sessionStore.setItem('pidetietar_google_token', tokenResponse.access_token);
             }
           },
         });
@@ -68,7 +75,7 @@ export function initGoogleIdentityClient(clientId?: string): Promise<boolean> {
               callback: (tokenResponse: any) => {
                 if (tokenResponse.access_token) {
                   currentAccessToken = tokenResponse.access_token;
-                  localStorage.setItem('pidetietar_google_token', tokenResponse.access_token);
+                  sessionStore.setItem('pidetietar_google_token', tokenResponse.access_token);
                 }
               },
             });
@@ -91,7 +98,7 @@ export function initGoogleIdentityClient(clientId?: string): Promise<boolean> {
 export function requestGoogleAccessToken(): Promise<string> {
   return new Promise((resolve, reject) => {
     // Check if we have a stored token
-    const stored = localStorage.getItem('pidetietar_google_token');
+    const stored = sessionStore.getItem('pidetietar_google_token');
     if (stored) {
       currentAccessToken = stored;
       return resolve(stored);
@@ -101,7 +108,7 @@ export function requestGoogleAccessToken(): Promise<string> {
       // In development or preview without external credentials, provide a clear fallback
       const simulatedToken = 'simulated_google_token_' + Date.now();
       currentAccessToken = simulatedToken;
-      localStorage.setItem('pidetietar_google_token', simulatedToken);
+      sessionStore.setItem('pidetietar_google_token', simulatedToken);
       return resolve(simulatedToken);
     }
 
@@ -110,7 +117,7 @@ export function requestGoogleAccessToken(): Promise<string> {
         reject(new Error(resp.error_description || resp.error));
       } else if (resp.access_token) {
         currentAccessToken = resp.access_token;
-        localStorage.setItem('pidetietar_google_token', resp.access_token);
+        sessionStore.setItem('pidetietar_google_token', resp.access_token);
         resolve(resp.access_token);
       }
     };

@@ -6,7 +6,7 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   const { api, admin, password, login } = await startTestApp(t);
   const token = admin.token;
   const send = (route, method, body, status = 200, auth = token) => api(route, { method, body, status, token: auth });
-  let zone, category, business, owner, secondBusiness, secondOwner, duplicateBusiness, client, courier, platformCourier, product, orderId;
+  let zone, category, business, owner, secondBusiness, secondOwner, duplicateBusiness, client, courier, platformCourier, product, secondProduct, orderId;
 
   await t.test('localidades: crear, leer, editar y borrar', async () => {
     zone = (await send('/localities', 'POST', { name: 'Zona de pruebas', postalCode: '05400' }, 201)).data.locality;
@@ -200,6 +200,15 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     assert.equal(businessesWithAvailability.find((item) => item.id === business.id).has_online_courier, true);
     assert.equal(businessesWithAvailability.find((item) => item.id === secondBusiness.id).has_online_courier, false);
     await send(`/users/${platformCourier.id}`, 'PUT', { isOnline: false }, 200, platformSession.token);
+    const perBusinessCourier = await send(`/users/${platformCourier.id}`, 'PUT', {
+      courierBusinessIds: [business.id, secondBusiness.id],
+      courierBusinessSettings: {
+        [business.id]: { courierRateCents: 200, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25 },
+        [secondBusiness.id]: { courierRateCents: 350, courierTicketThresholdCents: 4000, courierDiscountEnabled: true, courierDiscountPercentage: 25 },
+      },
+    });
+    assert.equal(perBusinessCourier.data.user.courierBusinessSettings[business.id].courierRateCents, 200);
+    assert.equal(perBusinessCourier.data.user.courierBusinessSettings[secondBusiness.id].courierRateCents, 350);
     const ownCouriers = (await api('/users', { token: owner.token })).data;
     assert.ok(ownCouriers.some((item) => item.id === courier.id));
     assert.equal(ownCouriers.find((item) => item.id === courier.id).accountNumber, '');
@@ -261,6 +270,34 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
     const extraTicketOrder = (await api('/orders', { token: client.token })).data.find((item) => item.id === 'pedido-ticket-extra');
     assert.equal(extraTicketOrder.courierDiscountCents, 75);
     assert.equal(extraTicketOrder.courierPayoutCents, 225);
+    secondProduct = (await send('/products', 'POST', {
+      businessId: secondBusiness.id,
+      categoryId: category.id,
+      name: 'Plato segundo negocio',
+      priceCents: 1200,
+    }, 201, secondOwner.token)).data;
+    await send('/orders', 'POST', {
+      id: 'pedido-tarifa-segundo-negocio',
+      businessId: secondBusiness.id,
+      customerId: client.user.id,
+      customerName: 'Cliente',
+      customerEmail: client.user.email,
+      deliveryType: 'DELIVERY',
+      deliveryAddress: 'Calle de pruebas 2',
+      deliveryPin: '4321',
+      subtotalCents: 1200,
+      deliveryFeeCents: 200,
+      platformFeeCents: 100,
+      businessPayoutCents: 1140,
+      courierPayoutCents: 160,
+      totalCents: 1400,
+      status: 'NEW',
+      items: [{ productId: secondProduct.id, productName: 'Plato segundo negocio', quantity: 1, unitPriceCents: 1200, totalCents: 1200 }],
+    }, 201, client.token);
+    await send('/orders/pedido-tarifa-segundo-negocio', 'PUT', { courierId: platformCourier.id }, 200, admin.token);
+    const secondBusinessOrder = (await api('/orders', { token: client.token })).data.find((item) => item.id === 'pedido-tarifa-segundo-negocio');
+    assert.equal(secondBusinessOrder.courierDiscountCents, 88);
+    assert.equal(secondBusinessOrder.courierPayoutCents, 262);
     assert.equal(clientOrder.courierAvatarUrl, 'https://example.com/repartidor.png');
     assert.ok((await api('/orders', { token: client.token })).data.some((item) => item.id === orderId));
     assert.ok((await api('/orders', { token: owner.token })).data.some((item) => item.id === orderId));
@@ -298,8 +335,10 @@ test('CRUD y validaciones de los formularios con API y base de datos aisladas', 
   await t.test('borrados: pedidos, productos, usuarios y negocios sin dependencias', async () => {
     await send(`/orders/${orderId}`, 'DELETE', undefined, 403, secondOwner.token);
     await send(`/orders/${orderId}`, 'DELETE');
+    await send('/orders/pedido-tarifa-segundo-negocio', 'DELETE');
     assert.ok(!(await api('/orders', { token })).data.some((item) => item.id === orderId));
     await send(`/products/${product.id}`, 'DELETE', undefined, 200, owner.token);
+    await send(`/products/${secondProduct.id}`, 'DELETE', undefined, 200, secondOwner.token);
     await send(`/users/${courier.id}`, 'DELETE');
     await send(`/users/${platformCourier.id}`, 'DELETE');
     await send(`/users/${client.user.id}`, 'DELETE');

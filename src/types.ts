@@ -7,6 +7,13 @@ export type UserRole =
   | 'BUSINESS_COURIER' 
   | 'SUPERADMIN';
 
+export interface CourierBusinessSettings {
+  courierRateCents: number;
+  courierTicketThresholdCents: number;
+  courierDiscountEnabled: boolean;
+  courierDiscountPercentage: number;
+}
+
 export interface User {
   id: string;
   username?: string;
@@ -22,6 +29,7 @@ export interface User {
   courierTicketThresholdCents?: number;
   courierDiscountEnabled?: boolean;
   courierDiscountPercentage?: number;
+  courierBusinessSettings?: Record<string, CourierBusinessSettings>;
   role: UserRole;
   businessId?: string; // If bound to a business
   isEmailVerified: boolean;

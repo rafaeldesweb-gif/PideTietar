@@ -1,9 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected, getDeliveryAddressString } from '../types';
-import { scheduleOrderInGoogleCalendar, sendEmailViaGmail } from '../services/googleWorkspace';
+import { User, Cart, CartItem, Order, Business, BusinessCategory, BusinessHours, BusinessOwnerInput, Locality, Product, CartItemOptionSelected, CourierBusinessSettings, getDeliveryAddressString } from '../types';
+import { scheduleOrderInGoogleCalendar, sendEmailViaGmail, clearGoogleWorkspaceSession } from '../services/googleWorkspace';
 import { processPayment } from '../services/paymentService';
 import { isSingleBusinessOrder } from '../utils/orderValidation';
 import { getSessionStartedAt } from '../utils/courierHistory';
+import { sessionStore, clearBrowserSession, watchBrowserSession } from '../utils/browserSession';
+import { watchSessionConnection } from '../utils/sessionConnection';
 
 interface AppContextType {
   // Theme
@@ -16,6 +18,8 @@ interface AppContextType {
   sessionChecked: boolean;
   loginAs: (role: User['role'], customEmail?: string, extraData?: Partial<User>, options?: { silent?: boolean }) => void;
   logout: () => Promise<void>;
+  getBusinessConnections: (userId: string) => Promise<{ additionalConnections: number; maxConnections: number; activeConnections: number } | null>;
+  authorizeBusinessConnections: (userId: string, additionalConnections: number) => Promise<boolean>;
   updateCurrentUserProfile: (data: Partial<User>) => Promise<boolean>;
   setCourierProfile: (profile: NonNullable<User['courierProfile']>) => void;
   toggleCourierAvailability: (online?: boolean) => Promise<void>;
@@ -74,6 +78,7 @@ interface AppContextType {
       courierTicketThresholdCents?: number;
       courierDiscountEnabled?: boolean;
       courierDiscountPercentage?: number;
+      courierBusinessSettings?: Record<string, CourierBusinessSettings>;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
       termsAccepted?: boolean;
       termsVersion?: string;
@@ -97,6 +102,7 @@ interface AppContextType {
       courierTicketThresholdCents?: number;
       courierDiscountEnabled?: boolean;
       courierDiscountPercentage?: number;
+      courierBusinessSettings?: Record<string, CourierBusinessSettings>;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ) => Promise<boolean>;
@@ -518,15 +524,17 @@ const SESSION_TOKEN_KEY = 'pidetietar_token';
 
 export const getSessionToken = (): string => {
   if (typeof window === 'undefined') return '';
-  return localStorage.getItem(SESSION_TOKEN_KEY) || '';
+  return sessionStore.getItem(SESSION_TOKEN_KEY) || '';
 };
 
 export const setSessionToken = (token?: string | null): void => {
   if (typeof window === 'undefined') return;
   if (token) {
-    localStorage.setItem(SESSION_TOKEN_KEY, token);
+    try { localStorage.removeItem(SESSION_TOKEN_KEY); } catch { /* Sin persistencia local. */ }
+    sessionStore.setItem(SESSION_TOKEN_KEY, token);
   } else {
-    localStorage.removeItem(SESSION_TOKEN_KEY);
+    clearBrowserSession();
+    clearGoogleWorkspaceSession();
   }
 };
 
@@ -676,7 +684,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // la caché local no debe resucitar pedidos ya borrados.
         const nextOrders = ordersData.map(normalizeOrder);
         setOrders(nextOrders);
-        localStorage.setItem('pidetietar_orders', JSON.stringify(nextOrders));
+        sessionStore.setItem('pidetietar_orders', JSON.stringify(nextOrders));
       }
     };
 
@@ -686,7 +694,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     const handleStorageSync = (event: StorageEvent) => {
-      if (!event.key) return;
+      if (!event.key || event.storageArea !== window.sessionStorage) return;
 
       if (event.key === 'pidetietar_orders') {
         setOrders(event.newValue ? JSON.parse(event.newValue) : []);
@@ -702,27 +710,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Cart
   const [cart, setCart] = useState<Cart | null>(() => {
-    const saved = localStorage.getItem('pidetietar_cart');
+    const saved = sessionStore.getItem('pidetietar_cart');
     return saved ? JSON.parse(saved) : null;
   });
 
   useEffect(() => {
     if (cart) {
-      localStorage.setItem('pidetietar_cart', JSON.stringify(cart));
+      sessionStore.setItem('pidetietar_cart', JSON.stringify(cart));
     } else {
-      localStorage.removeItem('pidetietar_cart');
+      sessionStore.removeItem('pidetietar_cart');
     }
   }, [cart]);
 
   // Orders
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('pidetietar_orders');
+    const saved = sessionStore.getItem('pidetietar_orders');
     if (saved) return JSON.parse(saved);
     return [];
   });
 
   useEffect(() => {
-    localStorage.setItem('pidetietar_orders', JSON.stringify(orders));
+    if (getSessionToken()) sessionStore.setItem('pidetietar_orders', JSON.stringify(orders));
+    else sessionStore.removeItem('pidetietar_orders');
   }, [orders]);
 
   // Al cerrar sesión (o si el token guardado ya no vale) no deben quedar en
@@ -731,8 +740,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!sessionChecked || currentUser) return;
     setOrders([]);
     setCart(null);
-    localStorage.removeItem('pidetietar_orders');
-    localStorage.removeItem('pidetietar_cart');
+    sessionStore.removeItem('pidetietar_orders');
+    sessionStore.removeItem('pidetietar_cart');
   }, [sessionChecked, currentUser]);
 
   // Sincronización periódica de pedidos: el cliente, el negocio y el
@@ -877,43 +886,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logoutInProgress = useRef<string | null>(null);
   const logout = async (): Promise<void> => {
     const logoutToken = getSessionToken();
-    if (!currentUser || !logoutToken || logoutInProgress.current === logoutToken) return;
+    if (!currentUser || logoutInProgress.current === logoutToken) return;
     logoutInProgress.current = logoutToken;
-    const sessionUser = currentUser;
-    const businessId = sessionUser?.role === 'BUSINESS_ADMIN' ? sessionUser.businessId : undefined;
-    const previousShift = businessId
-      ? businesses.find((business) => business.id === businessId)?.isShiftOpen
-      : undefined;
-    let shiftCloseFailed = false;
-
-    // Cerrar la sesión del negocio también termina su turno. Se actualiza la
-    // interfaz al instante y luego se confirma en el servidor para que el
-    // catálogo público no siga mostrando "Recibiendo pedidos".
-    if (businessId) {
-      setBusinesses((previous) => previous.map((business) =>
-        business.id === businessId ? { ...business, isShiftOpen: false } : business,
-      ));
-      try {
-        await apiFetch(`/businesses/${encodeURIComponent(businessId)}`, {
-          method: 'PUT',
-          body: JSON.stringify({ is_shift_open: 0 }),
-        });
-        await refreshBusinesses();
-      } catch (error) {
-        shiftCloseFailed = true;
-        if (previousShift !== undefined) {
-          setBusinesses((previous) => previous.map((business) =>
-            business.id === businessId ? { ...business, isShiftOpen: previousShift } : business,
-          ));
-        }
-        showNotification(
-          error instanceof Error
-            ? `La sesión se cerrará, pero no se pudo cerrar el turno: ${error.message}`
-            : 'La sesión se cerrará, pero no se pudo cerrar el turno.',
-          'error',
-        );
-      }
-    }
 
     // apiFetch captura el token antes de limpiarlo. El envío no impide que la
     // interfaz cierre la sesión y su estado nunca se anuncia como enviado
@@ -923,17 +897,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentUser(null);
     setOrders([]);
     setCart(null);
-    localStorage.removeItem('pidetietar_orders');
-    localStorage.removeItem('pidetietar_cart');
-    if (!shiftCloseFailed) showNotification('Has cerrado la sesión.', 'info');
+    sessionStore.removeItem('pidetietar_orders');
+    sessionStore.removeItem('pidetietar_cart');
+    showNotification('Has cerrado la sesión.', 'info');
     try {
       const result = await reportRequest as { report?: { sent: boolean; message: string } };
+      await refreshBusinesses();
       if (result?.report && !getSessionToken()) showNotification(result.report.message, result.report.sent ? 'success' : 'error');
     } catch {
       if (!getSessionToken()) showNotification('Has cerrado la sesión, pero no se pudo solicitar el reporte del día.', 'error');
     } finally {
       if (logoutInProgress.current === logoutToken) logoutInProgress.current = null;
     }
+  };
+
+  const getBusinessConnections: AppContextType['getBusinessConnections'] = async (userId) => {
+    try { return await apiFetch(`/users/${encodeURIComponent(userId)}/connections`); }
+    catch (error) { showNotification(error instanceof Error ? error.message : 'No se pudieron consultar las conexiones.', 'error'); return null; }
+  };
+  const authorizeBusinessConnections: AppContextType['authorizeBusinessConnections'] = async (userId, additionalConnections) => {
+    try {
+      await apiFetch(`/users/${encodeURIComponent(userId)}/connections`, { method: 'PUT', body: JSON.stringify({ additionalConnections }) });
+      showNotification('Conexiones autorizadas actualizadas.', 'success');
+      return true;
+    } catch (error) { showNotification(error instanceof Error ? error.message : 'No se pudieron autorizar las conexiones.', 'error'); return false; }
   };
 
   // La sesión vive sólo en memoria: si nadie la restaura del token al cargar
@@ -970,6 +957,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               courierTicketThresholdCents: Number(raw.courierTicketThresholdCents || 4000),
               courierDiscountEnabled: Boolean(raw.courierDiscountEnabled),
               courierDiscountPercentage: Number(raw.courierDiscountPercentage || 0),
+              courierBusinessSettings: raw.courierBusinessSettings || {},
               avatarUrl: raw.avatarUrl || '',
               isEmailVerified: Boolean(raw.isEmailVerified),
               businessId: raw.businessId || undefined,
@@ -1003,11 +991,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       currentUserRef.current = null;
       setCurrentUser(null);
       setOrders([]);
-      localStorage.removeItem('pidetietar_orders');
+      sessionStore.removeItem('pidetietar_orders');
+      setCart(null);
       showNotification('Tu sesión ha caducado. Vuelve a iniciar sesión para continuar.', 'error');
     });
     return () => setSessionExpiredHandler(null);
   }, []);
+
+  useEffect(() => watchBrowserSession(() => {
+    currentUserRef.current = null;
+    setCurrentUser(null);
+    setOrders([]);
+    setCart(null);
+    clearGoogleWorkspaceSession();
+    showNotification('La sesión se cerró al salir del navegador. Vuelve a iniciar sesión.', 'info');
+  }), []);
+
+  useEffect(() => {
+    const token = getSessionToken();
+    if (!currentUser || !token) return;
+    return watchSessionConnection(token, () => {
+      // Se captura la autorización antes de limpiar los datos del navegador.
+      // Si no hay red, el servidor cierra la sesión al faltar su conexión.
+      void apiFetch('/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
+      setSessionToken(null);
+      currentUserRef.current = null;
+      setCurrentUser(null);
+      setOrders([]);
+      setCart(null);
+      showNotification('Sesión cerrada tras perder la conexión durante 10 segundos. Vuelve a iniciar sesión.', 'error');
+    });
+  }, [currentUser?.id]);
 
   const updateCurrentUserProfile = async (data: Partial<User>) => {
     if (!currentUser?.id) {
@@ -1607,6 +1621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courierTicketThresholdCents?: number;
       courierDiscountEnabled?: boolean;
       courierDiscountPercentage?: number;
+      courierBusinessSettings?: Record<string, CourierBusinessSettings>;
       courierConfirmation?: NonNullable<User['courierProfile']>['confirmation'];
       termsAccepted?: boolean;
       termsVersion?: string;
@@ -1633,6 +1648,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           courierTicketThresholdCents: data.courierTicketThresholdCents,
           courierDiscountEnabled: data.courierDiscountEnabled,
           courierDiscountPercentage: data.courierDiscountPercentage,
+          courierBusinessSettings: data.courierBusinessSettings,
           courierConfirmation: data.courierConfirmation,
           termsAccepted: data.termsAccepted,
           termsVersion: data.termsVersion,
@@ -1690,6 +1706,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             courierTicketThresholdCents: Number(row.courierTicketThresholdCents || 4000),
             courierDiscountEnabled: Boolean(row.courierDiscountEnabled),
             courierDiscountPercentage: Number(row.courierDiscountPercentage || 0),
+            courierBusinessSettings: row.courierBusinessSettings || {},
             isEmailVerified: Boolean(row.isEmailVerified),
             addresses: [],
             createdAt: row.createdAt || new Date().toISOString(),
@@ -1741,6 +1758,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       courierTicketThresholdCents?: number;
       courierDiscountEnabled?: boolean;
       courierDiscountPercentage?: number;
+      courierBusinessSettings?: Record<string, CourierBusinessSettings>;
     },
     onFieldErrors?: (errors: Record<string, string>) => void,
   ): Promise<boolean> => {
@@ -1757,6 +1775,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           courierTicketThresholdCents: data.courierTicketThresholdCents ?? 4000,
           courierDiscountEnabled: data.courierDiscountEnabled ?? false,
           courierDiscountPercentage: data.courierDiscountPercentage ?? 0,
+          courierBusinessSettings: data.courierBusinessSettings ?? {},
         }),
       });
       showNotification('Repartidor actualizado correctamente.', 'success');
@@ -2440,6 +2459,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sessionChecked,
       loginAs,
       logout,
+      getBusinessConnections,
+      authorizeBusinessConnections,
       setCourierProfile,
       toggleCourierAvailability,
       verifyEmailWithGmailCode,

@@ -63,6 +63,36 @@ npm start
 
 `npm start` sirve la API y el contenido de `dist/` desde el puerto indicado en `PORT` (4000 por defecto). Si usas un proxy inverso, apunta al puerto del backend.
 
+## Sesiones y conexiones simultáneas
+
+Cada cuenta tiene una sola conexión activa por defecto, también repartidores y
+SuperAdmin. Un segundo navegador o dispositivo recibe `409 SESSION_LIMIT_REACHED`.
+La misma pestaña conserva su sesión al recargar y no consume otro cupo.
+
+El SuperAdmin puede abrir **Conexiones** en la fila de un negocio y autorizar
+conexiones adicionales para su cuenta de responsable. Solo `BUSINESS_ADMIN`
+admite esos cupos: los endpoints `GET/PUT /api/users/:id/connections` son exclusivos
+de SuperAdmin. No se puede reducir el límite por debajo de las conexiones activas.
+
+El token, los pedidos, la cesta y el token de Google viven en `sessionStorage`,
+nunca en `localStorage`. Se eliminan los restos de instalaciones anteriores.
+Al salir se limpian esos datos; volver a abrir la pestaña exige otro acceso.
+
+Una conexión autenticada `ws(s)://<origen>/api/auth/session` mantiene la presencia.
+La autorización se envía en el primer mensaje, no en la URL. Al cerrar el navegador
+o perder la conexión durante 10 segundos, el servidor revoca la sesión y libera
+su cupo (la comprobación se ejecuta cada segundo). El cliente también limpia su
+estado tras 10 segundos sin conexión. Un corte menor permite reconectar.
+El servidor mantiene turnos y disponibilidad mientras quede otra conexión
+autorizada de la misma cuenta. Al cerrar la última, cierra el turno del negocio
+o pone al repartidor fuera de línea.
+
+El esquema y las migraciones de SQLite/MySQL están en `server.js`: tabla
+`auth_sessions` y columna `app_users.additional_connections`. Al publicar esta
+versión, los tokens antiguos sin registro de sesión dejan de ser válidos y hay
+que iniciar sesión de nuevo. Deben publicarse juntos frontend y backend; el proxy
+de producción debe reenviar las conexiones WebSocket y el de Vite ya incluye `ws: true`.
+
 ## Reportes al cerrar sesión
 
 Cada cierre de sesión solicitado desde la interfaz llama a `POST /api/auth/logout`
@@ -78,7 +108,8 @@ recargar la página conserva la sesión actual. No se borran pedidos de la base 
 y el correo sigue cubriendo el día completo. Para enviarlo deben estar configurados
 `SMTP_HOST`, `SMTP_USER`, `SMTP_PASS` y los datos de remitente de `.env.example`.
 La interfaz comunica los fallos de SMTP y no los presenta como envíos realizados.
-Cerrar una pestaña o dejar caducar el token no solicita un reporte.
+El cierre automático por desconexión también solicita el reporte desde el servidor.
+Cerrar una sola conexión del negocio no cierra el turno de sus otras conexiones.
 
 ## Base de datos
 

@@ -58,6 +58,21 @@ const assignedBusinessIds = (courier: User): string[] => {
   return courier.businessId ? [courier.businessId] : [];
 };
 
+const buildCourierBusinessSettings = (
+  businessIds: string[],
+  ratesByBusiness: Record<string, string>,
+  ticketThresholdEuros: string,
+  discountEnabled: boolean,
+  discountPercentage: string,
+) => Object.fromEntries(
+  businessIds.map((businessId) => [businessId, {
+      courierRateCents: eurosToCents(ratesByBusiness[businessId] ?? '0') ?? 0,
+      courierTicketThresholdCents: eurosToCents(ticketThresholdEuros) ?? 0,
+      courierDiscountEnabled: discountEnabled,
+      courierDiscountPercentage: Number(discountPercentage.replace(',', '.')) || 0,
+    }]),
+);
+
 // Validación compartida por el alta y la edición del repartidor. La cobertura
 // se aplica también a los repartidores de plataforma: la lista de negocios ya
 // no es informativa, determina dónde puede recibir pedidos.
@@ -101,6 +116,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     setCourierConfirmation,
     updateCourierDetails,
     requestPasswordResetLink,
+    getBusinessConnections,
+    authorizeBusinessConnections,
     showNotification
   } = useApp();
 
@@ -115,6 +132,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const [showBusinessForm, setShowBusinessForm] = useState(false);
   const [editingBusinessId, setEditingBusinessId] = useState<string | null>(null);
   const [categoryManagerOpen, setCategoryManagerOpen] = useState(false);
+  const [connectionEditor, setConnectionEditor] = useState<{ userId: string; businessName: string; additional: string; active: number } | null>(null);
+  const [connectionSaving, setConnectionSaving] = useState(false);
+  const openConnections = async (business: Business) => {
+    if (!business.ownerUserId) return showNotification('Este negocio no tiene una cuenta de responsable asociada.', 'error');
+    const access = await getBusinessConnections(business.ownerUserId);
+    if (access) setConnectionEditor({ userId: business.ownerUserId, businessName: business.name, additional: String(access.additionalConnections), active: access.activeConnections });
+  };
 
   const [newBusinessForm, setNewBusinessForm] = useState({
     name: '',
@@ -281,9 +305,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     dni: '',
     role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
     businessIds: [] as string[],
+    courierRatesByBusiness: {} as Record<string, string>,
     accountNumber: '',
     courierDiscountEnabled: false,
-    courierRateEuros: '0',
     courierTicketThresholdEuros: '40',
     courierDiscountPercentage: '0',
     termsAccepted: false,
@@ -310,12 +334,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const [editingCourier, setEditingCourier] = useState<User | null>(null);
   const [courierEditForm, setCourierEditForm] = useState({
     businessIds: [] as string[],
+    courierRatesByBusiness: {} as Record<string, string>,
     phone: '',
     address: '',
     dni: '',
     accountNumber: '',
     courierDiscountEnabled: false,
-    courierRateEuros: '0',
     courierTicketThresholdEuros: '40',
     courierDiscountPercentage: '0',
   });
@@ -381,6 +405,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       businessIds: previous.businessIds.includes(businessId)
         ? previous.businessIds.filter((id) => id !== businessId)
         : [...previous.businessIds, businessId],
+      courierRatesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierRatesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : {
+            ...previous.courierRatesByBusiness,
+            [businessId]: '0',
+          },
     }));
     setCourierFormErrors((previous) => ({
       ...previous,
@@ -391,7 +423,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const handleCreateCourier = async (e: React.FormEvent) => {
     e.preventDefault();
     const errors: FieldErrors = {};
-    const courierRateCents = eurosToCents(courierForm.courierRateEuros);
     const courierTicketThresholdCents = eurosToCents(courierForm.courierTicketThresholdEuros);
     const courierDiscountPercentage = Number(courierForm.courierDiscountPercentage.replace(',', '.'));
 
@@ -421,8 +452,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierForm.accountNumber,
       ),
     );
-    if (courierRateCents === null) {
-      errors.courierRateEuros = 'El monto debe estar entre 0 y 10.000,00 €.';
+    const invalidRate = courierForm.businessIds.some(
+      (businessId) => eurosToCents(courierForm.courierRatesByBusiness[businessId] ?? '0') === null,
+    );
+    if (invalidRate) {
+      errors.courierBusinessSettings = 'El monto de cada reparto debe estar entre 0 y 10.000,00 €.';
     }
     if (courierTicketThresholdCents === null) {
       errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
@@ -451,9 +485,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         // `businessId` se conserva como negocio de referencia (el primero).
         businessId: courierForm.businessIds[0],
         courierBusinessIds: courierForm.businessIds,
+        courierBusinessSettings: buildCourierBusinessSettings(
+          courierForm.businessIds,
+          courierForm.courierRatesByBusiness,
+          courierForm.courierTicketThresholdEuros,
+          courierForm.courierDiscountEnabled,
+          courierForm.courierDiscountPercentage,
+        ),
         accountNumber: normalizeIban(courierForm.accountNumber) || undefined,
         courierDiscountEnabled: courierForm.courierDiscountEnabled,
-        courierRateCents: courierRateCents || 0,
+        courierRateCents: eurosToCents(courierForm.courierRatesByBusiness[courierForm.businessIds[0]] ?? '0') ?? 0,
         courierTicketThresholdCents: courierTicketThresholdCents || 0,
         courierDiscountPercentage,
         courierConfirmation: 'PENDING',
@@ -477,9 +518,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         dni: '',
         role: 'PLATFORM_COURIER',
         businessIds: [],
+        courierRatesByBusiness: {},
         accountNumber: '',
         courierDiscountEnabled: false,
-        courierRateEuros: '0',
         courierTicketThresholdEuros: '40',
         courierDiscountPercentage: '0',
         termsAccepted: false,
@@ -498,15 +539,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   };
 
   const openCourierEdit = (courier: User) => {
+    const businessIds = assignedBusinessIds(courier);
     setEditingCourier(courier);
     setCourierEditForm({
-      businessIds: assignedBusinessIds(courier),
+      businessIds,
+      courierRatesByBusiness: Object.fromEntries(
+        businessIds.map((businessId) => [
+          businessId,
+          ((courier.courierBusinessSettings?.[businessId]?.courierRateCents ?? courier.courierRateCents ?? 0) / 100).toFixed(2),
+        ]),
+      ),
       phone: courier.phone || '',
       address: courier.address || '',
       dni: courier.dni || '',
       accountNumber: courier.accountNumber || '',
       courierDiscountEnabled: courier.courierDiscountEnabled === true,
-      courierRateEuros: ((courier.courierRateCents || 0) / 100).toFixed(2),
       courierTicketThresholdEuros: ((courier.courierTicketThresholdCents ?? 4000) / 100).toFixed(2),
       courierDiscountPercentage: String(courier.courierDiscountPercentage ?? 0),
     });
@@ -532,6 +579,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       businessIds: previous.businessIds.includes(businessId)
         ? previous.businessIds.filter((id) => id !== businessId)
         : [...previous.businessIds, businessId],
+      courierRatesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierRatesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : {
+            ...previous.courierRatesByBusiness,
+            [businessId]: '0',
+          },
     }));
     setCourierEditErrors((previous) => ({
       ...previous,
@@ -542,7 +597,6 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const handleSaveCourierDetails = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCourier) return;
-    const courierRateCents = eurosToCents(courierEditForm.courierRateEuros);
     const courierTicketThresholdCents = eurosToCents(courierEditForm.courierTicketThresholdEuros);
     const courierDiscountPercentage = Number(courierEditForm.courierDiscountPercentage.replace(',', '.'));
 
@@ -554,8 +608,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierEditForm.accountNumber,
       ),
     };
-    if (courierRateCents === null) {
-      errors.courierRateEuros = 'El monto debe estar entre 0 y 10.000,00 €.';
+    const invalidRate = courierEditForm.businessIds.some(
+      (businessId) => eurosToCents(courierEditForm.courierRatesByBusiness[businessId] ?? '0') === null,
+    );
+    if (invalidRate) {
+      errors.courierBusinessSettings = 'El monto de cada reparto debe estar entre 0 y 10.000,00 €.';
     }
     if (courierTicketThresholdCents === null) {
       errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
@@ -571,12 +628,19 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
       editingCourier.id,
       {
         courierBusinessIds: courierEditForm.businessIds,
+        courierBusinessSettings: buildCourierBusinessSettings(
+          courierEditForm.businessIds,
+          courierEditForm.courierRatesByBusiness,
+          courierEditForm.courierTicketThresholdEuros,
+          courierEditForm.courierDiscountEnabled,
+          courierEditForm.courierDiscountPercentage,
+        ),
         phone: courierEditForm.phone.trim(),
         address: courierEditForm.address.trim(),
         dni: normalizeDni(courierEditForm.dni),
         accountNumber: normalizeIban(courierEditForm.accountNumber),
         courierDiscountEnabled: courierEditForm.courierDiscountEnabled,
-        courierRateCents: courierRateCents || 0,
+        courierRateCents: eurosToCents(courierEditForm.courierRatesByBusiness[courierEditForm.businessIds[0]] ?? '0') ?? 0,
         courierTicketThresholdCents: courierTicketThresholdCents || 0,
         courierDiscountPercentage,
       },
@@ -1069,7 +1133,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <label className="mb-1 block text-xs font-semibold text-stone-500">Tipo de repartidor</label>
             <select
               value={courierForm.role}
-              onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [] })}
+              onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [], courierRatesByBusiness: {} })}
               className="w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]"
             >
               <option value="PLATFORM_COURIER">Plataforma (negocios asignados)</option>
@@ -1121,6 +1185,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               </p>
             )}
             <FieldError message={courierFormErrors.businessIds} />
+            {courierForm.businessIds.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-xl border border-orange-200 bg-orange-50 p-3 dark:border-orange-900/50 dark:bg-orange-950/20">
+                <p className="text-[11px] font-bold text-stone-700 dark:text-stone-200">
+                  Monto por reparto para cada negocio seleccionado
+                </p>
+                {courierForm.businessIds.map((businessId) => {
+                  const business = businesses.find((item) => item.id === businessId);
+                  return (
+                    <label key={businessId} className="flex items-center justify-between gap-3 text-xs text-stone-600 dark:text-stone-300">
+                      <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>
+                      <span className="flex shrink-0 items-center gap-2">
+                        <input
+                          type="number"
+                          min="0"
+                          max="10000"
+                          step="0.01"
+                          value={courierForm.courierRatesByBusiness[businessId] ?? '0'}
+                          onChange={(event) => setCourierForm((previous) => ({
+                            ...previous,
+                            courierRatesByBusiness: {
+                              ...previous.courierRatesByBusiness,
+                              [businessId]: event.target.value,
+                            },
+                          }))}
+                          className={fieldClass('w-28 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-right text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierFormErrors.courierBusinessSettings))}
+                          placeholder="0,00"
+                          aria-label={`Monto por reparto para ${business?.name || 'el negocio'}`}
+                        />
+                        <span>€</span>
+                      </span>
+                    </label>
+                  );
+                })}
+                <FieldError message={courierFormErrors.courierBusinessSettings} />
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold text-stone-500">
@@ -1151,21 +1251,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               Activar descuento para este repartidor
             </label>
             <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
-              Monto por reparto (€)
-            </label>
-            <input
-              type="number"
-              min="0"
-              max="10000"
-              step="0.01"
-              value={courierForm.courierRateEuros}
-              onChange={(e) => setCourierForm({ ...courierForm, courierRateEuros: e.target.value })}
-              className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierFormErrors.courierRateEuros))}
-              placeholder="0,00"
-            />
-            <FieldError message={courierFormErrors.courierRateEuros} />
-            <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
-              Ticket base hasta (€)
+              Ticket base hasta (€), común para los negocios
             </label>
             <input
               type="number"
@@ -1301,7 +1387,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                         : 'Sin IBAN configurado'}
                     </p>
                     <p className="mt-0.5 text-xs text-stone-400">
-                      Reparto: {((courier.courierRateCents || 0) / 100).toFixed(2)}€ · Descuento: {courier.courierDiscountEnabled
+                      Reparto por negocio: {assignedBusinessIds(courier).map((businessId) => {
+                        const setting = courier.courierBusinessSettings?.[businessId];
+                        const business = businesses.find((item) => item.id === businessId);
+                        const cents = setting?.courierRateCents ?? courier.courierRateCents ?? 0;
+                        return `${business?.name || 'Negocio'} ${((cents || 0) / 100).toFixed(2)}€`;
+                      }).join(' · ') || 'Sin negocios'} · Descuento: {courier.courierDiscountEnabled
                         ? `${courier.courierDiscountPercentage || 0}%`
                         : 'Desactivado'} · Extra: +1€ / 10€ sobre {((courier.courierTicketThresholdCents ?? 4000) / 100).toFixed(2)}€
                     </p>
@@ -1727,6 +1818,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       >
                         {resetLinkBusyId === biz.id ? 'Enviando…' : 'Recuperar Clave'}
                       </button>
+                      <button type="button" onClick={() => { void openConnections(biz); }} className="text-xs font-semibold text-blue-600 hover:underline">
+                        Conexiones
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -1913,6 +2007,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   La lista determina los negocios de los que puede recibir pedidos.
                 </p>
                 <FieldError message={courierEditErrors.businessIds} />
+                {courierEditForm.businessIds.length > 0 && (
+                  <div className="mt-3 space-y-2 rounded-xl border border-orange-200 bg-orange-50 p-3 dark:border-orange-900/50 dark:bg-orange-950/20">
+                    <p className="text-[11px] font-bold text-stone-700 dark:text-stone-200">
+                      Monto por reparto para cada negocio seleccionado
+                    </p>
+                    {courierEditForm.businessIds.map((businessId) => {
+                      const business = businesses.find((item) => item.id === businessId);
+                      return (
+                        <label key={businessId} className="flex items-center justify-between gap-3 text-xs text-stone-600 dark:text-stone-300">
+                          <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <input
+                              type="number"
+                              min="0"
+                              max="10000"
+                              step="0.01"
+                              value={courierEditForm.courierRatesByBusiness[businessId] ?? '0'}
+                              onChange={(event) => setCourierEditForm((previous) => ({
+                                ...previous,
+                                courierRatesByBusiness: {
+                                  ...previous.courierRatesByBusiness,
+                                  [businessId]: event.target.value,
+                                },
+                              }))}
+                              className={fieldClass('w-28 rounded-lg border border-stone-200 bg-white px-3 py-1.5 text-right text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierEditErrors.courierBusinessSettings))}
+                              placeholder="0,00"
+                              aria-label={`Monto por reparto para ${business?.name || 'el negocio'}`}
+                            />
+                            <span>€</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                    <FieldError message={courierEditErrors.courierBusinessSettings} />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -1954,26 +2084,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   Activar descuento para este repartidor
                 </label>
                 <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
-                  Monto por reparto (€)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max="10000"
-                  step="0.01"
-                  value={courierEditForm.courierRateEuros}
-                  onChange={(e) =>
-                    setCourierEditForm((previous) => ({
-                      ...previous,
-                      courierRateEuros: e.target.value,
-                    }))
-                  }
-                  className={fieldClass('w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]', Boolean(courierEditErrors.courierRateEuros))}
-                  placeholder="0,00"
-                />
-                <FieldError message={courierEditErrors.courierRateEuros} />
-                <label className="mb-1 mt-3 block text-xs font-semibold text-stone-500">
-                  Ticket base hasta (€)
+                  Ticket base hasta (€), común para los negocios
                 </label>
                 <input
                   type="number"
@@ -2041,6 +2152,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         open={categoryManagerOpen}
         onClose={() => setCategoryManagerOpen(false)}
       />
+      {connectionEditor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <form role="dialog" aria-modal="true" aria-labelledby="connection-editor-title" className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl dark:bg-stone-900" onSubmit={async (event) => {
+            event.preventDefault();
+            if (connectionSaving) return;
+            const count = Number(connectionEditor.additional);
+            if (!Number.isInteger(count) || count < 0 || count > 100) return showNotification('Indica entre 0 y 100 conexiones adicionales.', 'error');
+            setConnectionSaving(true);
+            try { if (await authorizeBusinessConnections(connectionEditor.userId, count)) setConnectionEditor(null); }
+            finally { setConnectionSaving(false); }
+          }}>
+            <h2 id="connection-editor-title" className="text-lg font-bold">Conexiones de {connectionEditor.businessName}</h2>
+            <p className="text-sm text-stone-500">Conexiones activas: {connectionEditor.active}. La cuenta incluye una conexión. Solo el SuperAdmin puede autorizar conexiones adicionales.</p>
+            <label className="block text-sm font-semibold">
+              Conexiones adicionales autorizadas
+              <input type="number" min="0" max="100" step="1" required value={connectionEditor.additional} onChange={(event) => setConnectionEditor({ ...connectionEditor, additional: event.target.value })} className="mt-2 w-full rounded-xl border border-stone-300 bg-transparent px-3 py-2" />
+            </label>
+            <p className="text-sm">Total permitido: {1 + (Number(connectionEditor.additional) || 0)} conexiones.</p>
+            <div className="flex justify-end gap-3">
+              <button type="button" disabled={connectionSaving} onClick={() => setConnectionEditor(null)} className="rounded-xl border px-4 py-2 text-sm">Cancelar</button>
+              <button type="submit" disabled={connectionSaving} className="rounded-xl bg-[#FF4E00] px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{connectionSaving ? 'Guardando…' : 'Autorizar conexiones'}</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

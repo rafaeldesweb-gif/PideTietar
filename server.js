@@ -9,6 +9,7 @@ import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
 import Stripe from "stripe";
+import { WebSocketServer } from 'ws';
 import { buildActivityReport } from './server/activityReports.js';
 import {
   normalizeAddressPart,
@@ -147,6 +148,12 @@ function isUsingInsecureDefaultPassword(hash) {
 }
 
 const sqliteSchema = `
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id TEXT PRIMARY KEY, user_id TEXT NOT NULL, device_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL, close_requested_at INTEGER, closed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_auth_sessions_user ON auth_sessions(user_id, closed_at);
   CREATE TABLE IF NOT EXISTS app_users (
     id TEXT PRIMARY KEY,
     username TEXT UNIQUE,
@@ -166,6 +173,7 @@ const sqliteSchema = `
     courier_rate_cents INTEGER NOT NULL DEFAULT 0,
     courier_ticket_threshold_cents INTEGER NOT NULL DEFAULT 4000,
     courier_discount_percentage REAL NOT NULL DEFAULT 0,
+    courier_business_settings TEXT DEFAULT '{}',
     email_verified INTEGER DEFAULT 0,
     email_verified_at TEXT,
     password_change_required INTEGER DEFAULT 0,
@@ -346,6 +354,13 @@ const sqliteSchema = `
 `;
 
 const mysqlSchema = `
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    id VARCHAR(64) NOT NULL PRIMARY KEY, user_id VARCHAR(64) NOT NULL,
+    device_hash VARCHAR(64) NOT NULL, created_at BIGINT NOT NULL,
+    expires_at BIGINT NOT NULL, last_seen_at BIGINT NOT NULL,
+    close_requested_at BIGINT NULL, closed_at BIGINT NULL,
+    KEY idx_auth_sessions_user (user_id, closed_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
   CREATE TABLE IF NOT EXISTS app_users (
     id CHAR(36) NOT NULL DEFAULT (UUID()),
     username VARCHAR(64) NULL,
@@ -365,6 +380,7 @@ const mysqlSchema = `
     courier_rate_cents INT NOT NULL DEFAULT 0,
     courier_ticket_threshold_cents INT NOT NULL DEFAULT 4000,
     courier_discount_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+    courier_business_settings JSON NULL,
     email_verified TINYINT(1) NOT NULL DEFAULT 0,
     email_verified_at DATETIME(3) NULL,
     password_change_required TINYINT(1) NOT NULL DEFAULT 0,
@@ -678,6 +694,7 @@ async function ensureMySqlSchemaShape(pool) {
   ]);
 
   await ensureMysqlColumns(pool, "app_users", [
+    ['additional_connections', 'INT NOT NULL DEFAULT 0'],
     ["business_id", "CHAR(36) NULL"],
     ["locality_id", "CHAR(36) NULL"],
     ["account_number", "VARCHAR(255) NULL"],
@@ -685,6 +702,7 @@ async function ensureMySqlSchemaShape(pool) {
     ["courier_rate_cents", "INT NOT NULL DEFAULT 0"],
     ["courier_ticket_threshold_cents", "INT NOT NULL DEFAULT 4000"],
     ["courier_discount_percentage", "DECIMAL(5,2) NOT NULL DEFAULT 0.00"],
+    ["courier_business_settings", "JSON NULL"],
     ["phone", "VARCHAR(30) NULL"],
     ["address", "TEXT NULL"],
     ["dni", "VARCHAR(20) NULL"],
@@ -867,10 +885,12 @@ function ensureSqliteSchemaShape() {
   ensureColumn("app_users", "business_id", "TEXT");
   ensureColumn("app_users", "locality_id", "TEXT");
   ensureColumn("app_users", "is_online", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn('app_users', 'additional_connections', 'INTEGER NOT NULL DEFAULT 0');
   ensureColumn("app_users", "courier_discount_enabled", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("app_users", "courier_rate_cents", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn("app_users", "courier_ticket_threshold_cents", "INTEGER NOT NULL DEFAULT 4000");
   ensureColumn("app_users", "courier_discount_percentage", "REAL NOT NULL DEFAULT 0");
+  ensureColumn("app_users", "courier_business_settings", "TEXT DEFAULT '{}'");
   // Confirmación del alta de repartidores: PENDING (sin aprobar),
   // BUSINESS_EMAIL (aprobado por el negocio) o SUPERADMIN (aprobado por la
   // plataforma). Es lo que desbloquea el panel del repartidor.
@@ -1402,6 +1422,157 @@ function parseCourierBusinessIds(row) {
   return legacyBusinessId ? [String(legacyBusinessId)] : [];
 }
 
+// Configuración económica independiente para cada negocio asignado. Se deja
+// en JSON dentro de app_users para que funcione igual en SQLite y MySQL y para
+// que las cuentas antiguas puedan seguir usando los campos globales como
+// valores de respaldo.
+function parseCourierBusinessSettings(row) {
+  if (!row) return {};
+  const raw = row.courier_business_settings ?? row.courierBusinessSettings;
+  let parsed = raw;
+
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return {};
+  }
+
+  const settings = {};
+  for (const [businessId, value] of Object.entries(parsed)) {
+    if (!businessId || !value || typeof value !== "object" || Array.isArray(value)) {
+      continue;
+    }
+    settings[String(businessId)] = {
+      courierRateCents: Math.max(
+        0,
+        Math.trunc(Number(value.courierRateCents ?? value.courier_rate_cents) || 0),
+      ),
+      courierTicketThresholdCents: Math.max(
+        0,
+        Math.trunc(
+          Number(
+            value.courierTicketThresholdCents ??
+              value.courier_ticket_threshold_cents ??
+              4000,
+          ) || 0,
+        ),
+      ),
+      courierDiscountEnabled: Boolean(
+        value.courierDiscountEnabled ?? value.courier_discount_enabled,
+      ),
+      courierDiscountPercentage: Math.max(
+        0,
+        Math.min(
+          100,
+          Number(
+            value.courierDiscountPercentage ??
+              value.courier_discount_percentage ??
+              0,
+          ) || 0,
+        ),
+      ),
+    };
+  }
+  return settings;
+}
+
+function courierBusinessSettingsWithFallback(row, businessIds = []) {
+  const saved = parseCourierBusinessSettings(row);
+  const fallback = {
+    courierRateCents: Math.max(
+      0,
+      Math.trunc(Number(row?.courier_rate_cents ?? row?.courierRateCents) || 0),
+    ),
+    courierTicketThresholdCents: Math.max(
+      0,
+      Math.trunc(
+        Number(
+          row?.courier_ticket_threshold_cents ??
+            row?.courierTicketThresholdCents ??
+            4000,
+        ) || 0,
+      ),
+    ),
+    courierDiscountEnabled: Boolean(
+      row?.courier_discount_enabled ?? row?.courierDiscountEnabled,
+    ),
+    courierDiscountPercentage: Math.max(
+      0,
+      Math.min(
+        100,
+        Number(
+          row?.courier_discount_percentage ??
+            row?.courierDiscountPercentage ??
+            0,
+        ) || 0,
+      ),
+    ),
+  };
+
+  for (const businessId of businessIds) {
+    const key = String(businessId || "");
+    if (key && !saved[key]) saved[key] = { ...fallback };
+  }
+  return saved;
+}
+
+function serializeCourierBusinessSettings(value) {
+  return JSON.stringify(value && typeof value === "object" ? value : {});
+}
+
+function getCourierBusinessSetting(row, businessId) {
+  const key = String(businessId || "");
+  const settings = courierBusinessSettingsWithFallback(row, key ? [key] : []);
+  return settings[key] || {
+    courierRateCents: 0,
+    courierTicketThresholdCents: 4000,
+    courierDiscountEnabled: false,
+    courierDiscountPercentage: 0,
+  };
+}
+
+function normalizeCourierBusinessSettings(raw, businessIds, fallback) {
+  let source = raw;
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      source = JSON.parse(raw);
+    } catch {
+      source = {};
+    }
+  }
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    source = {};
+  }
+
+  const normalized = {};
+  for (const businessId of businessIds) {
+    const key = String(businessId);
+    const value = source[key] && typeof source[key] === "object" ? source[key] : {};
+    normalized[key] = {
+      courierRateCents: value.courierRateCents ?? value.courier_rate_cents ?? fallback.courierRateCents,
+      courierTicketThresholdCents:
+        value.courierTicketThresholdCents ??
+        value.courier_ticket_threshold_cents ??
+        fallback.courierTicketThresholdCents,
+      courierDiscountEnabled:
+        value.courierDiscountEnabled ??
+        value.courier_discount_enabled ??
+        fallback.courierDiscountEnabled,
+      courierDiscountPercentage:
+        value.courierDiscountPercentage ??
+        value.courier_discount_percentage ??
+        fallback.courierDiscountPercentage,
+    };
+  }
+  return normalized;
+}
+
 function sanitizeUser(row) {
   if (!row) return null;
   const isEmailVerified = Boolean(
@@ -1471,6 +1642,7 @@ function sanitizeUser(row) {
     courierDiscountPercentage: Number(
       row.courier_discount_percentage ?? row.courierDiscountPercentage ?? 0,
     ) || 0,
+    courierBusinessSettings: parseCourierBusinessSettings(row),
     localityId: row.locality_id || row.localityId || "",
     isEmailVerified: isEmailVerified,
     emailVerified: isEmailVerified,
@@ -1880,17 +2052,7 @@ async function listBusinesses() {
       .all();
   }
 
-  let couriers = [];
-  if (mysqlPool) {
-    const [result] = await mysqlPool.execute(
-      "SELECT * FROM app_users WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER') AND status = 'ACTIVE' AND is_online = 1 AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN') AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = app_users.id AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'))",
-    );
-    couriers = result;
-  } else {
-    couriers = getSqliteDb().prepare(
-      "SELECT * FROM app_users WHERE role IN ('BUSINESS_COURIER', 'PLATFORM_COURIER') AND status = 'ACTIVE' AND is_online = 1 AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN') AND NOT EXISTS (SELECT 1 FROM orders o WHERE o.courier_id = app_users.id AND o.status NOT IN ('DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'))",
-    ).all();
-  }
+  const couriers = await listReceivingCouriers();
   const onlineBusinessIds = new Set();
   for (const courier of couriers) {
     for (const businessId of parseCourierBusinessIds(courier)) {
@@ -2362,7 +2524,8 @@ async function listOrders(user) {
 // no está activa/confirmada, no cubre ningún negocio o ya tiene un pedido en
 // curso. Así el indicador del panel no confunde "en línea" con disponibilidad
 // efectiva para recibir un nuevo reparto.
-async function listReceivingCourierIds() {
+async function listReceivingCouriers() {
+  const now = Date.now();
   const sql = `
     SELECT id, role, courier_business_ids, business_id
     FROM app_users
@@ -2371,6 +2534,11 @@ async function listReceivingCourierIds() {
       AND is_online = 1
       AND courier_confirmation IN ('BUSINESS_EMAIL', 'SUPERADMIN')
       AND (email_verified = 1 OR email_verified_at IS NOT NULL)
+      AND EXISTS (
+        SELECT 1 FROM auth_sessions s WHERE s.user_id = app_users.id
+          AND s.closed_at IS NULL AND s.expires_at > ? AND s.last_seen_at > ?
+          AND (s.close_requested_at IS NULL OR s.close_requested_at > ?)
+      )
       AND NOT EXISTS (
         SELECT 1
         FROM orders o
@@ -2380,19 +2548,17 @@ async function listReceivingCourierIds() {
 
   let rows;
   if (mysqlPool) {
-    const [result] = await mysqlPool.execute(sql);
+    const [result] = await mysqlPool.execute(sql, [now, now - SESSION_DISCONNECT_MS, now - SESSION_DISCONNECT_MS]);
     rows = result;
   } else {
-    rows = getSqliteDb().prepare(sql).all();
+    rows = getSqliteDb().prepare(sql).all(now, now - SESSION_DISCONNECT_MS, now - SESSION_DISCONNECT_MS);
   }
 
-  return new Set(
-    rows
-      .filter(
-        (row) => parseCourierBusinessIds(row).length > 0,
-      )
-      .map((row) => String(row.id)),
-  );
+  return rows.filter((row) => parseCourierBusinessIds(row).length > 0);
+}
+
+async function listReceivingCourierIds() {
+  return new Set((await listReceivingCouriers()).map((row) => String(row.id)));
 }
 
 async function listUsers() {
@@ -2433,6 +2599,7 @@ async function createUser({
   courierTicketThresholdCents = 4000,
   courierDiscountEnabled = false,
   courierDiscountPercentage = 0,
+  courierBusinessSettings = {},
   termsAccepted = false,
   termsVersion = CURRENT_TERMS_VERSION,
 }) {
@@ -2482,6 +2649,19 @@ async function createUser({
     role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
       ? Math.max(0, Math.min(100, Number(courierDiscountPercentage) || 0))
       : 0;
+  const cleanCourierBusinessSettings =
+    role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
+      ? courierBusinessSettingsWithFallback(
+          {
+            courier_rate_cents: cleanCourierRateCents,
+            courier_ticket_threshold_cents: cleanCourierTicketThresholdCents,
+            courier_discount_enabled: cleanCourierDiscountEnabled,
+            courier_discount_percentage: cleanCourierDiscountPercentage,
+            courier_business_settings: courierBusinessSettings,
+          },
+          cleanCourierBusinessIds,
+        )
+      : {};
   const cleanAddress = address ? String(address).trim() : null;
   const cleanLocalityId = localityId ? String(localityId).trim() : null;
   const cleanTermsVersion = cleanString(termsVersion) || CURRENT_TERMS_VERSION;
@@ -2496,7 +2676,8 @@ async function createUser({
   if (mysqlPool) {
     const id = cryptoRandomId();
     await mysqlPool.execute(
-      "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      `INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, courier_business_settings, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)` ,
       [
         id,
         cleanUsername,
@@ -2516,6 +2697,7 @@ async function createUser({
         cleanCourierTicketThresholdCents,
         cleanCourierDiscountEnabled,
         cleanCourierDiscountPercentage,
+        serializeCourierBusinessSettings(cleanCourierBusinessSettings),
         initialEmailVerified,
         cleanCourierConfirmation,
         JSON.stringify(cleanCourierBusinessIds),
@@ -2533,7 +2715,8 @@ async function createUser({
   const db = getSqliteDb();
   const id = cryptoRandomId();
   db.prepare(
-    "INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO app_users (id, username, full_name, email, phone, address, dni, avatar_url, password_hash, role, status, business_id, locality_id, account_number, courier_rate_cents, courier_ticket_threshold_cents, courier_discount_enabled, courier_discount_percentage, courier_business_settings, email_verified, courier_confirmation, courier_business_ids, terms_version, terms_accepted_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     cleanUsername,
@@ -2553,6 +2736,7 @@ async function createUser({
     cleanCourierTicketThresholdCents,
     cleanCourierDiscountEnabled,
     cleanCourierDiscountPercentage,
+    serializeCourierBusinessSettings(cleanCourierBusinessSettings),
     initialEmailVerified,
     cleanCourierConfirmation,
     JSON.stringify(cleanCourierBusinessIds),
@@ -2576,6 +2760,23 @@ function cryptoRandomId() {
 // se comprueba con comparación constante en tiempo.
 const SESSION_TTL_MS =
   Number(process.env.SESSION_TTL_HOURS || 168) * 60 * 60 * 1000;
+const SESSION_DISCONNECT_MS = Math.max(1000, Number(process.env.SESSION_DISCONNECT_MS || 10000));
+const sessionSockets = new Map();
+
+async function sessionSql(sql, params = []) {
+  if (mysqlPool) {
+    const [result] = await mysqlPool.execute(sql, params);
+    return result;
+  }
+  const statement = getSqliteDb().prepare(sql);
+  return sql.trimStart().startsWith('SELECT') ? statement.all(...params) : statement.run(...params);
+}
+
+function sessionIsActive(row, now = Date.now()) {
+  return !!row && row.closed_at == null && Number(row.expires_at) > now &&
+    Number(row.last_seen_at) > now - SESSION_DISCONNECT_MS &&
+    (row.close_requested_at == null || Number(row.close_requested_at) > now - SESSION_DISCONNECT_MS);
+}
 
 function loadSessionSecret() {
   if (process.env.SESSION_SECRET) return String(process.env.SESSION_SECRET);
@@ -2615,13 +2816,39 @@ function getSuperAdminSessionUser() {
   };
 }
 
-function createSessionToken(user) {
+async function createSessionToken(user, deviceId) {
+  const deviceHash = createHash('sha256').update(String(deviceId || randomBytes(32).toString('hex'))).digest('hex');
+  const session = await withTransaction(async (tx) => {
+    // Bloqueo por cuenta, también para el acceso de emergencia: dos peticiones
+    // simultáneas no pueden reservar a la vez el último cupo de conexión.
+    const lockKey = `login:${createHash('sha256').update(String(user.id)).digest('hex')}`;
+    await txQuery(tx, mysqlPool
+      ? 'INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)'
+      : 'INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?) ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value', [lockKey, '1']);
+    const accounts = await txQuery(tx, 'SELECT role, additional_connections FROM app_users WHERE id = ?', [String(user.id)]);
+    const account = accounts[0] || user;
+    const rows = await txQuery(tx, 'SELECT * FROM auth_sessions WHERE user_id = ? AND closed_at IS NULL', [String(user.id)]);
+    const active = rows.filter((row) => sessionIsActive(row));
+    const existing = active.find((row) => row.device_hash === deviceHash);
+    if (existing) {
+      await txQuery(tx, 'UPDATE auth_sessions SET last_seen_at = ?, close_requested_at = NULL WHERE id = ?', [Date.now(), existing.id]);
+      return existing;
+    }
+    const limit = account.role === 'BUSINESS_ADMIN' ? 1 + Math.max(0, Number(account.additional_connections) || 0) : 1;
+    if (active.length >= limit) throw httpError(409, 'SESSION_LIMIT_REACHED', 'Este usuario ya tiene una sesión abierta en otro dispositivo. Cierra esa sesión antes de acceder.');
+    const now = Date.now();
+    const row = { id: randomBytes(24).toString('hex'), created_at: now, expires_at: now + SESSION_TTL_MS };
+    await txQuery(tx, 'INSERT INTO auth_sessions (id, user_id, device_hash, created_at, expires_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [row.id, String(user.id), deviceHash, row.created_at, row.expires_at, now]);
+    return row;
+  });
   const payload = {
+    sid: session.id,
     sub: user.id,
     role: user.role || "CLIENT",
     businessId: user.business_id || user.businessId || null,
-    iat: Date.now(),
-    exp: Date.now() + SESSION_TTL_MS,
+    iat: Number(session.created_at),
+    exp: Number(session.expires_at),
   };
 
   const body = b64url(JSON.stringify(payload));
@@ -2698,7 +2925,7 @@ async function loadUserForSession(userId) {
   );
 }
 
-async function readRequestUser(req) {
+async function readRequestUser(req, { allowClosed = false } = {}) {
   const header = String(req.headers.authorization || "");
   const bearer = header.toLowerCase().startsWith("bearer ")
     ? header.slice(7).trim()
@@ -2706,9 +2933,12 @@ async function readRequestUser(req) {
   const token = bearer || String(req.headers["x-auth-token"] || "").trim();
 
   const payload = readSessionToken(token);
-  if (!payload) return null;
+  if (!payload?.sid) return null;
+  const [session] = await sessionSql('SELECT * FROM auth_sessions WHERE id = ? AND user_id = ?', [payload.sid, String(payload.sub)]);
+  if (!session || (!allowClosed && !sessionIsActive(session))) return null;
 
   req.sessionPayload = payload;
+  req.authSession = session;
   return loadUserForSession(payload.sub);
 }
 
@@ -4128,7 +4358,7 @@ app.post("/api/auth/register", async (req, res) => {
   res.status(201).json({
     success: true,
     user: sanitizeUser(newUser),
-    token: createSessionToken(newUser),
+    token: await createSessionToken(newUser, req.body?.deviceId),
     requiresEmailVerification: false,
     emailVerificationSent: false,
     message: "Usuario creado correctamente. Ya puedes iniciar sesión.",
@@ -4226,7 +4456,7 @@ app.post("/api/auth/login", async (req, res) => {
     return res.json({
       success: true,
       user: sanitizeUser(user),
-      token: createSessionToken(user),
+      token: await createSessionToken(user, req.body?.deviceId),
     });
   }
 
@@ -4268,7 +4498,7 @@ app.post("/api/auth/login", async (req, res) => {
   res.json({
     success: true,
     user: sanitizeUser(user),
-    token: createSessionToken(user),
+    token: await createSessionToken(user, req.body?.deviceId),
   });
 });
 
@@ -4451,16 +4681,24 @@ app.post("/api/auth/reset-password", async (req, res) => {
 // Evita duplicar envíos si se pulsa dos veces «Cerrar sesión» o la misma
 // petición se reintenta. Nunca se aceptan destinatarios ni pedidos del cliente.
 const logoutReports = new Map();
-app.post('/api/auth/logout', requireAuth, async (req, res) => {
+async function closeTrackedSession(session, user) {
   const now = Date.now();
   for (const [key, entry] of logoutReports) {
     if (entry.expiresAt <= now) logoutReports.delete(key);
   }
-  const key = createHash('sha256').update(`${req.sessionPayload.sub}:${req.sessionPayload.iat}`).digest('hex');
+  const key = session.id;
   let entry = logoutReports.get(key);
   if (!entry) {
-    const user = req.user;
     const pending = (async () => {
+      const changed = await sessionSql('UPDATE auth_sessions SET closed_at = ? WHERE id = ? AND closed_at IS NULL', [now, key]);
+      if (!Number(changed.affectedRows ?? changed.changes)) return null;
+      for (const socket of sessionSockets.get(key) || []) socket.close(4001, 'Sesión cerrada');
+      sessionSockets.delete(key);
+      const others = await sessionSql('SELECT * FROM auth_sessions WHERE user_id = ? AND closed_at IS NULL', [String(user.id)]);
+      if (!others.some((row) => sessionIsActive(row))) {
+        if (['BUSINESS_COURIER', 'PLATFORM_COURIER'].includes(user.role)) await sessionSql('UPDATE app_users SET is_online = 0 WHERE id = ?', [String(user.id)]);
+        if (user.role === 'BUSINESS_ADMIN' && user.business_id) await sessionSql('UPDATE businesses SET is_shift_open = 0 WHERE id = ?', [user.business_id]);
+      }
       const [orders, businesses, localities] = await Promise.all([listOrders(user), listBusinesses(), listLocalities()]);
       const report = buildActivityReport({ user, orders, businesses, localities, now: new Date(now), global: user.role === 'SUPERADMIN' });
       if (!user.email) return { sent: false, day: report.day, message: 'La cuenta no tiene un correo de destino.' };
@@ -4471,17 +4709,47 @@ app.post('/api/auth/logout', requireAuth, async (req, res) => {
         message: delivery.sent ? 'Reporte del día enviado a tu correo.' : 'La sesión se cerró, pero no se pudo enviar el reporte por correo. Contacta con la plataforma.',
       };
     })();
-    entry = { expiresAt: req.sessionPayload.exp, pending };
+    entry = { expiresAt: Number(session.expires_at), pending };
     logoutReports.set(key, entry);
   }
   try {
-    const report = await entry.pending;
-    if (!report.sent) logoutReports.delete(key);
-    res.json({ success: true, report });
+    return await entry.pending;
   } catch (error) {
     logoutReports.delete(key);
     throw error;
   }
+}
+
+app.post('/api/auth/logout', async (req, res) => {
+  const user = await readRequestUser(req, { allowClosed: true });
+  if (!user) throw httpError(401, 'UNAUTHORIZED', 'No hay una sesión válida.');
+  const report = await closeTrackedSession(req.authSession, user);
+  res.json({ success: true, report });
+});
+
+app.get('/api/users/:id/connections', requireSuperAdmin, async (req, res) => {
+  const user = await loadUserForSession(req.params.id);
+  if (!user || user.role !== 'BUSINESS_ADMIN') throw httpError(400, 'INVALID_CONNECTION_ACCOUNT', 'Solo las cuentas de negocio admiten conexiones adicionales.');
+  const rows = await sessionSql('SELECT * FROM auth_sessions WHERE user_id = ? AND closed_at IS NULL', [String(user.id)]);
+  const additionalConnections = Number(user.additional_connections) || 0;
+  res.json({ additionalConnections, maxConnections: 1 + additionalConnections, activeConnections: rows.filter((row) => sessionIsActive(row)).length });
+});
+
+app.put('/api/users/:id/connections', requireSuperAdmin, async (req, res) => {
+  const user = await loadUserForSession(req.params.id);
+  if (!user || user.role !== 'BUSINESS_ADMIN') throw httpError(400, 'INVALID_CONNECTION_ACCOUNT', 'Solo las cuentas de negocio admiten conexiones adicionales.');
+  const additional = req.body?.additionalConnections;
+  if (!Number.isSafeInteger(additional) || additional < 0 || additional > 100) throw validationError('Indica entre 0 y 100 conexiones adicionales.', { additionalConnections: 'Número de conexiones no válido.' });
+  await withTransaction(async (tx) => {
+    const lockKey = `login:${createHash('sha256').update(String(user.id)).digest('hex')}`;
+    await txQuery(tx, mysqlPool
+      ? 'INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)'
+      : 'INSERT INTO platform_meta (meta_key, meta_value) VALUES (?, ?) ON CONFLICT(meta_key) DO UPDATE SET meta_value = excluded.meta_value', [lockKey, '1']);
+    const rows = await txQuery(tx, 'SELECT * FROM auth_sessions WHERE user_id = ? AND closed_at IS NULL', [String(user.id)]);
+    if (rows.filter((row) => sessionIsActive(row)).length > 1 + additional) throw httpError(409, 'CONNECTIONS_IN_USE', 'Cierra las conexiones sobrantes antes de reducir el límite.');
+    await txQuery(tx, 'UPDATE app_users SET additional_connections = ? WHERE id = ?', [additional, String(user.id)]);
+  });
+  res.json({ success: true, additionalConnections: additional, maxConnections: 1 + additional });
 });
 
 app.get("/api/auth/me", async (req, res) => {
@@ -4719,7 +4987,9 @@ app.post("/api/users", requireAuth, async (req, res) => {
       body.courierRateCents !== undefined ||
       body.courier_rate_cents !== undefined ||
       body.courierTicketThresholdCents !== undefined ||
-      body.courier_ticket_threshold_cents !== undefined)
+      body.courier_ticket_threshold_cents !== undefined ||
+      body.courierBusinessSettings !== undefined ||
+      body.courier_business_settings !== undefined)
   ) {
     throw httpError(
       403,
@@ -4767,6 +5037,8 @@ app.post("/api/users", requireAuth, async (req, res) => {
   const courierDiscountPercentage = Number(
     body.courierDiscountPercentage ?? body.courier_discount_percentage ?? 0,
   );
+  const requestedCourierBusinessSettings =
+    body.courierBusinessSettings ?? body.courier_business_settings;
   const localityId = cleanString(body.localityId || body.locality_id);
   const phone = cleanString(body.phone);
   const address = cleanString(body.address);
@@ -4909,6 +5181,40 @@ app.post("/api/users", requireAuth, async (req, res) => {
   ) {
     errors.courierDiscountPercentage = "El porcentaje debe estar entre 0 y 100.";
   }
+  let courierBusinessSettings = {};
+  if (role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER") {
+    courierBusinessSettings = normalizeCourierBusinessSettings(
+      requestedCourierBusinessSettings,
+      courierBusinessIds,
+      {
+        courierRateCents,
+        courierTicketThresholdCents,
+        courierDiscountEnabled: courierDiscountEnabled === 1,
+        courierDiscountPercentage,
+      },
+    );
+    for (const setting of Object.values(courierBusinessSettings)) {
+      const rateCents = asInteger(setting.courierRateCents);
+      const ticketThresholdCents = asInteger(setting.courierTicketThresholdCents);
+      const discountPercentage = Number(setting.courierDiscountPercentage);
+      if (rateCents === null || rateCents < 0 || rateCents > MAX_FEE_CENTS) {
+        errors.courierBusinessSettings = "Hay un monto por reparto no válido.";
+        break;
+      }
+      if (
+        ticketThresholdCents === null ||
+        ticketThresholdCents < 0 ||
+        ticketThresholdCents > MAX_FEE_CENTS
+      ) {
+        errors.courierBusinessSettings = "Hay un importe base de ticket no válido.";
+        break;
+      }
+      if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
+        errors.courierBusinessSettings = "Hay un porcentaje de descuento no válido.";
+        break;
+      }
+    }
+  }
   if (phone) {
     const digits = phone.replace(/\D/g, "");
     if (
@@ -4969,6 +5275,7 @@ app.post("/api/users", requireAuth, async (req, res) => {
       role === "PLATFORM_COURIER" || role === "BUSINESS_COURIER"
         ? courierDiscountPercentage
         : 0,
+    courierBusinessSettings,
     termsAccepted: body.termsAccepted === true,
     termsVersion: body.termsVersion,
   });
@@ -5313,6 +5620,33 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
         values.push(discountEnabled);
         updates.push("courier_discount_percentage = ?");
         values.push(Math.round(discountPercentage * 100) / 100);
+        // Clientes antiguos sólo conocían una tarifa global. Al modificarla,
+        // sincronizamos también las configuraciones existentes para no dejar
+        // una tarifa antigua oculta por negocio.
+        if (
+          body.courierBusinessSettings === undefined &&
+          body.courier_business_settings === undefined
+        ) {
+          const businessIds = parseCourierBusinessIds(targetUser);
+          const settings = normalizeCourierBusinessSettings(
+            targetUser.courier_business_settings ?? targetUser.courierBusinessSettings,
+            businessIds,
+            {
+              courierRateCents: rateCents,
+              courierTicketThresholdCents: ticketThresholdCents,
+              courierDiscountEnabled: discountEnabled === 1,
+              courierDiscountPercentage: discountPercentage,
+            },
+          );
+          for (const setting of Object.values(settings)) {
+            setting.courierRateCents = rateCents;
+            setting.courierTicketThresholdCents = ticketThresholdCents;
+            setting.courierDiscountEnabled = discountEnabled === 1;
+            setting.courierDiscountPercentage = discountPercentage;
+          }
+          updates.push("courier_business_settings = ?");
+          values.push(serializeCourierBusinessSettings(settings));
+        }
       }
     }
   }
@@ -5369,6 +5703,80 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
               : null,
           );
         }
+      }
+    }
+  }
+  if (
+    body.courierBusinessSettings !== undefined ||
+    body.courier_business_settings !== undefined
+  ) {
+    if (!isSuperAdmin) {
+      errors.courierBusinessSettings =
+        "Sólo el superadmin puede configurar tarifas por negocio.";
+    } else if (!isCourierRole) {
+      errors.courierBusinessSettings =
+        "Sólo los repartidores pueden tener tarifas por negocio.";
+    } else {
+      const rawBusinessIds =
+        body.courierBusinessIds ?? body.courier_business_ids;
+      const businessIds = Array.isArray(rawBusinessIds)
+        ? [
+            ...new Set(
+              rawBusinessIds
+                .map((value) => String(value ?? "").trim())
+                .filter(Boolean),
+            ),
+          ]
+        : parseCourierBusinessIds(targetUser);
+      const fallback = {
+        courierRateCents: Number(
+          targetUser.courier_rate_cents ?? targetUser.courierRateCents ?? 0,
+        ),
+        courierTicketThresholdCents: Number(
+          targetUser.courier_ticket_threshold_cents ??
+            targetUser.courierTicketThresholdCents ??
+            4000,
+        ),
+        courierDiscountEnabled: asBooleanFlag(
+          targetUser.courier_discount_enabled ??
+            targetUser.courierDiscountEnabled,
+          0,
+        ) === 1,
+        courierDiscountPercentage: Number(
+          targetUser.courier_discount_percentage ??
+            targetUser.courierDiscountPercentage ??
+            0,
+        ),
+      };
+      const settings = normalizeCourierBusinessSettings(
+        body.courierBusinessSettings ?? body.courier_business_settings,
+        businessIds,
+        fallback,
+      );
+      for (const setting of Object.values(settings)) {
+        const rateCents = asInteger(setting.courierRateCents);
+        const ticketThresholdCents = asInteger(setting.courierTicketThresholdCents);
+        const discountPercentage = Number(setting.courierDiscountPercentage);
+        if (rateCents === null || rateCents < 0 || rateCents > MAX_FEE_CENTS) {
+          errors.courierBusinessSettings = "Hay un monto por reparto no válido.";
+          break;
+        }
+        if (
+          ticketThresholdCents === null ||
+          ticketThresholdCents < 0 ||
+          ticketThresholdCents > MAX_FEE_CENTS
+        ) {
+          errors.courierBusinessSettings = "Hay un importe base de ticket no válido.";
+          break;
+        }
+        if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
+          errors.courierBusinessSettings = "Hay un porcentaje de descuento no válido.";
+          break;
+        }
+      }
+      if (!errors.courierBusinessSettings) {
+        updates.push("courier_business_settings = ?");
+        values.push(serializeCourierBusinessSettings(settings));
       }
     }
   }
@@ -6377,22 +6785,22 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   let courierPayoutCents = baseCourierPayoutCents;
   if (courierId) {
     const courierRow = await loadUserForSession(courierId);
+    const courierBusinessSetting = getCourierBusinessSetting(
+      courierRow,
+      businessId,
+    );
     const courierDiscountEnabled =
       asBooleanFlag(
-        courierRow?.courier_discount_enabled ?? courierRow?.courierDiscountEnabled,
+        courierBusinessSetting.courierDiscountEnabled,
         0,
       ) === 1;
     const configuredCourierRateCents = Math.max(
       0,
-      toCents(courierRow?.courier_rate_cents ?? courierRow?.courierRateCents),
+      toCents(courierBusinessSetting.courierRateCents),
     );
     const configuredTicketThresholdCents = Math.max(
       0,
-      toCents(
-        courierRow?.courier_ticket_threshold_cents ??
-          courierRow?.courierTicketThresholdCents ??
-          4000,
-      ),
+      toCents(courierBusinessSetting.courierTicketThresholdCents),
     );
     const ticketWholeEuros = Math.floor(subtotalCents / 100);
     const thresholdWholeEuros = Math.floor(configuredTicketThresholdCents / 100);
@@ -6407,7 +6815,7 @@ app.post("/api/orders", requireRole(), async (req, res) => {
         ? configuredCourierRateCents + extraCourierPayoutCents
         : baseCourierPayoutCents + extraCourierPayoutCents;
     const courierDiscountPercentage = Number(
-      courierRow?.courier_discount_percentage ?? courierRow?.courierDiscountPercentage ?? 0,
+      courierBusinessSetting.courierDiscountPercentage,
     );
     if (courierDiscountEnabled) {
       courierDiscountCents = Math.min(
@@ -6845,21 +7253,21 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       let nextGrossPayoutCents = previousGrossPayoutCents;
       if (nextCourierId) {
         const courierRow = await loadUserForSession(nextCourierId);
+        const courierBusinessSetting = getCourierBusinessSetting(
+          courierRow,
+          orderBusinessId,
+        );
         const enabled = asBooleanFlag(
-          courierRow?.courier_discount_enabled ?? courierRow?.courierDiscountEnabled,
+          courierBusinessSetting.courierDiscountEnabled,
           0,
         ) === 1;
         const configuredRateCents = Math.max(
           0,
-          toCents(courierRow?.courier_rate_cents ?? courierRow?.courierRateCents),
+          toCents(courierBusinessSetting.courierRateCents),
         );
         const configuredTicketThresholdCents = Math.max(
           0,
-          toCents(
-            courierRow?.courier_ticket_threshold_cents ??
-              courierRow?.courierTicketThresholdCents ??
-              4000,
-          ),
+          toCents(courierBusinessSetting.courierTicketThresholdCents),
         );
         const existingSubtotalCents = Math.max(
           0,
@@ -6878,7 +7286,7 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
             ? configuredRateCents
             : previousGrossPayoutCents) + extraCourierPayoutCents;
         const percentage = Number(
-          courierRow?.courier_discount_percentage ?? courierRow?.courierDiscountPercentage ?? 0,
+          courierBusinessSetting.courierDiscountPercentage,
         );
         if (enabled) {
           nextDiscountCents = Math.min(
@@ -7499,10 +7907,84 @@ process.on("uncaughtException", (error) => {
 // sincrónicamente un grafo ESM que contenga top-level await. Se envuelve el
 // arranque en una función async para mantener el mismo comportamiento sin
 // dejar ningún await en el ámbito superior del módulo.
+function startSessionConnections(httpServer) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 8192 });
+  httpServer.on('upgrade', (request, socket, head) => {
+    if (new URL(request.url, 'http://localhost').pathname !== '/api/auth/session') return socket.destroy();
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws));
+  });
+  wss.on('connection', (socket) => {
+    let sessionId;
+    let authenticating = false;
+    let lastPong = Date.now();
+    const timeout = setTimeout(() => { if (!sessionId) socket.close(4001, 'Identificación requerida'); }, 5000);
+    socket.on('error', () => {});
+    socket.on('message', async (message) => {
+      if (sessionId || authenticating) return;
+      authenticating = true;
+      try {
+        const data = JSON.parse(message.toString());
+        const request = { headers: { authorization: `Bearer ${String(data.token || '')}` } };
+        const user = await readRequestUser(request);
+        if (!user || socket.readyState !== 1) return socket.close(4001, 'Sesión no válida');
+        sessionId = request.authSession.id;
+        const stamp = Date.now();
+        const live = await sessionSql('UPDATE auth_sessions SET last_seen_at = ?, close_requested_at = NULL WHERE id = ? AND closed_at IS NULL AND last_seen_at > ? AND expires_at > ?', [stamp, sessionId, stamp - SESSION_DISCONNECT_MS, stamp]);
+        if (!Number(live.affectedRows ?? live.changes)) return socket.close(4001, 'Sesión caducada');
+        if (!sessionSockets.has(sessionId)) sessionSockets.set(sessionId, new Set());
+        sessionSockets.get(sessionId).add(socket);
+        lastPong = Date.now();
+        clearTimeout(timeout);
+        socket.send(JSON.stringify({ type: 'ready', offlineTimeoutMs: SESSION_DISCONNECT_MS }));
+      } catch { socket.close(4001, 'Sesión no válida'); }
+    });
+    socket.on('pong', () => {
+      lastPong = Date.now();
+      if (sessionId) void sessionSql('UPDATE auth_sessions SET last_seen_at = ?, close_requested_at = NULL WHERE id = ? AND closed_at IS NULL AND last_seen_at > ? AND expires_at > ?', [lastPong, sessionId, lastPong - SESSION_DISCONNECT_MS, lastPong])
+        .then((result) => { if (!Number(result.affectedRows ?? result.changes)) socket.close(4001, 'Sesión caducada'); })
+        .catch(() => socket.close(1011, 'No se pudo validar la sesión'));
+    });
+    socket.on('close', () => {
+      clearTimeout(timeout);
+      if (!sessionId) return;
+      const sockets = sessionSockets.get(sessionId);
+      sockets?.delete(socket);
+      if (sockets?.size) return;
+      sessionSockets.delete(sessionId);
+      void sessionSql('UPDATE auth_sessions SET close_requested_at = ? WHERE id = ? AND closed_at IS NULL', [Date.now(), sessionId]).catch(() => {});
+    });
+    socket.checkConnection = (now) => {
+      if (!sessionId || socket.readyState !== 1) return;
+      if (now - lastPong >= SESSION_DISCONNECT_MS) return socket.terminate();
+      socket.ping();
+      socket.send(JSON.stringify({ type: 'pulse' }));
+    };
+  });
+  let sweeping = false;
+  const timer = setInterval(async () => {
+    const now = Date.now();
+    for (const socket of wss.clients) socket.checkConnection?.(now);
+    if (sweeping) return;
+    sweeping = true;
+    try {
+      const rows = await sessionSql('SELECT * FROM auth_sessions WHERE closed_at IS NULL AND (expires_at <= ? OR last_seen_at <= ? OR close_requested_at <= ?)', [now, now - SESSION_DISCONNECT_MS, now - SESSION_DISCONNECT_MS]);
+      for (const row of rows) {
+        const user = await loadUserForSession(row.user_id);
+        if (user) void closeTrackedSession(row, user).catch((error) => console.warn('No se pudo completar el cierre automático:', error.message));
+        else await sessionSql('UPDATE auth_sessions SET closed_at = ? WHERE id = ? AND closed_at IS NULL', [now, row.id]);
+      }
+      await sessionSql('DELETE FROM auth_sessions WHERE expires_at < ?', [now - 86400000]);
+    } catch (error) { console.warn('No se pudo revisar la presencia de las sesiones:', error.message); }
+    finally { sweeping = false; }
+  }, Math.min(1000, SESSION_DISCONNECT_MS / 2));
+  timer.unref();
+  httpServer.on('close', () => { clearInterval(timer); wss.close(); });
+}
+
 async function startServer() {
   await ensureSchema();
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const httpServer = app.listen(PORT, "0.0.0.0", () => {
     console.log(`PideTiétar backend running on http://0.0.0.0:${PORT}`);
     console.log(`Database mode: ${databaseMode}`);
     console.log(GEOAPIFY_API_KEY
@@ -7523,6 +8005,7 @@ async function startServer() {
     );
     console.log(`Logo del correo: ${BRAND_EMAIL_LOGO_PATH} (${fs.existsSync(BRAND_EMAIL_LOGO_PATH) ? "encontrado" : "no existe; el email saldrá sin imagen"})`);
   });
+  startSessionConnections(httpServer);
 }
 
 startServer().catch((error) => {

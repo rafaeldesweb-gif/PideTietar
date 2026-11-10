@@ -34,6 +34,7 @@ test('el perfil se guarda con sesiones nuevas y con el ID antiguo del superadmin
       DB_PASSWORD: '', MYSQL_PASSWORD: '',
       DB_NAME: '', MYSQL_DATABASE: '',
       SESSION_SECRET: secret,
+      SESSION_DISCONNECT_MS: '3600000',
       SUPERADMIN_USERNAME: 'AdminPrueba',
       SUPERADMIN_PASSWORD: password,
     },
@@ -55,6 +56,7 @@ test('el perfil se guarda con sesiones nuevas y con el ID antiguo del superadmin
     await rm(temporaryDirectory, { recursive: true, force: true });
   });
   const api = async (route, { token, body, method = 'GET' } = {}) => {
+    if (body && ['/auth/login', '/auth/register'].includes(route)) body = { deviceId: 'navegador-perfiles', ...body };
     const response = await fetch(`http://127.0.0.1:${port}/api${route}`, {
       method,
       headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
@@ -99,14 +101,15 @@ test('el perfil se guarda con sesiones nuevas y con el ID antiguo del superadmin
     assert.equal(emergencyLogin.data.user.email, fields.email);
   });
 
-  await t.test('una sesión antigua edita la fila real y sigue leyendo sus cambios', async () => {
+  await t.test('rechaza tokens antiguos sin sesión revocable; el acceso nuevo conserva el alias del superadmin', async () => {
     const payload = Buffer.from(JSON.stringify({ sub: 'superadmin-rafaadmin', role: 'SUPERADMIN', exp: Date.now() + 60000 })).toString('base64url');
     const legacyToken = `${payload}.${createHmac('sha256', secret).update(payload).digest('base64url')}`;
-    const saved = await api('/users/superadmin-rafaadmin', { method: 'PUT', token: legacyToken, body: { fullName: 'Perfil de sesión antigua' } });
+    assert.equal((await api('/auth/me', { token: legacyToken })).status, 401);
+    const saved = await api('/users/superadmin-rafaadmin', { method: 'PUT', token, body: { fullName: 'Perfil de sesión nueva' } });
     assert.equal(saved.status, 200);
     assert.equal(saved.data.user.id, user.id);
-    assert.equal(saved.data.user.name, 'Perfil de sesión antigua');
-    const refreshed = await api('/auth/me', { token: legacyToken });
+    assert.equal(saved.data.user.name, 'Perfil de sesión nueva');
+    const refreshed = await api('/auth/me', { token });
     assert.equal(refreshed.data.user.name, saved.data.user.name);
   });
 

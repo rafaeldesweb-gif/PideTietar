@@ -11,6 +11,7 @@ import {
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
 import { verifyAddress, type AddressVerificationResult } from '../services/addressValidation';
+import { getBrowserDeviceId } from '../utils/browserSession';
 import {
   openTermsInNewTab,
   TERMS_ACCEPTED_MESSAGE,
@@ -265,7 +266,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       const loginResponse = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, password: password.trim() }),
+        body: JSON.stringify({ email: cleanEmail, password: password.trim(), deviceId: getBrowserDeviceId() }),
       });
       const loginData = await loginResponse.json().catch(() => ({}));
       if (!loginResponse.ok) throw new Error(loginData?.message || 'La cuenta se verificó, pero no se pudo iniciar sesión.');
@@ -344,7 +345,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const response = await fetch('/api/auth/register', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...payload, deviceId: getBrowserDeviceId() }),
         });
 
         const data = await response.json().catch(() => ({}));
@@ -389,6 +390,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          deviceId: getBrowserDeviceId(),
           email: normalizedUser,
           password: normalizedPassword,
         }),

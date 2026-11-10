@@ -56,6 +56,7 @@ export default defineConfig(() => {
         '/api': {
           target: 'http://localhost:4000',
           changeOrigin: true,
+          ws: true,
         },
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

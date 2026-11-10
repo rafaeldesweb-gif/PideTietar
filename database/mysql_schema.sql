@@ -83,6 +83,7 @@ CREATE TABLE users (
   courier_ticket_threshold_cents INT NOT NULL DEFAULT 4000,
   courier_discount_enabled TINYINT(1) NOT NULL DEFAULT 0,
   courier_discount_percentage DECIMAL(5,2) NOT NULL DEFAULT 0.00,
+  courier_business_settings JSON NULL,
   password_hash VARCHAR(255) NULL,
   avatar_url MEDIUMTEXT NULL,
   is_email_verified TINYINT(1) NOT NULL DEFAULT 0,

@@ -55,6 +55,8 @@ const COURIER_ERROR_FIELD_MAP: Record<string, string> = {
   businessId: 'businessIds',
   business_id: 'businessIds',
   courierBusinessIds: 'businessIds',
+  courierBusinessSettings: 'courierBusinessSettings',
+  courier_business_settings: 'courierBusinessSettings',
   courier_business_ids: 'businessIds',
   accountNumber: 'accountNumber',
   account_number: 'accountNumber',

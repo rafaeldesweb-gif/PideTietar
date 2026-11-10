@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function startTestApp(t, { geoapifyApiKey = '', preload } = {}) {
+export async function startTestApp(t, { geoapifyApiKey = '', preload, sessionDisconnectMs = 3600000 } = {}) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pidetietar-crud-'));
   const socket = createServer();
   socket.listen(0, '127.0.0.1');
@@ -23,6 +23,7 @@ export async function startTestApp(t, { geoapifyApiKey = '', preload } = {}) {
       ...process.env, NODE_ENV: 'test', PORT: String(port), DB_PATH: path.join(directory, 'app.db'),
       DB_HOST: '', MYSQL_HOST: '', DB_USER: '', MYSQL_USER: '', DB_PASSWORD: '', MYSQL_PASSWORD: '', DB_NAME: '', MYSQL_DATABASE: '',
       SESSION_SECRET: randomBytes(32).toString('hex'), SUPERADMIN_USERNAME: 'AdminPruebas', SUPERADMIN_PASSWORD: password,
+      SESSION_DISCONNECT_MS: String(sessionDisconnectMs),
       SUPABASE_URL: '', SUPABASE_SECRET_KEY: '',
       GEOAPIFY_API_KEY: geoapifyApiKey,
       SMTP_HOST: '', SMTP_USER: '', SMTP_PASS: '', EMAIL_HOST: '', EMAIL_USER: '', EMAIL_PASS: '',
@@ -42,6 +43,7 @@ export async function startTestApp(t, { geoapifyApiKey = '', preload } = {}) {
   });
   const url = `http://127.0.0.1:${port}`;
   const api = async (route, { method = 'GET', token, body, status } = {}) => {
+    if (body && ['/auth/login', '/auth/register'].includes(route)) body = { deviceId: 'navegador-pruebas', ...body };
     const response = await fetch(`${url}/api${route}`, {
       method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(3000),

@@ -57,7 +57,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
     page.on('pageerror', (error) => errors.push(error.message));
     page.on('dialog', (dialog) => dialog.accept());
     await page.route('https://**/*', (route) => route.abort());
-    await page.addInitScript(({ view, token }) => { window.testView = view; if (token) localStorage.setItem('pidetietar_token', token); }, { view, token: session?.token });
+    await page.addInitScript(({ view, token }) => { window.testView = view; if (token) sessionStorage.setItem('pidetietar_token', token); }, { view, token: session?.token });
     await page.route(`${url}/__formularios`, (route) => route.fulfill({ contentType: 'text/html', body: `<style>${css}</style><div id="root"></div>` }));
     await page.goto(`${url}/__formularios`);
     await page.addScriptTag({ content: code });
@@ -327,6 +327,7 @@ test('formularios reales contra una API aislada, con estilos y clics de navegado
       assert.equal((await logoutResponse).status(), 200);
       await page.waitForFunction(() => window.testApp.currentUser === null);
       assert.equal(await page.evaluate(() => localStorage.getItem('pidetietar_token')), null);
+      assert.equal(await page.evaluate(() => sessionStorage.getItem('pidetietar_token')), null);
     } finally { await close(); }
     const newSession = await login('courier_ui');
     const reopened = await open('courier', newSession, 375);
