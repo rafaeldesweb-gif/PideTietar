@@ -317,6 +317,9 @@ const sqliteSchema = `
     courier_id TEXT,
     courier_name TEXT,
     courier_phone TEXT,
+    courier_payment_mode TEXT,
+    courier_client_share_percentage REAL,
+    courier_base_delivery_fee_cents INTEGER,
     delivery_pin TEXT,
     calendar_event_id TEXT,
     gmail_notified_at TEXT,
@@ -547,6 +550,9 @@ const mysqlSchema = `
     courier_id VARCHAR(64) NULL,
     courier_name VARCHAR(180) NULL,
     courier_phone VARCHAR(30) NULL,
+    courier_payment_mode VARCHAR(20) NULL,
+    courier_client_share_percentage DECIMAL(5,2) NULL,
+    courier_base_delivery_fee_cents INT NULL,
     delivery_pin VARCHAR(12) NULL,
     calendar_event_id TEXT NULL,
     gmail_notified_at DATETIME(3) NULL,
@@ -760,6 +766,9 @@ async function ensureMySqlSchemaShape(pool) {
     ["courier_id", "VARCHAR(64) NULL"],
     ["courier_name", "VARCHAR(180) NULL"],
     ["courier_phone", "VARCHAR(30) NULL"],
+    ["courier_payment_mode", "VARCHAR(20) NULL"],
+    ["courier_client_share_percentage", "DECIMAL(5,2) NULL"],
+    ["courier_base_delivery_fee_cents", "INT NULL"],
     ["delivery_pin", "VARCHAR(12) NULL"],
     ["calendar_event_id", "TEXT NULL"],
     ["gmail_notified_at", "DATETIME(3) NULL"],
@@ -936,6 +945,9 @@ function ensureSqliteSchemaShape() {
   ensureColumn("orders", "courier_id", "TEXT");
   ensureColumn("orders", "courier_name", "TEXT");
   ensureColumn("orders", "courier_phone", "TEXT");
+  ensureColumn("orders", "courier_payment_mode", "TEXT");
+  ensureColumn("orders", "courier_client_share_percentage", "REAL");
+  ensureColumn("orders", "courier_base_delivery_fee_cents", "INTEGER");
   ensureColumn("orders", "delivery_pin", "TEXT");
   ensureColumn("orders", "calendar_event_id", "TEXT");
   ensureColumn("orders", "gmail_notified_at", "TEXT");
@@ -1087,6 +1099,9 @@ function ensureOrdersBusinessForeignKey() {
     "courier_id",
     "courier_name",
     "courier_phone",
+    "courier_payment_mode",
+    "courier_client_share_percentage",
+    "courier_base_delivery_fee_cents",
     "delivery_pin",
     "calendar_event_id",
     "gmail_notified_at",
@@ -1141,6 +1156,9 @@ function ensureOrdersBusinessForeignKey() {
       courier_id TEXT,
       courier_name TEXT,
       courier_phone TEXT,
+      courier_payment_mode TEXT,
+      courier_client_share_percentage REAL,
+      courier_base_delivery_fee_cents INTEGER,
       delivery_pin TEXT,
       calendar_event_id TEXT,
       gmail_notified_at TEXT,
@@ -1426,6 +1444,17 @@ function parseCourierBusinessIds(row) {
 // en JSON dentro de app_users para que funcione igual en SQLite y MySQL y para
 // que las cuentas antiguas puedan seguir usando los campos globales como
 // valores de respaldo.
+function normalizeCourierPaymentMode(value, fallback = "CLIENT") {
+  const mode = String(value || fallback).toUpperCase();
+  return ["BUSINESS", "CLIENT", "SPLIT"].includes(mode) ? mode : fallback;
+}
+
+function normalizeCourierClientSharePercentage(value, mode = "CLIENT") {
+  if (mode === "BUSINESS") return 0;
+  if (mode === "CLIENT") return 100;
+  return Math.max(0, Math.min(100, Number(value ?? 50) || 0));
+}
+
 function parseCourierBusinessSettings(row) {
   if (!row) return {};
   const raw = row.courier_business_settings ?? row.courierBusinessSettings;
@@ -1448,6 +1477,9 @@ function parseCourierBusinessSettings(row) {
     if (!businessId || !value || typeof value !== "object" || Array.isArray(value)) {
       continue;
     }
+    const courierPaymentMode = normalizeCourierPaymentMode(
+      value.courierPaymentMode ?? value.courier_payment_mode,
+    );
     settings[String(businessId)] = {
       courierRateCents: Math.max(
         0,
@@ -1476,6 +1508,12 @@ function parseCourierBusinessSettings(row) {
               0,
           ) || 0,
         ),
+      ),
+      courierPaymentMode,
+      courierClientSharePercentage: normalizeCourierClientSharePercentage(
+        value.courierClientSharePercentage ??
+          value.courier_client_share_percentage,
+        courierPaymentMode,
       ),
     };
   }
@@ -1513,6 +1551,8 @@ function courierBusinessSettingsWithFallback(row, businessIds = []) {
         ) || 0,
       ),
     ),
+    courierPaymentMode: "CLIENT",
+    courierClientSharePercentage: 100,
   };
 
   for (const businessId of businessIds) {
@@ -1534,7 +1574,14 @@ function getCourierBusinessSetting(row, businessId) {
     courierTicketThresholdCents: 4000,
     courierDiscountEnabled: false,
     courierDiscountPercentage: 0,
+    courierPaymentMode: "CLIENT",
+    courierClientSharePercentage: 100,
   };
+}
+
+function hasExplicitCourierBusinessSetting(row, businessId) {
+  const key = String(businessId || "");
+  return Boolean(key && parseCourierBusinessSettings(row)[key]);
 }
 
 function normalizeCourierBusinessSettings(raw, businessIds, fallback) {
@@ -1554,6 +1601,10 @@ function normalizeCourierBusinessSettings(raw, businessIds, fallback) {
   for (const businessId of businessIds) {
     const key = String(businessId);
     const value = source[key] && typeof source[key] === "object" ? source[key] : {};
+    const courierPaymentMode = normalizeCourierPaymentMode(
+      value.courierPaymentMode ?? value.courier_payment_mode,
+      fallback.courierPaymentMode,
+    );
     normalized[key] = {
       courierRateCents: value.courierRateCents ?? value.courier_rate_cents ?? fallback.courierRateCents,
       courierTicketThresholdCents:
@@ -1568,6 +1619,13 @@ function normalizeCourierBusinessSettings(raw, businessIds, fallback) {
         value.courierDiscountPercentage ??
         value.courier_discount_percentage ??
         fallback.courierDiscountPercentage,
+      courierPaymentMode,
+      courierClientSharePercentage: normalizeCourierClientSharePercentage(
+        value.courierClientSharePercentage ??
+          value.courier_client_share_percentage ??
+          fallback.courierClientSharePercentage,
+        courierPaymentMode,
+      ),
     };
   }
   return normalized;
@@ -2394,6 +2452,17 @@ function normalizeOrderRow(row, items = []) {
     courierId: row.courier_id ?? row.courierId ?? undefined,
     courierName: row.courier_name ?? row.courierName ?? undefined,
     courierPhone: row.courier_phone ?? row.courierPhone ?? undefined,
+    courierPaymentMode: normalizeCourierPaymentMode(
+      row.courier_payment_mode ?? row.courierPaymentMode,
+      "CLIENT",
+    ),
+    courierClientSharePercentage: normalizeCourierClientSharePercentage(
+      row.courier_client_share_percentage ?? row.courierClientSharePercentage,
+      normalizeCourierPaymentMode(
+        row.courier_payment_mode ?? row.courierPaymentMode,
+        "CLIENT",
+      ),
+    ),
     courierAvatarUrl:
       row.courier_avatar_url ??
       row.courierAvatarUrl ??
@@ -5191,6 +5260,8 @@ app.post("/api/users", requireAuth, async (req, res) => {
         courierTicketThresholdCents,
         courierDiscountEnabled: courierDiscountEnabled === 1,
         courierDiscountPercentage,
+        courierPaymentMode: "CLIENT",
+        courierClientSharePercentage: 100,
       },
     );
     for (const setting of Object.values(courierBusinessSettings)) {
@@ -5211,6 +5282,17 @@ app.post("/api/users", requireAuth, async (req, res) => {
       }
       if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
         errors.courierBusinessSettings = "Hay un porcentaje de descuento no válido.";
+        break;
+      }
+      const paymentMode = normalizeCourierPaymentMode(setting.courierPaymentMode);
+      const clientSharePercentage = Number(setting.courierClientSharePercentage);
+      if (
+        paymentMode === "SPLIT" &&
+        (!Number.isFinite(clientSharePercentage) ||
+          clientSharePercentage < 0 ||
+          clientSharePercentage > 100)
+      ) {
+        errors.courierBusinessSettings = "El porcentaje que paga el cliente debe estar entre 0 y 100.";
         break;
       }
     }
@@ -5747,6 +5829,8 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
             targetUser.courierDiscountPercentage ??
             0,
         ),
+        courierPaymentMode: "CLIENT",
+        courierClientSharePercentage: 100,
       };
       const settings = normalizeCourierBusinessSettings(
         body.courierBusinessSettings ?? body.courier_business_settings,
@@ -5771,6 +5855,17 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
         }
         if (!Number.isFinite(discountPercentage) || discountPercentage < 0 || discountPercentage > 100) {
           errors.courierBusinessSettings = "Hay un porcentaje de descuento no válido.";
+          break;
+        }
+        const paymentMode = normalizeCourierPaymentMode(setting.courierPaymentMode);
+        const clientSharePercentage = Number(setting.courierClientSharePercentage);
+        if (
+          paymentMode === "SPLIT" &&
+          (!Number.isFinite(clientSharePercentage) ||
+            clientSharePercentage < 0 ||
+            clientSharePercentage > 100)
+        ) {
+          errors.courierBusinessSettings = "El porcentaje que paga el cliente debe estar entre 0 y 100.";
           break;
         }
       }
@@ -6766,6 +6861,9 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   const baseCourierPayoutCents = toCents(
     pick("courierPayoutCents", "courier_payout_cents"),
   );
+  const baseDeliveryFeeCents = toCents(
+    pick("deliveryFeeCents", "delivery_fee_cents"),
+  );
   const businessDiscountEnabled =
     asBooleanFlag(
       businessRow?.discount_enabled ?? businessRow?.discountEnabled,
@@ -6783,6 +6881,11 @@ app.post("/api/orders", requireRole(), async (req, res) => {
   const courierId = pick("courierId", "courier_id") || null;
   let courierDiscountCents = 0;
   let courierPayoutCents = baseCourierPayoutCents;
+  let courierGrossPayoutCents = baseCourierPayoutCents;
+  let courierPaymentMode = "CLIENT";
+  let courierClientSharePercentage = 100;
+  let clientDeliveryFeeCents = baseDeliveryFeeCents;
+  let businessCourierContributionCents = 0;
   if (courierId) {
     const courierRow = await loadUserForSession(courierId);
     const courierBusinessSetting = getCourierBusinessSetting(
@@ -6802,7 +6905,16 @@ app.post("/api/orders", requireRole(), async (req, res) => {
       0,
       toCents(courierBusinessSetting.courierTicketThresholdCents),
     );
-    const ticketWholeEuros = Math.floor(subtotalCents / 100);
+    const hasExplicitCourierSetting = hasExplicitCourierBusinessSetting(
+      courierRow,
+      businessId,
+    );
+    const configuredBasePayoutCents = hasExplicitCourierSetting
+      ? configuredCourierRateCents
+      : baseCourierPayoutCents;
+    const ticketWholeEuros = Math.floor(
+      (subtotalCents + configuredBasePayoutCents) / 100,
+    );
     const thresholdWholeEuros = Math.floor(configuredTicketThresholdCents / 100);
     const extraTicketSteps =
       ticketWholeEuros > thresholdWholeEuros
@@ -6810,10 +6922,10 @@ app.post("/api/orders", requireRole(), async (req, res) => {
         : 0;
     const extraCourierPayoutCents =
       extraTicketSteps * COURIER_TICKET_EXTRA_PAYOUT_CENTS;
-    const courierGrossPayoutCents =
-      configuredCourierRateCents > 0
-        ? configuredCourierRateCents + extraCourierPayoutCents
-        : baseCourierPayoutCents + extraCourierPayoutCents;
+    courierGrossPayoutCents =
+      hasExplicitCourierSetting && configuredCourierRateCents === 0
+        ? 0
+        : configuredBasePayoutCents + extraCourierPayoutCents;
     const courierDiscountPercentage = Number(
       courierBusinessSetting.courierDiscountPercentage,
     );
@@ -6827,7 +6939,40 @@ app.post("/api/orders", requireRole(), async (req, res) => {
       );
     }
     courierPayoutCents = Math.max(0, courierGrossPayoutCents - courierDiscountCents);
+    courierPaymentMode = normalizeCourierPaymentMode(
+      courierBusinessSetting.courierPaymentMode,
+      "CLIENT",
+    );
+    courierClientSharePercentage = normalizeCourierClientSharePercentage(
+      courierBusinessSetting.courierClientSharePercentage,
+      courierPaymentMode,
+    );
+    clientDeliveryFeeCents = Math.round(
+      courierGrossPayoutCents * courierClientSharePercentage / 100,
+    );
+    businessCourierContributionCents = Math.max(
+      0,
+      courierGrossPayoutCents -
+        Math.round(courierGrossPayoutCents * courierClientSharePercentage / 100),
+    );
   }
+
+  const deliveryFeeDeltaCents = clientDeliveryFeeCents - baseDeliveryFeeCents;
+  const calculatedPlatformFeeCents = Math.max(
+    0,
+    basePlatformFeeCents +
+      businessDiscountCents +
+      baseCourierPayoutCents -
+      courierPayoutCents +
+      Math.round(deliveryFeeDeltaCents * 0.20),
+  );
+  const calculatedBusinessPayoutCents = Math.max(
+    0,
+    baseBusinessPayoutCents -
+      businessDiscountCents -
+      businessCourierContributionCents,
+  );
+  const baseTotalCents = toCents(pick("totalCents", "total_cents"));
 
   const now = new Date().toISOString();
   const createdAt = pick("createdAt", "created_at") || now;
@@ -6866,22 +7011,14 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     ),
     scheduled_time: pick("scheduledTime", "scheduled_time") || null,
     subtotal_cents: subtotalCents,
-    delivery_fee_cents: toCents(
-      pick("deliveryFeeCents", "delivery_fee_cents"),
-    ),
-    platform_fee_cents: Math.max(
-      0,
-      basePlatformFeeCents +
-        businessDiscountCents +
-        baseCourierPayoutCents -
-        courierPayoutCents,
-    ),
+    delivery_fee_cents: clientDeliveryFeeCents,
+    platform_fee_cents: calculatedPlatformFeeCents,
     business_discount_cents: businessDiscountCents,
     courier_discount_cents: courierDiscountCents,
-    business_payout_cents: Math.max(0, baseBusinessPayoutCents - businessDiscountCents),
+    business_payout_cents: calculatedBusinessPayoutCents,
     courier_payout_cents: courierPayoutCents,
     tip_cents: toCents(pick("tipCents", "tip_cents")),
-    total_cents: toCents(pick("totalCents", "total_cents")),
+    total_cents: Math.max(0, baseTotalCents + deliveryFeeDeltaCents),
     status,
     status_history: serializeObjectList(
       pick("statusHistory", "status_history"),
@@ -6894,6 +7031,11 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     courier_id: pick("courierId", "courier_id") || null,
     courier_name: pick("courierName", "courier_name") || null,
     courier_phone: pick("courierPhone", "courier_phone") || null,
+    courier_payment_mode: courierId ? courierPaymentMode : null,
+    courier_client_share_percentage: courierId
+      ? courierClientSharePercentage
+      : null,
+    courier_base_delivery_fee_cents: baseDeliveryFeeCents,
     delivery_pin:
       pick("deliveryPin", "delivery_pin") !== undefined &&
       pick("deliveryPin", "delivery_pin") !== null
@@ -7248,9 +7390,52 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
         toCents(existing.courier_payout_cents ?? existing.courierPayoutCents),
       );
       const previousGrossPayoutCents = previousNetPayoutCents + previousDiscountCents;
+      const previousPaymentMode = normalizeCourierPaymentMode(
+        existing.courier_payment_mode ?? existing.courierPaymentMode,
+        "CLIENT",
+      );
+      const previousClientSharePercentage = normalizeCourierClientSharePercentage(
+        existing.courier_client_share_percentage ??
+          existing.courierClientSharePercentage,
+        previousPaymentMode,
+      );
+      const baseDeliveryFeeCents = Math.max(
+        0,
+        toCents(
+          existing.courier_base_delivery_fee_cents ??
+            existing.courierBaseDeliveryFeeCents ??
+            existing.delivery_fee_cents ??
+            0,
+        ),
+      );
+      const previousClientDeliveryFeeCents = Math.max(
+        0,
+        toCents(existing.delivery_fee_cents ?? existing.deliveryFeeCents),
+      );
+      const previousBusinessCourierContributionCents = Math.max(
+        0,
+        previousGrossPayoutCents -
+          Math.round(
+            previousGrossPayoutCents * previousClientSharePercentage / 100,
+          ),
+      );
+      const baseBusinessPayoutCents = Math.max(
+        0,
+        toCents(existing.business_payout_cents ?? existing.businessPayoutCents) +
+          previousBusinessCourierContributionCents,
+      );
+      const baseTotalCents = Math.max(
+        0,
+        toCents(existing.total_cents ?? existing.totalCents) +
+          Math.max(0, baseDeliveryFeeCents - previousClientDeliveryFeeCents),
+      );
       const nextCourierId = read("courierId", "courier_id") || null;
       let nextDiscountCents = 0;
       let nextGrossPayoutCents = previousGrossPayoutCents;
+      let nextPaymentMode = null;
+      let nextClientSharePercentage = null;
+      let nextClientDeliveryFeeCents = baseDeliveryFeeCents;
+      let nextBusinessCourierContributionCents = 0;
       if (nextCourierId) {
         const courierRow = await loadUserForSession(nextCourierId);
         const courierBusinessSetting = getCourierBusinessSetting(
@@ -7269,11 +7454,20 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
           0,
           toCents(courierBusinessSetting.courierTicketThresholdCents),
         );
+        const hasExplicitCourierSetting = hasExplicitCourierBusinessSetting(
+          courierRow,
+          orderBusinessId,
+        );
+        const configuredBasePayoutCents = hasExplicitCourierSetting
+          ? configuredRateCents
+          : previousGrossPayoutCents;
         const existingSubtotalCents = Math.max(
           0,
           toCents(existing.subtotal_cents ?? existing.subtotalCents),
         );
-        const ticketWholeEuros = Math.floor(existingSubtotalCents / 100);
+        const ticketWholeEuros = Math.floor(
+          (existingSubtotalCents + configuredBasePayoutCents) / 100,
+        );
         const thresholdWholeEuros = Math.floor(configuredTicketThresholdCents / 100);
         const extraTicketSteps =
           ticketWholeEuros > thresholdWholeEuros
@@ -7282,9 +7476,9 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
         const extraCourierPayoutCents =
           extraTicketSteps * COURIER_TICKET_EXTRA_PAYOUT_CENTS;
         nextGrossPayoutCents =
-          (configuredRateCents > 0
-            ? configuredRateCents
-            : previousGrossPayoutCents) + extraCourierPayoutCents;
+          hasExplicitCourierSetting && configuredRateCents === 0
+            ? 0
+            : configuredBasePayoutCents + extraCourierPayoutCents;
         const percentage = Number(
           courierBusinessSetting.courierDiscountPercentage,
         );
@@ -7294,20 +7488,58 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
             Math.max(0, Math.round(nextGrossPayoutCents * percentage / 100)),
           );
         }
+        nextPaymentMode = normalizeCourierPaymentMode(
+          courierBusinessSetting.courierPaymentMode,
+          "CLIENT",
+        );
+        nextClientSharePercentage = normalizeCourierClientSharePercentage(
+          courierBusinessSetting.courierClientSharePercentage,
+          nextPaymentMode,
+        );
+        nextClientDeliveryFeeCents = Math.round(
+          nextGrossPayoutCents * nextClientSharePercentage / 100,
+        );
       }
       const nextNetPayoutCents = Math.max(
         0,
         nextGrossPayoutCents - nextDiscountCents,
       );
+      if (nextCourierId) {
+        nextBusinessCourierContributionCents = Math.max(
+          0,
+          nextGrossPayoutCents -
+            Math.round(nextGrossPayoutCents * nextClientSharePercentage / 100),
+        );
+      }
       set("courier_discount_cents", nextDiscountCents);
       set("courier_payout_cents", nextNetPayoutCents);
+      set("business_payout_cents", Math.max(
+        0,
+        baseBusinessPayoutCents - nextBusinessCourierContributionCents,
+      ));
+      set("courier_payment_mode", nextPaymentMode);
+      set("courier_client_share_percentage", nextClientSharePercentage);
+      set("courier_base_delivery_fee_cents", baseDeliveryFeeCents);
+      set("delivery_fee_cents", nextClientDeliveryFeeCents);
+      set(
+        "total_cents",
+        Math.max(
+          0,
+          baseTotalCents +
+            nextClientDeliveryFeeCents -
+            baseDeliveryFeeCents,
+        ),
+      );
       set(
         "platform_fee_cents",
         Math.max(
           0,
           toCents(existing.platform_fee_cents ?? existing.platformFeeCents) +
             previousNetPayoutCents -
-            nextNetPayoutCents,
+            nextNetPayoutCents +
+            Math.round(
+              (nextClientDeliveryFeeCents - previousClientDeliveryFeeCents) * 0.20,
+            ),
         ),
       );
     }

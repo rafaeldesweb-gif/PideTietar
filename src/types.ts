@@ -7,11 +7,15 @@ export type UserRole =
   | 'BUSINESS_COURIER' 
   | 'SUPERADMIN';
 
+export type CourierPaymentMode = 'BUSINESS' | 'CLIENT' | 'SPLIT';
+
 export interface CourierBusinessSettings {
   courierRateCents: number;
   courierTicketThresholdCents: number;
   courierDiscountEnabled: boolean;
   courierDiscountPercentage: number;
+  courierPaymentMode: CourierPaymentMode;
+  courierClientSharePercentage: number;
 }
 
 export interface User {
@@ -280,6 +284,8 @@ export interface Order {
   courierName?: string;
   courierPhone?: string;
   courierAvatarUrl?: string;
+  courierPaymentMode?: CourierPaymentMode;
+  courierClientSharePercentage?: number;
   deliveryPin: string; // e.g. "4921" for secure proof of delivery
 
   calendarEventId?: string; // Synced to Google Calendar

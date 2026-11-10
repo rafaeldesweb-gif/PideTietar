@@ -5,7 +5,7 @@ import {
   MapPin, AlertCircle, BarChart3, CheckCircle2, 
   Settings, RefreshCw, Trash2, Plus, Bike, Pencil, X
 } from 'lucide-react';
-import { Business, Locality, User } from '../types';
+import { Business, CourierPaymentMode, Locality, User } from '../types';
 import {
   FieldError,
   FieldErrors,
@@ -61,6 +61,8 @@ const assignedBusinessIds = (courier: User): string[] => {
 const buildCourierBusinessSettings = (
   businessIds: string[],
   ratesByBusiness: Record<string, string>,
+  paymentModesByBusiness: Record<string, CourierPaymentMode>,
+  clientSharesByBusiness: Record<string, string>,
   ticketThresholdEuros: string,
   discountEnabled: boolean,
   discountPercentage: string,
@@ -70,6 +72,10 @@ const buildCourierBusinessSettings = (
       courierTicketThresholdCents: eurosToCents(ticketThresholdEuros) ?? 0,
       courierDiscountEnabled: discountEnabled,
       courierDiscountPercentage: Number(discountPercentage.replace(',', '.')) || 0,
+      courierPaymentMode: paymentModesByBusiness[businessId] ?? 'CLIENT',
+      courierClientSharePercentage: Number(
+        (clientSharesByBusiness[businessId] ?? '100').replace(',', '.'),
+      ) || 0,
     }]),
 );
 
@@ -306,6 +312,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     role: 'PLATFORM_COURIER' as 'PLATFORM_COURIER' | 'BUSINESS_COURIER',
     businessIds: [] as string[],
     courierRatesByBusiness: {} as Record<string, string>,
+    courierPaymentModesByBusiness: {} as Record<string, CourierPaymentMode>,
+    courierClientSharesByBusiness: {} as Record<string, string>,
     accountNumber: '',
     courierDiscountEnabled: false,
     courierTicketThresholdEuros: '40',
@@ -335,6 +343,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   const [courierEditForm, setCourierEditForm] = useState({
     businessIds: [] as string[],
     courierRatesByBusiness: {} as Record<string, string>,
+    courierPaymentModesByBusiness: {} as Record<string, CourierPaymentMode>,
+    courierClientSharesByBusiness: {} as Record<string, string>,
     phone: '',
     address: '',
     dni: '',
@@ -413,6 +423,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             ...previous.courierRatesByBusiness,
             [businessId]: '0',
           },
+      courierPaymentModesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierPaymentModesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : { ...previous.courierPaymentModesByBusiness, [businessId]: 'CLIENT' },
+      courierClientSharesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierClientSharesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : { ...previous.courierClientSharesByBusiness, [businessId]: '50' },
     }));
     setCourierFormErrors((previous) => ({
       ...previous,
@@ -458,6 +478,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     if (invalidRate) {
       errors.courierBusinessSettings = 'El monto de cada reparto debe estar entre 0 y 10.000,00 €.';
     }
+    const invalidPaymentShare = courierForm.businessIds.some((businessId) => {
+      if (courierForm.courierPaymentModesByBusiness[businessId] !== 'SPLIT') return false;
+      const share = Number((courierForm.courierClientSharesByBusiness[businessId] ?? '').replace(',', '.'));
+      return !Number.isFinite(share) || share < 0 || share > 100;
+    });
+    if (invalidPaymentShare) {
+      errors.courierBusinessSettings = 'El porcentaje del cliente debe estar entre 0 y 100.';
+    }
     if (courierTicketThresholdCents === null) {
       errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
     }
@@ -488,6 +516,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierBusinessSettings: buildCourierBusinessSettings(
           courierForm.businessIds,
           courierForm.courierRatesByBusiness,
+          courierForm.courierPaymentModesByBusiness,
+          courierForm.courierClientSharesByBusiness,
           courierForm.courierTicketThresholdEuros,
           courierForm.courierDiscountEnabled,
           courierForm.courierDiscountPercentage,
@@ -519,6 +549,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         role: 'PLATFORM_COURIER',
         businessIds: [],
         courierRatesByBusiness: {},
+        courierPaymentModesByBusiness: {},
+        courierClientSharesByBusiness: {},
         accountNumber: '',
         courierDiscountEnabled: false,
         courierTicketThresholdEuros: '40',
@@ -547,6 +579,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         businessIds.map((businessId) => [
           businessId,
           ((courier.courierBusinessSettings?.[businessId]?.courierRateCents ?? courier.courierRateCents ?? 0) / 100).toFixed(2),
+        ]),
+      ),
+      courierPaymentModesByBusiness: Object.fromEntries(
+        businessIds.map((businessId) => [
+          businessId,
+          courier.courierBusinessSettings?.[businessId]?.courierPaymentMode ?? 'CLIENT',
+        ]),
+      ),
+      courierClientSharesByBusiness: Object.fromEntries(
+        businessIds.map((businessId) => [
+          businessId,
+          String(courier.courierBusinessSettings?.[businessId]?.courierClientSharePercentage ?? 100),
         ]),
       ),
       phone: courier.phone || '',
@@ -587,6 +631,16 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             ...previous.courierRatesByBusiness,
             [businessId]: '0',
           },
+      courierPaymentModesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierPaymentModesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : { ...previous.courierPaymentModesByBusiness, [businessId]: 'CLIENT' },
+      courierClientSharesByBusiness: previous.businessIds.includes(businessId)
+        ? Object.fromEntries(
+            Object.entries(previous.courierClientSharesByBusiness).filter(([id]) => id !== businessId),
+          )
+        : { ...previous.courierClientSharesByBusiness, [businessId]: '50' },
     }));
     setCourierEditErrors((previous) => ({
       ...previous,
@@ -614,6 +668,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     if (invalidRate) {
       errors.courierBusinessSettings = 'El monto de cada reparto debe estar entre 0 y 10.000,00 €.';
     }
+    const invalidPaymentShare = courierEditForm.businessIds.some((businessId) => {
+      if (courierEditForm.courierPaymentModesByBusiness[businessId] !== 'SPLIT') return false;
+      const share = Number((courierEditForm.courierClientSharesByBusiness[businessId] ?? '').replace(',', '.'));
+      return !Number.isFinite(share) || share < 0 || share > 100;
+    });
+    if (invalidPaymentShare) {
+      errors.courierBusinessSettings = 'El porcentaje del cliente debe estar entre 0 y 100.';
+    }
     if (courierTicketThresholdCents === null) {
       errors.courierTicketThresholdEuros = 'El importe base debe estar entre 0 y 10.000,00 €.';
     }
@@ -631,6 +693,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
         courierBusinessSettings: buildCourierBusinessSettings(
           courierEditForm.businessIds,
           courierEditForm.courierRatesByBusiness,
+          courierEditForm.courierPaymentModesByBusiness,
+          courierEditForm.courierClientSharesByBusiness,
           courierEditForm.courierTicketThresholdEuros,
           courierEditForm.courierDiscountEnabled,
           courierEditForm.courierDiscountPercentage,
@@ -1133,7 +1197,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
             <label className="mb-1 block text-xs font-semibold text-stone-500">Tipo de repartidor</label>
             <select
               value={courierForm.role}
-              onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [], courierRatesByBusiness: {} })}
+              onChange={(e) => setCourierForm({ ...courierForm, role: e.target.value as 'PLATFORM_COURIER' | 'BUSINESS_COURIER', businessIds: [], courierRatesByBusiness: {}, courierPaymentModesByBusiness: {}, courierClientSharesByBusiness: {} })}
               className="w-full rounded-xl border border-stone-200 bg-white px-4 py-2 text-sm text-black outline-none focus:border-[#FF4E00]"
             >
               <option value="PLATFORM_COURIER">Plataforma (negocios asignados)</option>
@@ -1193,7 +1257,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                 {courierForm.businessIds.map((businessId) => {
                   const business = businesses.find((item) => item.id === businessId);
                   return (
-                    <label key={businessId} className="flex items-center justify-between gap-3 text-xs text-stone-600 dark:text-stone-300">
+                    <div key={businessId} className="flex flex-col gap-2 text-xs text-stone-600 dark:text-stone-300">
                       <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>
                       <span className="flex shrink-0 items-center gap-2">
                         <input
@@ -1215,7 +1279,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                         />
                         <span>€</span>
                       </span>
-                    </label>
+                      <span className="flex flex-wrap items-center gap-3">
+                        <span className="font-semibold text-stone-500">¿Quién paga el viaje?</span>
+                        {(['BUSINESS', 'CLIENT', 'SPLIT'] as CourierPaymentMode[]).map((mode) => (
+                          <label key={mode} className="flex items-center gap-1">
+                            <input
+                              type="radio"
+                              name={`courier-payment-${businessId}`}
+                              checked={courierForm.courierPaymentModesByBusiness[businessId] === mode}
+                              onChange={() => setCourierForm((previous) => ({
+                                ...previous,
+                                courierPaymentModesByBusiness: {
+                                  ...previous.courierPaymentModesByBusiness,
+                                  [businessId]: mode,
+                                },
+                              }))}
+                              className="h-3.5 w-3.5 accent-[#FF4E00]"
+                            />
+                            {mode === 'BUSINESS' ? 'Negocio' : mode === 'CLIENT' ? 'Cliente' : 'Dividido'}
+                          </label>
+                        ))}
+                      </span>
+                      {courierForm.courierPaymentModesByBusiness[businessId] === 'SPLIT' && (
+                        <label className="flex items-center gap-2 text-[11px] text-stone-500">
+                          <span>Porcentaje que paga el cliente</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={courierForm.courierClientSharesByBusiness[businessId] ?? '50'}
+                            onChange={(event) => setCourierForm((previous) => ({
+                              ...previous,
+                              courierClientSharesByBusiness: {
+                                ...previous.courierClientSharesByBusiness,
+                                [businessId]: event.target.value,
+                              },
+                            }))}
+                            className="w-20 rounded-lg border border-stone-200 bg-white px-2 py-1 text-right text-black outline-none focus:border-[#FF4E00]"
+                          />
+                          <span>%</span>
+                        </label>
+                      )}
+                    </div>
                   );
                 })}
                 <FieldError message={courierFormErrors.courierBusinessSettings} />
@@ -2015,7 +2121,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                     {courierEditForm.businessIds.map((businessId) => {
                       const business = businesses.find((item) => item.id === businessId);
                       return (
-                        <label key={businessId} className="flex items-center justify-between gap-3 text-xs text-stone-600 dark:text-stone-300">
+                    <div key={businessId} className="flex flex-col gap-2 text-xs text-stone-600 dark:text-stone-300">
                           <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>
                           <span className="flex shrink-0 items-center gap-2">
                             <input
@@ -2037,7 +2143,49 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                             />
                             <span>€</span>
                           </span>
+                      <span className="flex flex-wrap items-center gap-3">
+                        <span className="font-semibold text-stone-500">¿Quién paga el viaje?</span>
+                        {(['BUSINESS', 'CLIENT', 'SPLIT'] as CourierPaymentMode[]).map((mode) => (
+                          <label key={mode} className="flex items-center gap-1">
+                            <input
+                              type="radio"
+                              name={`courier-edit-payment-${businessId}`}
+                              checked={courierEditForm.courierPaymentModesByBusiness[businessId] === mode}
+                              onChange={() => setCourierEditForm((previous) => ({
+                                ...previous,
+                                courierPaymentModesByBusiness: {
+                                  ...previous.courierPaymentModesByBusiness,
+                                  [businessId]: mode,
+                                },
+                              }))}
+                              className="h-3.5 w-3.5 accent-[#FF4E00]"
+                            />
+                            {mode === 'BUSINESS' ? 'Negocio' : mode === 'CLIENT' ? 'Cliente' : 'Dividido'}
+                          </label>
+                        ))}
+                      </span>
+                      {courierEditForm.courierPaymentModesByBusiness[businessId] === 'SPLIT' && (
+                        <label className="flex items-center gap-2 text-[11px] text-stone-500">
+                          <span>Porcentaje que paga el cliente</span>
+                          <input
+                            type="number"
+                            min="0"
+                            max="100"
+                            step="1"
+                            value={courierEditForm.courierClientSharesByBusiness[businessId] ?? '50'}
+                            onChange={(event) => setCourierEditForm((previous) => ({
+                              ...previous,
+                              courierClientSharesByBusiness: {
+                                ...previous.courierClientSharesByBusiness,
+                                [businessId]: event.target.value,
+                              },
+                            }))}
+                            className="w-20 rounded-lg border border-stone-200 bg-white px-2 py-1 text-right text-black outline-none focus:border-[#FF4E00]"
+                          />
+                          <span>%</span>
                         </label>
+                      )}
+                    </div>
                       );
                     })}
                     <FieldError message={courierEditErrors.courierBusinessSettings} />

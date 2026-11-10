@@ -472,6 +472,8 @@ const normalizeOrder = (item: any): Order => {
     courierId: item?.courierId ?? item?.courier_id ?? undefined,
     courierName: item?.courierName ?? item?.courier_name ?? undefined,
     courierPhone: item?.courierPhone ?? item?.courier_phone ?? undefined,
+    courierPaymentMode: (item?.courierPaymentMode ?? item?.courier_payment_mode ?? 'CLIENT') as Order['courierPaymentMode'],
+    courierClientSharePercentage: Number(item?.courierClientSharePercentage ?? item?.courier_client_share_percentage ?? 100) || 0,
     courierAvatarUrl:
       item?.courierAvatarUrl ?? item?.courier_avatar_url ?? undefined,
     deliveryPin: String(item?.deliveryPin ?? item?.delivery_pin ?? ''),

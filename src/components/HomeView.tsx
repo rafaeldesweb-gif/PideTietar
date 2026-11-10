@@ -467,7 +467,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
                     <div className="flex items-center space-x-1">
                       {biz.hasOnlineCourier && <Bike className="w-3.5 h-3.5 text-emerald-600" aria-label="Repartidor en línea" role="img" />}
                       <span>
-                        {userSubscription === 'PRO_MONTHLY' ? (
+                        {biz.deliveryFeeCents === 0 ? (
+                          <span className="text-emerald-600 font-bold">GRATIS</span>
+                        ) : userSubscription === 'PRO_MONTHLY' ? (
                           <span className="text-emerald-600 font-bold">0€ con Pro</span>
                         ) : (
                           `${(biz.deliveryFeeCents / 100).toFixed(2)}€ envío`

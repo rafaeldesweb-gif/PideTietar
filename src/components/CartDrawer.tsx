@@ -409,7 +409,9 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
                   <div className="flex justify-between">
                     <span>Coste de reparto:</span>
                     <span className="font-mono">
-                      {hasFreeDelivery ? (
+                      {ledger.deliveryFeeCents === 0 ? (
+                        <span className="text-emerald-600 font-semibold">GRATIS</span>
+                      ) : hasFreeDelivery ? (
                         <span className="text-emerald-600 font-semibold">GRATIS (Club+)</span>
                       ) : (
                         `${(ledger.deliveryFeeCents / 100).toFixed(2)}€`

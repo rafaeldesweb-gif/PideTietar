@@ -100,7 +100,9 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
               <div className="w-px h-8 bg-stone-200 dark:bg-stone-700" />
               <div className="text-center px-2">
                 <div className="font-bold text-stone-900 dark:text-stone-100 text-base">
-                  {userSubscription === 'PRO_MONTHLY' ? '0€' : `${(business.deliveryFeeCents / 100).toFixed(2)}€`}
+                  {business.deliveryFeeCents === 0 ? (
+                    <span className="text-emerald-600">GRATIS</span>
+                  ) : userSubscription === 'PRO_MONTHLY' ? '0€' : `${(business.deliveryFeeCents / 100).toFixed(2)}€`}
                 </div>
                 <div className="text-[10px] text-stone-400 font-medium">Envío</div>
               </div>
