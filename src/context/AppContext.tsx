@@ -203,6 +203,13 @@ const normalizeLocality = (item: any): Locality => ({
   coverImage: item.coverImage || item.cover_image,
 });
 
+// Las localidades se muestran siempre de la A a la Z, con comparación
+// española y sin distinguir mayúsculas de minúsculas.
+const sortLocalitiesAscending = (items: Locality[]): Locality[] => [...items].sort((a, b) => {
+  const byName = a.name.localeCompare(b.name, 'es', { sensitivity: 'base' });
+  return byName || a.postalCode.localeCompare(b.postalCode, 'es', { numeric: true });
+});
+
 // `delivery_modes` llega como JSON en texto (SQLite) o como array (MySQL):
 // se parsea con cuidado para no romper la app cuando cambia de modo de base
 // de datos o el valor viene mal formado.
@@ -667,7 +674,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!active) return;
 
       if (localitiesData) {
-        const nextLocalities = localitiesData.map(normalizeLocality);
+        const nextLocalities = sortLocalitiesAscending(localitiesData.map(normalizeLocality));
         setLocalities(nextLocalities);
         // Si la zona elegida sigue existiendo se conserva; si no, se elige la
         // primera o se queda en null cuando el catálogo está vacío.
@@ -1155,7 +1162,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       coverImage: data.coverImage,
     };
 
-    setLocalities(prev => [...prev, newLocality]);
+    setLocalities(prev => sortLocalitiesAscending([...prev, newLocality]));
     void apiFetch('/localities', {
       method: 'POST',
       body: JSON.stringify(toServerLocality(newLocality)),
@@ -1174,9 +1181,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // la zona quedaba sólo en el navegador y "Crear comercio" fallaba
         // después con "La zona seleccionada no existe".
         const adopted = normalizeLocality(created);
-        setLocalities(prev =>
+        setLocalities(prev => sortLocalitiesAscending(
           prev.map(loc => (loc.id === tempId ? { ...loc, ...adopted, id: serverId } : loc)),
-        );
+        ));
         setSelectedLocality(current => {
           if (!current) return { ...newLocality, ...adopted, id: serverId };
           return current.id === tempId ? { ...current, ...adopted, id: serverId } : current;
@@ -1196,7 +1203,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateLocality = (localityId: string, data: Partial<Locality>) => {
     const next = { ...data };
-    setLocalities(prev => prev.map(loc => (loc.id === localityId ? { ...loc, ...next } : loc)));
+    setLocalities(prev => sortLocalitiesAscending(
+      prev.map(loc => (loc.id === localityId ? { ...loc, ...next } : loc)),
+    ));
     setSelectedLocality(prev => (prev?.id === localityId ? { ...prev, ...next } : prev));
 
     // Antes sólo se tocaba el estado local: la zona volvía a su valor
@@ -1225,7 +1234,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const wasSelected = selectedLocality?.id === localityId;
     const remaining = localities.filter(loc => loc.id !== localityId);
 
-    setLocalities(remaining);
+    setLocalities(sortLocalitiesAscending(remaining));
     if (wasSelected) {
       setSelectedLocality(remaining[0] || null);
     }
@@ -1243,7 +1252,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         // Se restaura para no mostrar un borrado que no llegó a producirse.
         if (removed) {
-          setLocalities(prev => [...prev, removed]);
+          setLocalities(prev => sortLocalitiesAscending([...prev, removed]));
           if (wasSelected) setSelectedLocality(removed);
         }
       });

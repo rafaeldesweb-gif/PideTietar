@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Menu, X, ShoppingBag, MapPin,
@@ -37,6 +37,27 @@ export const Header: React.FC<HeaderProps> = ({
 
   const [localityMenuOpen, setLocalityMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const localityMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!localityMenuOpen) return;
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!localityMenuRef.current?.contains(event.target as Node)) {
+        setLocalityMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setLocalityMenuOpen(false);
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePress);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [localityMenuOpen]);
 
   const cartItemsCount = cart ? cart.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
   const isCourier = currentUser?.role === 'PLATFORM_COURIER' || currentUser?.role === 'BUSINESS_COURIER';
@@ -47,7 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-40 border-b border-stone-200 bg-white/95 text-stone-900 shadow-xs backdrop-blur-md transition-colors dark:border-stone-800 dark:bg-stone-900/95 dark:text-stone-100">
       <div className="mx-auto w-full max-w-7xl px-3 sm:px-6 lg:px-8">
         <div className="flex h-14 items-center gap-1 sm:h-16 sm:gap-2">
-          <div className="relative min-w-0 shrink sm:shrink-0">
+          <div ref={localityMenuRef} className="relative min-w-0 shrink sm:shrink-0">
             <button
               id="locality-selector-btn"
               onClick={() => setLocalityMenuOpen(!localityMenuOpen)}
