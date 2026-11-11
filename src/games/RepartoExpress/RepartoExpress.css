@@ -1,0 +1,1416 @@
+/* ============================================================
+   Reparto Express – estilos del minijuego PideTiétar
+   Estética copiada de la referencia "Carrera arcade brillante
+   entre colinas": azul profundo, cian neón, púrpura, naranja y
+   dorado; paneles acristalados con bisel, botones circulares
+   glossy, marcos y halos neón.
+   ============================================================ */
+
+.reparto-express-overlay {
+  --navy: #0a1a4a;
+  --navy-deep: #061033;
+  --blue: #1565ff;
+  --blue-light: #4fc3f7;
+  --cyan: #00e5ff;
+  --purple: #8a2be2;
+  --magenta: #b026ff;
+  --orange: #ff7a00;
+  --orange-light: #ffb300;
+  --yellow: #ffd400;
+  --red: #e53935;
+  --green: #2ecc40;
+
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  width: 100vw;
+  height: 100vh;
+  /* En móviles con barra de URL dinámica, 100vh recorta o deja hueco. */
+  height: 100dvh;
+  background: var(--navy-deep);
+  overflow: hidden;
+  touch-action: none;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  transition: opacity 0.25s ease;
+}
+
+/* Canvas a pantalla completa */
+.reparto-express-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: block;
+  background: var(--navy-deep);
+  z-index: 1;
+}
+
+/* Marco neón exterior, como el borde luminoso de la referencia */
+.reparto-express-frame {
+  position: absolute;
+  inset: 6px;
+  z-index: 5;
+  border-radius: 26px;
+  pointer-events: none;
+  border: 2px solid rgba(0, 229, 255, 0.35);
+  box-shadow:
+    inset 0 0 30px rgba(0, 229, 255, 0.25),
+    inset 0 -12px 46px rgba(176, 38, 255, 0.35),
+    0 0 18px rgba(0, 229, 255, 0.25);
+}
+
+.reparto-express-frame::before {
+  content: "";
+  position: absolute;
+  top: clamp(64px, 8vh, 118px);
+  right: 0;
+  left: 0;
+  height: 4px;
+  border-radius: 50%;
+  background: linear-gradient(90deg, #12d9ff, #146dff 25%, #ff5428 50%, #ffb222 70%, #00dfff);
+  box-shadow: 0 0 12px #00cfff, 0 0 18px rgba(255, 105, 0, 0.85);
+}
+
+.reparto-express-frame::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -2px;
+  height: 4px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--magenta), transparent);
+  box-shadow: 0 0 16px var(--cyan);
+}
+
+/* Capa de controles y UI sobre el canvas */
+.reparto-express-ui {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+/* Banda azul marino con trama hexagonal y centro rebajado de la imagen. */
+.reparto-express-header {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: clamp(86px, 10vh, 140px);
+  z-index: 40;
+  pointer-events: none;
+  background-color: #061432;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='30' viewBox='0 0 34 30'%3E%3Cpath d='M8.5 1 16 5.3v8.5l-7.5 4.3L1 13.8V5.3ZM25.5 1 33 5.3v8.5l-7.5 4.3-7.5-4.3V5.3ZM17 15 24.5 19.3v8.5L17 32l-7.5-4.2v-8.5Z' fill='none' stroke='%2324619b' stroke-opacity='.32'/%3E%3C/svg%3E"),
+    linear-gradient(180deg, #06122e 0%, #0a2754 70%, #071a42 100%);
+  clip-path: polygon(0 0, 100% 0, 100% 62%, 81% 62%, 72% 95%, 28% 95%, 19% 62%, 0 62%);
+  filter: drop-shadow(0 3px 5px rgba(0, 220, 255, 0.8));
+}
+
+/* Cabecera compacta de la referencia: emblema y palabra de marca con halo
+   naranja, sobre una franja oscura que no tapa la escena. */
+.reparto-express-brand {
+  position: absolute;
+  top: 9px;
+  left: 50%;
+  z-index: 44;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: min(62vw, 420px);
+  height: clamp(72px, 9vh, 128px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0 0 40% 40%;
+  background: transparent;
+  box-shadow: none;
+}
+
+.reparto-express-brand::after {
+  content: "";
+  position: absolute;
+  right: 8%;
+  bottom: -3px;
+  left: 8%;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ff7a00, #00e5ff 48%, #ff7a00);
+  box-shadow: 0 0 12px rgba(0, 229, 255, 0.85), 0 0 12px rgba(255, 122, 0, 0.65);
+}
+
+.reparto-express-brand .project-logo-split {
+  transform: scale(1.55);
+  filter: drop-shadow(0 0 7px rgba(255, 102, 0, 0.85));
+}
+
+/* ------------------------------------------------------------
+   Barra superior: pausa a la izquierda, cerrar a la derecha
+   ------------------------------------------------------------ */
+
+.reparto-express-topbar {
+  position: absolute;
+  top: clamp(90px, 10vh, 148px);
+  left: 14px;
+  right: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.reparto-express-btn {
+  position: relative;
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  isolation: isolate;
+}
+
+/* Reflejo glossy superior común a todos los botones circulares */
+.reparto-express-btn::before {
+  content: "";
+  position: absolute;
+  top: 7%;
+  left: 14%;
+  width: 62%;
+  height: 34%;
+  border-radius: 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.reparto-express-btn svg {
+  position: relative;
+  z-index: 3;
+  width: 46%;
+  height: 46%;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.45));
+}
+
+.reparto-express-btn:active {
+  transform: scale(0.93);
+}
+
+/* Pausa: círculo azul oscuro con anillo cian neón */
+.reparto-express-btn.pause {
+  background: radial-gradient(circle at 30% 24%, #ff7058, #c62828 72%);
+  border-color: rgba(255, 216, 195, 0.9);
+  color: #eaf6ff;
+  box-shadow:
+    0 0 18px rgba(255, 60, 40, 0.72),
+    inset 0 3px 6px rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Cerrar: círculo rojo glossy con anillo claro */
+.reparto-express-btn.close {
+  background: radial-gradient(circle at 30% 24%, #ff6b5a, #c62828 72%);
+  border-color: rgba(255, 190, 180, 0.85);
+  color: #ffffff;
+  box-shadow:
+    0 0 16px rgba(255, 60, 40, 0.65),
+    inset 0 3px 6px rgba(255, 255, 255, 0.4),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45);
+}
+
+.reparto-express-btn.pause:active,
+.reparto-express-btn.close:active {
+  filter: brightness(1.12);
+}
+
+/* ------------------------------------------------------------
+   HUD central: cuatro paneles acristalados + guiones cian
+   ------------------------------------------------------------ */
+
+.hud-wrap {
+  position: absolute;
+  top: clamp(90px, 10vh, 148px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 148px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 41;
+}
+
+.reparto-express-hud {
+  display: grid;
+  grid-template-columns: 1fr 1.18fr 0.85fr 0.9fr;
+  gap: 7px;
+  width: 100%;
+  pointer-events: none;
+}
+
+.hud-panel {
+  flex: 1 1 0;
+  min-width: 0;
+  position: relative;
+  padding: 5px 6px 7px;
+  border-radius: 14px;
+  text-align: center;
+  border: 2px solid rgba(0, 229, 255, 0.75);
+  background: linear-gradient(180deg, rgba(40, 100, 230, 0.96), rgba(8, 24, 70, 0.96));
+  box-shadow:
+    0 0 14px rgba(0, 229, 255, 0.45),
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+/* Reflejo glossy del panel */
+.hud-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 6%;
+  right: 6%;
+  height: 42%;
+  border-radius: 10px 10px 40% 40%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+/* Panel de nivel: púrpura/magenta */
+.hud-panel.hud-level {
+  border-color: rgba(255, 155, 185, 0.95);
+  background: linear-gradient(180deg, rgba(244, 52, 85, 0.98), rgba(130, 8, 42, 0.98));
+  box-shadow:
+    0 0 18px rgba(255, 45, 90, 0.62),
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45);
+}
+
+.hud-panel.hud-bags {
+  border-color: rgba(185, 255, 83, 0.9);
+  background: linear-gradient(180deg, rgba(81, 168, 26, 0.98), rgba(27, 79, 17, 0.98));
+  box-shadow:
+    0 0 15px rgba(155, 255, 48, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.35),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.45);
+}
+
+.hud-label {
+  position: relative;
+  z-index: 1;
+  display: block;
+  font-size: clamp(8px, 2.3vw, 12px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #dff3ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.hud-value {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 1px;
+  font-size: clamp(15px, 4.4vw, 25px);
+  font-weight: 900;
+  line-height: 1;
+  color: var(--yellow);
+  text-shadow: 0 0 8px rgba(255, 200, 0, 0.9), 0 2px 2px rgba(0, 0, 0, 0.9);
+}
+
+.hud-panel.hud-points .hud-value {
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(120, 220, 255, 0.9), 0 2px 2px rgba(0, 0, 0, 0.9);
+}
+
+.hud-panel.hud-level .hud-value {
+  color: #ffffff;
+  text-shadow: 0 0 8px rgba(255, 155, 185, 0.9), 0 2px 2px rgba(0, 0, 0, 0.9);
+}
+
+.hud-icon {
+  width: clamp(11px, 3vw, 19px);
+  height: clamp(11px, 3vw, 19px);
+  color: var(--yellow);
+  filter: drop-shadow(0 0 4px rgba(255, 200, 0, 0.9));
+}
+
+.hud-goal {
+  font-size: 0.68em;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.hud-panel.hud-points .hud-value-compact {
+  font-size: clamp(12px, 3.1vw, 18px);
+}
+
+.hud-value-compact .hud-icon { display: none; }
+
+.hud-sub {
+  position: relative;
+  z-index: 1;
+  display: block;
+  margin-top: 1px;
+  font-size: clamp(7px, 1.9vw, 10px);
+  font-weight: 700;
+  color: #bfe9ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.hud-dashes {
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.hud-dashes span {
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+}
+
+/* ------------------------------------------------------------
+   Controles táctiles inferiores: tres botones circulares glossy
+   ------------------------------------------------------------ */
+
+.reparto-express-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(16px, 6vw, 40px);
+  pointer-events: none;
+  z-index: 42;
+}
+
+.reparto-express-controls > button {
+  pointer-events: auto;
+}
+
+.reparto-express-controls .reparto-express-btn svg {
+  stroke-width: 3.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Botones de movimiento: azul brillante con halo cian */
+.reparto-express-btn.move {
+  width: clamp(62px, 17vw, 92px);
+  height: clamp(62px, 17vw, 92px);
+  border-color: rgba(220, 232, 248, 0.95);
+  background: radial-gradient(circle at 30% 24%, #dce8f7, #5e6a7f 55%, #1b2232 100%);
+  color: #ffffff;
+  box-shadow:
+    0 0 16px rgba(255, 145, 0, 0.5),
+    0 8px 18px rgba(0, 0, 0, 0.35),
+    inset 0 4px 10px rgba(255, 255, 255, 0.5),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.5);
+}
+
+/* Botón central de salto: naranja/amarillo con gran halo */
+.reparto-express-btn.jump {
+  width: clamp(72px, 20vw, 108px);
+  height: clamp(72px, 20vw, 108px);
+  border-color: rgba(255, 220, 120, 0.95);
+  background: radial-gradient(circle at 30% 24%, #ffe066, #ff8f00 55%, #e65100 100%);
+  color: #ffffff;
+  box-shadow:
+    0 0 28px rgba(255, 150, 0, 0.8),
+    0 8px 20px rgba(0, 0, 0, 0.35),
+    inset 0 4px 10px rgba(255, 255, 255, 0.55),
+    inset 0 -8px 16px rgba(0, 0, 0, 0.45);
+}
+
+.reparto-express-btn.move:active,
+.reparto-express-btn.jump:active {
+  filter: brightness(1.12);
+}
+
+/* ------------------------------------------------------------
+   Pantallas estáticas (inicio / pausa / fin)
+   ------------------------------------------------------------ */
+
+.reparto-express-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: auto;
+  background: radial-gradient(circle at 50% 40%, rgba(10, 26, 74, 0.55), rgba(3, 8, 26, 0.82));
+  backdrop-filter: blur(7px);
+  -webkit-backdrop-filter: blur(7px);
+  text-align: center;
+  padding: 24px;
+  box-sizing: border-box;
+}
+
+.reparto-express-screen.hidden {
+  display: none;
+}
+
+.start-screen {
+  /* Sin desenfoque de fondo: el glow del emblema usa `filter` y, dentro de un
+     ancestro con backdrop-filter, Chrome pintaba un cuadro oscuro alrededor
+     del logo sobre la escena. El degradado oscuro ya separa la tarjeta. */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  justify-content: flex-start;
+  gap: clamp(8px, 1.5vh, 16px);
+  padding-top: clamp(122px, 15vh, 165px);
+  padding-bottom: 18px;
+  overflow-y: auto;
+}
+
+.start-game-logo {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: clamp(132px, 34vw, 190px);
+  aspect-ratio: 1;
+  pointer-events: none;
+  isolation: isolate;
+  overflow: visible;
+}
+
+.start-game-logo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Glow neón pegado a la silueta del emblema: sigue la forma del pin (y del
+     rótulo) en cada fotograma del GIF, así que no hay halo circular que se
+     descentre. El desenfoque de fondo de la pantalla de inicio se desactiva
+     para que este filtro no deje un cuadro oscuro sobre la escena. */
+  filter:
+    drop-shadow(0 0 5px rgba(0, 229, 255, 0.9))
+    drop-shadow(0 0 12px rgba(0, 229, 255, 0.55))
+    drop-shadow(0 0 24px rgba(0, 229, 255, 0.3));
+}
+
+.reparto-express-card {
+  position: relative;
+  width: 100%;
+  max-width: 380px;
+  padding: 26px 22px;
+  border-radius: 22px;
+  color: #ffffff;
+  background: linear-gradient(180deg, rgba(24, 58, 140, 0.96), rgba(6, 16, 48, 0.97));
+  border: 2px solid rgba(0, 229, 255, 0.6);
+  box-shadow:
+    0 0 28px rgba(0, 229, 255, 0.35),
+    0 18px 50px rgba(0, 0, 0, 0.55),
+    inset 0 2px 0 rgba(255, 255, 255, 0.25),
+    inset 0 -10px 30px rgba(176, 38, 255, 0.18);
+  overflow: hidden;
+}
+
+.reparto-express-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 40%;
+  border-radius: 18px 18px 50% 50%;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0));
+  pointer-events: none;
+}
+
+.reparto-express-card h2 {
+  position: relative;
+  margin: 0 0 10px;
+  font-size: clamp(26px, 6.5vw, 42px);
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  color: var(--yellow);
+  text-shadow:
+    0 0 14px rgba(255, 200, 0, 0.75),
+    0 0 28px rgba(255, 122, 0, 0.5),
+    0 3px 4px rgba(0, 0, 0, 0.6);
+}
+
+.reparto-express-card p {
+  position: relative;
+  margin: 0 0 20px;
+  color: #d7ecff;
+  font-size: clamp(13px, 3.4vw, 16px);
+  line-height: 1.45;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+
+.reparto-express-card p.reparto-express-hint {
+  margin: 0 0 14px;
+  font-size: 12px;
+  color: #9fd4ff;
+  opacity: 0.9;
+}
+
+.reparto-express-card .stats {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin: 14px 0 18px;
+}
+
+.reparto-express-card .stat {
+  padding: 8px 4px;
+  border-radius: 12px;
+  font-size: clamp(9px, 2.5vw, 11px);
+  font-weight: 700;
+  color: #bfe9ff;
+  background: rgba(0, 229, 255, 0.08);
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.reparto-express-card .stat .value {
+  display: block;
+  margin-top: 3px;
+  font-size: clamp(16px, 4.5vw, 22px);
+  font-weight: 900;
+  color: var(--yellow);
+  text-shadow: 0 0 8px rgba(255, 200, 0, 0.8);
+}
+
+.reparto-express-card .record {
+  position: relative;
+  margin: 12px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-weight: 900;
+  color: #06210f;
+  background: linear-gradient(180deg, #8dffb8, #22c55e);
+  box-shadow: 0 0 18px rgba(57, 255, 136, 0.6), inset 0 2px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* Botón principal: naranja glossy como el botón de salto */
+.reparto-express-btn-primary {
+  position: relative;
+  width: 100%;
+  margin: 8px 0;
+  padding: 14px;
+  border: 2px solid rgba(255, 220, 120, 0.9);
+  border-radius: 14px;
+  font-size: 18px;
+  font-weight: 900;
+  color: #ffffff;
+  cursor: pointer;
+  background: radial-gradient(circle at 30% 20%, #ffe066, #ff8f00 55%, #e65100 100%);
+  box-shadow:
+    0 0 22px rgba(255, 150, 0, 0.6),
+    0 8px 18px rgba(0, 0, 0, 0.35),
+    inset 0 3px 8px rgba(255, 255, 255, 0.5),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.4);
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.45);
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+
+.reparto-express-btn-primary:active {
+  transform: scale(0.97);
+  filter: brightness(1.1);
+}
+
+/* Botón secundario: azul glossy */
+.reparto-express-btn-secondary {
+  position: relative;
+  width: 100%;
+  margin: 6px 0;
+  padding: 12px;
+  border: 2px solid rgba(140, 225, 255, 0.75);
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+  cursor: pointer;
+  background: radial-gradient(circle at 30% 20%, #6fd6ff, #1565ff 60%, #0a2a7a 100%);
+  box-shadow:
+    0 0 18px rgba(0, 229, 255, 0.45),
+    0 6px 14px rgba(0, 0, 0, 0.3),
+    inset 0 3px 8px rgba(255, 255, 255, 0.4),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.35);
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.4);
+  transition: transform 0.08s ease, filter 0.15s ease;
+}
+
+.reparto-express-btn-secondary:active {
+  transform: scale(0.97);
+  filter: brightness(1.1);
+}
+
+/* Texto flotante de bonificación */
+.reparto-express-float {
+  position: absolute;
+  pointer-events: none;
+  z-index: 45;
+  font-weight: 900;
+  font-size: 20px;
+  color: #ffffff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+  animation: floatUp 0.9s ease-out forwards;
+}
+
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-60px) scale(1.15);
+    opacity: 0;
+  }
+}
+
+/* Mensaje de guardado */
+.reparto-express-save {
+  position: relative;
+  margin-top: 10px;
+  font-size: 13px;
+  color: #bfe9ff;
+  pointer-events: none;
+}
+
+/* Victoria: serpentinas, globos y el repartidor celebrando. */
+.victory-screen {
+  background: radial-gradient(circle at 50% 45%, rgba(20, 63, 150, 0.6), rgba(4, 11, 37, 0.88));
+}
+
+.victory-effects {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.victory-confetti {
+  position: absolute;
+  top: -14%;
+  width: 9px;
+  height: 17px;
+  border-radius: 3px;
+  background: #ffd400;
+  box-shadow: 0 0 8px currentColor;
+  animation: victory-fall 3s linear infinite;
+}
+
+.victory-confetti:nth-child(4n + 1) { background: #00e5ff; }
+.victory-confetti:nth-child(4n + 2) { background: #ff7a00; }
+.victory-confetti:nth-child(4n + 3) { background: #ff4d82; }
+
+.victory-balloon {
+  position: absolute;
+  bottom: -100px;
+  width: 53px;
+  height: 68px;
+  border-radius: 48% 48% 45% 45%;
+  background: radial-gradient(circle at 30% 24%, #ffffff, #ffb300 28%, #e64b00 78%);
+  box-shadow: inset -8px -10px 16px rgba(0, 0, 0, 0.22), 0 0 22px rgba(255, 153, 0, 0.7);
+  animation: victory-balloon-rise 7s ease-in-out infinite;
+}
+
+.victory-balloon::before {
+  content: "";
+  position: absolute;
+  left: 22px;
+  bottom: -9px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 11px solid #e64b00;
+}
+
+.victory-balloon::after {
+  content: "";
+  position: absolute;
+  top: 75px;
+  left: 26px;
+  width: 1px;
+  height: 65px;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.balloon-one { left: 0; animation-delay: -1s; }
+.balloon-two { right: 0; animation-delay: -3s; filter: hue-rotate(110deg); }
+.balloon-three { left: 0; animation-delay: -5s; filter: hue-rotate(220deg); }
+.balloon-four { right: 0; animation-delay: -2s; filter: hue-rotate(300deg); }
+
+.victory-streamer {
+  position: absolute;
+  top: 9%;
+  width: 105px;
+  height: 200px;
+  border: 7px solid transparent;
+  border-left-color: #ffd400;
+  border-radius: 50%;
+  filter: drop-shadow(0 0 7px #ff7a00);
+  animation: victory-streamer-sway 2.8s ease-in-out infinite alternate;
+}
+
+.streamer-one { left: 1%; transform: rotate(-20deg); }
+.streamer-two { right: 1%; transform: rotate(160deg); border-left-color: #00e5ff; }
+
+.victory-card {
+  position: relative;
+  z-index: 1;
+  box-sizing: border-box;
+  max-width: 340px;
+  padding: 18px 20px;
+  border-color: rgba(255, 210, 46, 0.9);
+  box-shadow: 0 0 32px rgba(255, 178, 0, 0.65), inset 0 2px 0 rgba(255, 255, 255, 0.32);
+}
+
+.victory-card h2 {
+  font-size: clamp(22px, 5.6vw, 30px);
+  line-height: 1.1;
+}
+
+.victory-rider {
+  position: relative;
+  display: block;
+  width: min(39vw, 150px);
+  max-height: 210px;
+  object-fit: contain;
+  margin: 0 auto 8px;
+  filter: drop-shadow(0 0 16px rgba(255, 176, 0, 0.8));
+  animation: victory-rider-bounce 1.8s ease-in-out infinite;
+}
+
+.victory-score {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 7px 12px;
+  margin-bottom: 8px;
+  border: 2px solid rgba(0, 229, 255, 0.85);
+  border-radius: 14px;
+  background: linear-gradient(180deg, #1765ca, #09245d);
+  box-shadow: 0 0 20px rgba(0, 229, 255, 0.4);
+  color: #e4f8ff;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.victory-score strong {
+  color: #ffd400;
+  font-size: clamp(30px, 8vw, 44px);
+  line-height: 1.1;
+  text-shadow: 0 0 14px #ff8a00;
+}
+
+.victory-card p { margin-bottom: 8px; }
+.victory-card .reparto-express-btn-primary,
+.victory-card .reparto-express-btn-secondary {
+  padding: 9px;
+  margin: 4px 0;
+  font-size: 15px;
+}
+
+@keyframes victory-fall {
+  from { transform: translate3d(0, -10vh, 0) rotate(0); }
+  to { transform: translate3d(55px, 120vh, 0) rotate(680deg); }
+}
+
+@keyframes victory-balloon-rise {
+  from { transform: translateY(0) rotate(-6deg); }
+  to { transform: translateY(-125vh) rotate(9deg); }
+}
+
+@keyframes victory-streamer-sway {
+  from { rotate: -8deg; }
+  to { rotate: 8deg; }
+}
+
+@keyframes victory-rider-bounce {
+  50% { transform: translateY(-7px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .victory-confetti,
+  .victory-balloon,
+  .victory-streamer,
+  .victory-rider { animation: none; }
+}
+
+/* ------------------------------------------------------------
+   Ajustes móviles
+   ------------------------------------------------------------ */
+
+@media (max-width: 480px) {
+  .reparto-express-header {
+    height: 82px;
+  }
+
+  .reparto-express-brand {
+    top: 0;
+    height: 68px;
+    width: min(64vw, 260px);
+  }
+
+  .reparto-express-frame::before {
+    top: 62px;
+  }
+
+  .reparto-express-topbar {
+    top: 76px;
+    left: 10px;
+    right: 10px;
+  }
+
+  .reparto-express-btn {
+    width: 48px;
+    height: 48px;
+    border-width: 2.5px;
+  }
+
+  .hud-wrap {
+    top: 76px;
+    width: calc(100vw - 120px);
+    gap: 4px;
+  }
+
+  .reparto-express-hud {
+    gap: 5px;
+  }
+
+  .hud-panel {
+    padding: 4px 4px 6px;
+    border-radius: 11px;
+    border-width: 1.5px;
+  }
+
+  .hud-label {
+    font-size: 8px;
+    letter-spacing: 0.06em;
+  }
+
+  .hud-value {
+    font-size: 15px;
+    gap: 2px;
+  }
+
+  .hud-icon {
+    width: 11px;
+    height: 11px;
+  }
+
+  .hud-goal { font-size: 9px; }
+
+  .hud-sub {
+    font-size: 7px;
+  }
+
+  .hud-dashes span {
+    width: 12px;
+    height: 3px;
+  }
+
+  .reparto-express-controls {
+    bottom: 28px;
+    gap: clamp(12px, 5vw, 22px);
+  }
+
+  .reparto-express-btn.move {
+    width: clamp(60px, 17vw, 72px);
+    height: clamp(60px, 17vw, 72px);
+  }
+
+  .reparto-express-btn.jump {
+    width: clamp(76px, 22vw, 92px);
+    height: clamp(76px, 22vw, 92px);
+  }
+
+  .reparto-express-card {
+    padding: 22px 18px;
+    max-width: 330px;
+  }
+
+  .start-screen {
+    gap: 6px;
+    padding-top: 116px;
+  }
+
+  .start-game-logo {
+    width: clamp(148px, 43vw, 170px);
+  }
+}
+
+@media (max-width: 360px) {
+  .hud-wrap {
+    width: calc(100vw - 132px);
+  }
+
+  .hud-value {
+    font-size: 13px;
+  }
+
+  .hud-label {
+    font-size: 7px;
+  }
+
+  .hud-bags .hud-icon { display: none; }
+}
+
+/* Evitar scroll del body mientras el juego está abierto */
+body.game-open {
+  overflow: hidden !important;
+  position: fixed !important;
+  width: 100% !important;
+}
+
+/* ------------------------------------------------------------
+   Pestañas de la pantalla de inicio y clasificación
+   ------------------------------------------------------------ */
+
+.reparto-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(3, 12, 38, 0.65);
+  border: 1px solid rgba(0, 229, 255, 0.28);
+}
+
+.reparto-tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 10px;
+  font-size: clamp(11px, 3vw, 13px);
+  font-weight: 800;
+  color: #9fd4ff;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.reparto-tabs button svg {
+  width: 15px;
+  height: 15px;
+}
+
+.reparto-tabs button.is-active {
+  color: #06122e;
+  background: linear-gradient(180deg, #ffe066, #ffb300 60%, #ff8a00);
+  box-shadow: 0 0 14px rgba(255, 160, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+.reparto-ranking {
+  position: relative;
+  margin: 4px 0 12px;
+}
+
+/* fila de ranking: una sola línea, sin envuelto */
+.reparto-ranking-list {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.reparto-ranking-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  padding: 6px 8px;
+  border-radius: 10px;
+  font-size: clamp(12px, 3vw, 14px);
+  font-weight: 700;
+  color: #d7ecff;
+  background: rgba(0, 229, 255, 0.07);
+  border: 1px solid rgba(0, 229, 255, 0.22);
+  justify-content: space-between;
+}
+
+.reparto-ranking-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.reparto-ranking-date {
+  flex: 0 0 auto;
+  font-size: clamp(10px, 2.4vw, 12px);
+  font-weight: 600;
+  color: #9fd4ff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.reparto-ranking-list li.is-me {
+  color: #06210f;
+  background: linear-gradient(180deg, #8dffb8, #22c55e);
+  border-color: rgba(57, 255, 136, 0.7);
+  box-shadow: 0 0 14px rgba(57, 255, 136, 0.45);
+}
+
+.reparto-ranking-pos {
+  flex: 0 0 auto;
+  width: 20px;
+  text-align: center;
+  font-weight: 900;
+  color: var(--yellow);
+}
+
+.reparto-ranking-list li.is-me .reparto-ranking-pos {
+  color: #0b3d1f;
+}
+
+.reparto-ranking-avatar {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 229, 255, 0.45);
+  background: rgba(3, 12, 38, 0.8);
+}
+
+.reparto-ranking-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.reparto-ranking-score {
+  flex: 0 0 auto;
+  font-weight: 900;
+  color: var(--yellow);
+  text-shadow: 0 0 8px rgba(255, 200, 0, 0.6);
+  white-space: nowrap;
+}
+
+.reparto-ranking-list li.is-me .reparto-ranking-score {
+  color: #0b3d1f;
+  text-shadow: none;
+}
+
+@media (max-height: 780px) {
+  .start-screen {
+    gap: 6px;
+    padding-top: clamp(84px, 12vh, 110px);
+  }
+
+  .start-game-logo {
+    width: clamp(72px, 15vh, 120px);
+  }
+
+  .reparto-express-card {
+    padding: 14px 18px;
+  }
+
+  .reparto-express-card h2 {
+    margin-bottom: 6px;
+    font-size: clamp(22px, 4.6vh, 30px);
+  }
+
+  .reparto-express-card p {
+    margin-bottom: 10px;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .reparto-express-card p.reparto-express-hint {
+    margin-bottom: 8px;
+    font-size: 11px;
+  }
+
+  .reparto-tabs {
+    margin-bottom: 10px;
+  }
+
+  .reparto-express-card .stats {
+    margin: 8px 0 10px;
+  }
+
+  .reparto-express-card .stat {
+    padding: 5px 3px;
+  }
+
+  .reparto-express-btn-primary {
+    margin: 5px 0;
+    padding: 10px;
+    font-size: 16px;
+  }
+
+  .reparto-express-btn-secondary {
+    margin: 3px 0;
+    padding: 9px;
+    font-size: 14px;
+  }
+
+  .reparto-ranking-list {
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+
+  .reparto-ranking-list li {
+    padding: 4px 6px;
+  }
+}
+
+/* Foco visible para navegación con teclado (los botones no lo mostraban). */
+.reparto-express-overlay button:focus-visible,
+.reparto-tabs button:focus-visible {
+  outline: 3px solid #00e5ff;
+  outline-offset: 2px;
+}
+
+@media (max-width: 480px) {
+  .reparto-express-card {
+    padding: 18px 16px;
+  }
+
+  .reparto-express-card h2 {
+    margin-bottom: 8px;
+  }
+
+  .reparto-ranking-list li {
+    padding: 5px 6px;
+  }
+}
+
+/* ============================================================
+   Tablet y escritorio: UI proporcionada para pantallas anchas
+   ============================================================ */
+
+/* Tablet (768px+) */
+@media (min-width: 768px) {
+  .reparto-express-header {
+    height: clamp(70px, 8vh, 112px);
+  }
+
+  .reparto-express-brand {
+    top: clamp(8px, 1vh, 16px);
+    width: min(68vw, 460px);
+    height: clamp(70px, 9vh, 118px);
+  }
+
+  .reparto-express-topbar {
+    top: clamp(100px, 11vh, 158px);
+  }
+
+  .hud-wrap {
+    top: clamp(100px, 11vh, 158px);
+    width: min(720px, calc(100vw - 100px));
+    gap: 8px;
+  }
+
+  .reparto-express-hud {
+    grid-template-columns: 1fr 1.2fr 0.85fr 0.95fr;
+    gap: 8px;
+  }
+
+  .hud-panel {
+    padding: 6px 8px 8px;
+    border-radius: 16px;
+  }
+
+  .hud-label {
+    font-size: clamp(9px, 2.4vw, 13px);
+  }
+
+  .hud-value {
+    font-size: clamp(18px, 4.6vw, 28px);
+    gap: 5px;
+  }
+
+  .hud-icon {
+    width: clamp(14px, 3.2vw, 20px);
+    height: clamp(14px, 3.2vw, 20px);
+  }
+
+  .reparto-express-controls {
+    gap: clamp(20px, 7vw, 52px);
+    bottom: clamp(18px, 3vh, 28px);
+  }
+
+  .reparto-express-btn.move {
+    width: clamp(72px, 18vw, 104px);
+    height: clamp(72px, 18vw, 104px);
+  }
+
+  .reparto-express-btn.jump {
+    width: clamp(84px, 22vw, 120px);
+    height: clamp(84px, 22vw, 120px);
+  }
+
+  .reparto-express-btn.move svg,
+  .reparto-express-btn.jump svg {
+    width: 44%;
+    height: 44%;
+  }
+
+  .reparto-express-card {
+    max-width: 420px;
+    padding: 28px 24px;
+  }
+
+  .reparto-express-card h2 {
+    font-size: clamp(30px, 7vw, 48px);
+  }
+}
+
+/* Escritorio (1024px+) */
+@media (min-width: 1024px) {
+  .reparto-express-header {
+    height: clamp(64px, 6.5vh, 96px);
+  }
+
+  .reparto-express-brand {
+    top: clamp(6px, 0.8vh, 14px);
+    width: min(72vw, 560px);
+    height: clamp(68px, 8vh, 110px);
+  }
+
+  .reparto-express-topbar {
+    top: clamp(106px, 11vh, 164px);
+  }
+
+  .hud-wrap {
+    top: clamp(106px, 11vh, 164px);
+    width: min(940px, calc(100vw - 140px));
+  }
+
+  .reparto-express-hud {
+    grid-template-columns: 1fr 1.25fr 0.8fr 1.05fr;
+    gap: 10px;
+  }
+
+  .hud-panel {
+    padding: 8px 10px 10px;
+    border-radius: 18px;
+  }
+
+  .hud-label {
+    font-size: clamp(10px, 2.2vw, 14px);
+  }
+
+  .hud-value {
+    font-size: clamp(20px, 4vw, 34px);
+    gap: 6px;
+  }
+
+  .hud-icon {
+    width: clamp(16px, 3vw, 22px);
+    height: clamp(16px, 3vw, 22px);
+  }
+
+  .reparto-express-controls {
+    gap: clamp(28px, 8vw, 72px);
+    bottom: clamp(24px, 3.5vh, 38px);
+  }
+
+  .reparto-express-btn.move {
+    width: clamp(84px, 20vw, 132px);
+    height: clamp(84px, 20vw, 132px);
+  }
+
+  .reparto-express-btn.jump {
+    width: clamp(100px, 24vw, 150px);
+    height: clamp(100px, 24vw, 150px);
+  }
+
+  .reparto-express-btn.move svg,
+  .reparto-express-btn.jump svg {
+    width: 42%;
+    height: 42%;
+  }
+
+  .reparto-express-card {
+    max-width: 460px;
+    padding: 30px 26px;
+  }
+
+  .reparto-express-card h2 {
+    font-size: clamp(32px, 7vw, 52px);
+  }
+
+  .reparto-express-card p {
+    font-size: clamp(14px, 3.2vw, 18px);
+  }
+}
+
+/* Pantallas cortas en horizontal (tablet girada, laptops pequeñas) */
+@media (orientation: landscape) and (max-height: 700px) {
+  .reparto-express-header {
+    height: clamp(56px, 5vh, 80px);
+  }
+
+  .reparto-express-brand {
+    top: clamp(4px, 0.6vh, 10px);
+    height: clamp(58px, 7vh, 84px);
+    width: min(74vw, 520px);
+  }
+
+  .reparto-express-topbar {
+    top: clamp(88px, 9vh, 124px);
+  }
+
+  .hud-wrap {
+    top: clamp(88px, 9vh, 124px);
+    gap: 6px;
+  }
+
+  .reparto-express-controls {
+    bottom: clamp(14px, 2.5vh, 22px);
+    gap: clamp(18px, 6vw, 40px);
+  }
+
+  .reparto-express-btn.move {
+    width: clamp(64px, 16vw, 92px);
+    height: clamp(64px, 16vw, 92px);
+  }
+
+  .reparto-express-btn.jump {
+    width: clamp(72px, 19vw, 104px);
+    height: clamp(72px, 19vw, 104px);
+  }
+
+  .start-screen {
+    padding-top: clamp(90px, 12vh, 120px);
+    gap: clamp(6px, 1.2vh, 12px);
+  }
+
+  .start-game-logo {
+    width: clamp(100px, 26vw, 160px);
+  }
+}
