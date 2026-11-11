@@ -27,7 +27,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
   } = useApp();
 
   const [deliveryType, setDeliveryType] = useState<'DELIVERY' | 'PICKUP'>('DELIVERY');
-  const [customerPhone, setCustomerPhone] = useState(currentUser?.phone || '');
+  const [customerPhone, setCustomerPhone] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'STRIPE' | 'PAYPAL' | 'CASH_ON_DELIVERY'>('STRIPE');
   const [tipCents, setTipCents] = useState(150); // 1.50€ standard tip
   const [syncCalendar, setSyncCalendar] = useState(true);
@@ -53,15 +53,15 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({ isOpen, onClose, onOrder
   React.useEffect(() => {
     if (isOpen) {
       setDeliveryType('DELIVERY');
-      setCustomerPhone(currentUser?.phone || '');
+      setCustomerPhone('');
       setPaymentMethod('STRIPE');
       setTipCents(150);
       setSyncCalendar(true);
     }
-  }, [isOpen, currentUser?.phone]);
+  }, [isOpen]);
 
   React.useEffect(() => {
-    setCustomerPhone(currentUser?.phone || '');
+    setCustomerPhone('');
   }, [currentUser?.phone]);
 
   if (!isOpen) return null;

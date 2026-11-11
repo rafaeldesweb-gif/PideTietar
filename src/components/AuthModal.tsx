@@ -67,11 +67,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   // Texto pegado para URL del avatar.
   const [profileAvatarUrlText, setProfileAvatarUrlText] = useState('');
   
-  // Form inputs matching Image 4
-  const [fullName, setFullName] = useState(currentUser?.name || '');
-  const [phoneNumber, setPhoneNumber] = useState(currentUser?.phone || '');
-  const [addressInput, setAddressInput] = useState(currentUser?.address || '');
-  const [emailInput, setEmailInput] = useState(currentUser?.email || '');
+  // Form inputs: siempre vacíos al abrir, sin recordar datos previos.
+  const [fullName, setFullName] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [addressInput, setAddressInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
   const [password, setPassword] = useState('');
   const [localityId, setLocalityId] = useState('');
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -101,15 +101,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setVerificationCodeInput('');
     }
   }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen || !currentUser) return;
-    setProfileFullName(currentUser.name || '');
-    setProfileEmail(currentUser.email || '');
-    setProfilePhone(currentUser.phone || '');
-    setProfileNewPassword('');
-    setProfileAvatarUrl(currentUser.avatarUrl || '');
-  }, [isOpen, currentUser]);
 
   useEffect(() => {
     const handleTermsMessage = (event: MessageEvent<{ type?: string; anchor?: string; accepted?: boolean }>) => {
