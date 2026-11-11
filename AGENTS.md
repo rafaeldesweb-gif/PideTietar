@@ -79,6 +79,7 @@ App de pedidos para el Valle del Tiétar: frontend React 19 + Vite 8 y backend E
 - `data/` está excluido de git (`data/*.db*`, `data/.session_secret`): no subas la base de datos ni el secreto de sesión.
 - La contraseña histórica por defecto (`INSECURE_DEFAULT_PASSWORD` en `server.js`) está marcada como insegura: al arrancar, las cuentas que la usan reciben `password_change_required = 1`. No la reutilices en datos de prueba ni la copies a la documentación.
 - `firebase-applet-config.json` y `metadata.json` son restos de AI Studio; no hay SDK de Firebase ni Gemini en el código.
+- **Saltos de línea (LF/CRLF)**: el repositorio incluye `.gitattributes` con `* text=auto eol=lf` para evitar el warning de Git en Windows (`LF will be replaced by CRLF`). Los archivos ya se renormalizaron a LF con `git add --renormalize .`. No edites `.gitattributes` ni conviertas archivos a CRLF; si aparece el aviso, ejecuta `git add --renormalize .` y commitea.
 
 ## Contrato de errores de la API
 
