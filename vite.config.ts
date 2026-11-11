@@ -15,8 +15,22 @@ export default defineConfig(() => {
       VitePWA({
         registerType: 'autoUpdate',
         workbox: {
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,webp,woff2}'],
+          // Los sprites del minijuego se cachean al jugar (runtime) y no en la
+          // instalación del service worker, para no engordar la primera visita.
+          globIgnores: ['assets/games/**'],
           runtimeCaching: [
+            {
+              urlPattern: /\/assets\/games\/.*\.(?:webp|png|gif)$/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'games-assets-cache',
+                expiration: {
+                  maxEntries: 40,
+                  maxAgeSeconds: 60 * 60 * 24 * 90,
+                },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',

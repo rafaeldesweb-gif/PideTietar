@@ -4,7 +4,7 @@ import fs from "fs";
 import { fileURLToPath } from "node:url";
 import mysql from "mysql2/promise";
 import { DatabaseSync } from "node:sqlite";
-import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import dotenv from "dotenv";
 import bcrypt from "bcryptjs";
 import nodemailer from "nodemailer";
@@ -665,6 +665,23 @@ const mysqlSchema = `
     PRIMARY KEY (id)
 
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS game_scores (
+    id CHAR(36) NOT NULL DEFAULT (UUID()),
+    user_id CHAR(36) NOT NULL,
+    game_id VARCHAR(64) NOT NULL,
+    score INT NOT NULL DEFAULT 0,
+    level_reached INT NOT NULL DEFAULT 1,
+    played_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (id),
+    KEY idx_game_scores_user_game (user_id, game_id),
+    KEY idx_game_scores_score (score),
+    CONSTRAINT fk_game_scores_user
+      FOREIGN KEY (user_id) REFERENCES app_users (id)
+      ON DELETE CASCADE
+      ON UPDATE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
 const mysqlSchemaStatements = mysqlSchema
@@ -1118,6 +1135,19 @@ function ensureSqliteSchemaShape() {
       entity TEXT NOT NULL,
       action TEXT NOT NULL,
       payload TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  );
+
+  ensureTable(
+    "game_scores",
+    `CREATE TABLE game_scores (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      score INTEGER NOT NULL DEFAULT 0,
+      level_reached INTEGER NOT NULL DEFAULT 1,
+      played_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`,
   );
@@ -4994,6 +5024,291 @@ app.delete("/api/media/:id", requireAuth, async (req, res) => {
   await assertMediaMutationAccess(req.user, found.data.entity_type, found.data.entity_id);
   await deleteSupabaseMediaAsset(req.params.id);
   res.json({ success: true });
+});
+
+// =========================================================
+// PUNTUACIONES DEL MINIJUEGO "REPARTO EXPRESS"
+// =========================================================
+
+// Límites por juego: el servidor valida lo mismo que el cliente.
+const GAME_RULES = {
+  "reparto-express": { maxScore: 100000, maxLevel: 5, title: "Reparto Express" },
+};
+const DEFAULT_GAME_RULES = { maxScore: 100000, maxLevel: 5, title: "Juego" };
+
+const gameRulesFor = (game) => GAME_RULES[game] || DEFAULT_GAME_RULES;
+
+// Los avatares guardados como data URL no viajan al ranking: pesan demasiado y
+// el navegador ya tiene un logo por defecto.
+const publicAvatarUrl = (url) =>
+  typeof url === "string" && /^https?:\/\//i.test(url) ? url : null;
+
+app.get("/api/game/score", requireAuth, async (req, res) => {
+  const game = cleanString(req.query.game);
+  if (!game) {
+    throw validationError("Indica el juego.", { game: "El identificador del juego es obligatorio." });
+  }
+
+  const userId = req.user.id;
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      `SELECT MAX(score) AS bestScore, MAX(level_reached) AS bestLevel, COUNT(*) AS gamesPlayed
+       FROM game_scores
+       WHERE user_id = ? AND game_id = ?`,
+      [userId, game],
+    );
+    const [latestRows] = await mysqlPool.execute(
+      `SELECT score, level_reached AS levelReached, played_at AS playedAt
+       FROM game_scores
+       WHERE user_id = ? AND game_id = ?
+       ORDER BY played_at DESC, created_at DESC, id DESC
+       LIMIT 1`,
+      [userId, game],
+    );
+    const row = rows[0];
+    const latest = latestRows[0];
+    return res.json({
+      game,
+      bestScore: Number(row.bestScore || 0),
+      bestLevel: Number(row.bestLevel || 1),
+      gamesPlayed: Number(row.gamesPlayed || 0),
+      lastScore: latest ? Number(latest.score) : null,
+      lastLevel: latest ? Number(latest.levelReached) : null,
+      lastPlayedAt: latest?.playedAt || null,
+    });
+  }
+
+  const db = getSqliteDb();
+  const row = db
+    .prepare(
+      `SELECT MAX(score) AS bestScore, MAX(level_reached) AS bestLevel, COUNT(*) AS gamesPlayed
+       FROM game_scores
+       WHERE user_id = ? AND game_id = ?`,
+    )
+    .get(userId, game);
+  const latest = db
+    .prepare(
+      `SELECT score, level_reached AS levelReached, played_at AS playedAt
+       FROM game_scores
+       WHERE user_id = ? AND game_id = ?
+       ORDER BY rowid DESC
+       LIMIT 1`,
+    )
+    .get(userId, game);
+
+  res.json({
+    game,
+    bestScore: Number(row?.bestScore || 0),
+    bestLevel: Number(row?.bestLevel || 1),
+    gamesPlayed: Number(row?.gamesPlayed || 0),
+    lastScore: latest ? Number(latest.score) : null,
+    lastLevel: latest ? Number(latest.levelReached) : null,
+    lastPlayedAt: latest?.playedAt || null,
+  });
+});
+
+app.get("/api/game/leaderboard", requireAuth, async (req, res) => {
+  const game = cleanString(req.query.game);
+  if (!game) {
+    throw validationError("Indica el juego.", { game: "El identificador del juego es obligatorio." });
+  }
+  const requested = asInteger(req.query.limit);
+  const limit = Math.max(1, Math.min(25, requested === null ? 10 : requested));
+  const userId = req.user.id;
+
+  const mapRow = (row, position) => ({
+    position,
+    userId: row.userId,
+    name: row.name || "Repartidor anónimo",
+    avatarUrl: publicAvatarUrl(row.avatarUrl),
+    score: Number(row.score || 0),
+    levelReached: Number(row.levelReached || 1),
+    playedAt: row.playedAt || null,
+  });
+
+  let leaders = [];
+  let mine = null;
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      `SELECT g.user_id AS userId, u.full_name AS name, u.avatar_url AS avatarUrl,
+              MAX(g.score) AS score, MAX(g.level_reached) AS levelReached,
+              MAX(g.played_at) AS playedAt
+       FROM game_scores g
+       JOIN app_users u ON u.id = g.user_id
+       WHERE g.game_id = ?
+       GROUP BY g.user_id, u.full_name, u.avatar_url
+       ORDER BY score DESC, playedAt ASC
+       LIMIT ${limit}`,
+      [game],
+    );
+    leaders = rows.map((row, index) => mapRow(row, index + 1));
+
+    const [mineRows] = await mysqlPool.execute(
+      `SELECT MAX(score) AS score, MAX(level_reached) AS levelReached, MAX(played_at) AS playedAt
+       FROM game_scores WHERE user_id = ? AND game_id = ?`,
+      [userId, game],
+    );
+    const own = mineRows[0];
+    if (own && own.score !== null) {
+      const [betterRows] = await mysqlPool.execute(
+        `SELECT COUNT(*) AS total FROM (
+           SELECT user_id, MAX(score) AS best FROM game_scores WHERE game_id = ? GROUP BY user_id
+         ) t WHERE t.best > ?`,
+        [game, Number(own.score)],
+      );
+      mine = mapRow(
+        { userId, name: req.user.full_name || req.user.email || "Repartidor",
+          avatarUrl: publicAvatarUrl(req.user.avatar_url),
+          score: own.score, levelReached: own.levelReached, playedAt: own.playedAt },
+        Number(betterRows[0].total || 0) + 1,
+      );
+    }
+  } else {
+    const db = getSqliteDb();
+    const rows = db
+      .prepare(
+        `SELECT g.user_id AS userId, u.full_name AS name, u.avatar_url AS avatarUrl,
+                MAX(g.score) AS score, MAX(g.level_reached) AS levelReached,
+                MAX(g.played_at) AS playedAt
+         FROM game_scores g
+         JOIN app_users u ON u.id = g.user_id
+         WHERE g.game_id = ?
+         GROUP BY g.user_id, u.full_name, u.avatar_url
+         ORDER BY score DESC, playedAt ASC
+         LIMIT ${limit}`,
+      )
+      .all(game);
+    leaders = rows.map((row, index) => mapRow(row, index + 1));
+
+    const own = db
+      .prepare(
+        `SELECT MAX(score) AS score, MAX(level_reached) AS levelReached, MAX(played_at) AS playedAt
+         FROM game_scores WHERE user_id = ? AND game_id = ?`,
+      )
+      .get(userId, game);
+    if (own && own.score !== null) {
+      const better = db
+        .prepare(
+          `SELECT COUNT(*) AS total FROM (
+             SELECT user_id, MAX(score) AS best FROM game_scores WHERE game_id = ? GROUP BY user_id
+           ) t WHERE t.best > ?`,
+        )
+        .get(game, Number(own.score));
+      mine = mapRow(
+        { userId, name: req.user.full_name || req.user.email || "Repartidor",
+          avatarUrl: publicAvatarUrl(req.user.avatar_url),
+          score: own.score, levelReached: own.levelReached, playedAt: own.playedAt },
+        Number(better?.total || 0) + 1,
+      );
+    }
+  }
+
+  res.json({ game, leaders, me: mine });
+});
+
+/* Clasificación pública de un juego (sin sesión).
+   Solo devuelve las posiciones, nombres, avatares públicos, puntuaciones y
+   fecha/hora de la última puntuación de cada líder. No expone userId ni el
+   puesto del usuario autenticado: eso queda en la ruta privada
+   GET /api/game/leaderboard. */
+app.get("/api/game/leaderboard/public", async (req, res) => {
+  const game = cleanString(req.query.game);
+  if (!game) {
+    throw validationError("Indica el juego.", { game: "El identificador del juego es obligatorio." });
+  }
+  const requested = asInteger(req.query.limit);
+  const limit = Math.max(1, Math.min(25, requested === null ? 3 : requested));
+
+  const mapRow = (row, position) => ({
+    position,
+    userId: row.userId,
+    name: row.name || "Repartidor anónimo",
+    avatarUrl: publicAvatarUrl(row.avatarUrl),
+    score: Number(row.score || 0),
+    levelReached: Number(row.levelReached || 1),
+    playedAt: row.playedAt || null,
+  });
+
+  let leaders = [];
+
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(
+      `SELECT g.user_id AS userId, u.full_name AS name, u.avatar_url AS avatarUrl,
+              MAX(g.score) AS score, MAX(g.level_reached) AS levelReached,
+              MAX(g.played_at) AS playedAt
+       FROM game_scores g
+       JOIN app_users u ON u.id = g.user_id
+       WHERE g.game_id = ?
+       GROUP BY g.user_id, u.full_name, u.avatar_url
+       ORDER BY score DESC, playedAt ASC
+       LIMIT ${limit}`,
+      [game],
+    );
+    leaders = rows.map((row, index) => mapRow(row, index + 1));
+  } else {
+    const db = getSqliteDb();
+    const rows = db
+      .prepare(
+        `SELECT g.user_id AS userId, u.full_name AS name, u.avatar_url AS avatarUrl,
+                MAX(g.score) AS score, MAX(g.level_reached) AS levelReached,
+                MAX(g.played_at) AS playedAt
+         FROM game_scores g
+         JOIN app_users u ON u.id = g.user_id
+         WHERE g.game_id = ?
+         GROUP BY g.user_id, u.full_name, u.avatar_url
+         ORDER BY score DESC, playedAt ASC
+         LIMIT ${limit}`,
+      )
+      .all(game);
+    leaders = rows.map((row, index) => mapRow(row, index + 1));
+  }
+
+  res.json({ game, leaders });
+});
+
+app.post("/api/game/score", requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const game = cleanString(body.game);
+  const score = asInteger(body.score);
+  const levelReached = asInteger(body.level_reached);
+  const rules = gameRulesFor(game);
+
+  const errors = {};
+  if (!game) errors.game = "El identificador del juego es obligatorio.";
+  if (score === null || score < 0) errors.score = "La puntuación debe ser un número entero mayor o igual a 0.";
+  if (score !== null && score > rules.maxScore) {
+    errors.score = "La puntuación supera el límite permitido.";
+  }
+  if (levelReached === null || levelReached < 1) {
+    errors.level_reached = "El nivel debe ser un número entero mayor o igual a 1.";
+  } else if (levelReached > rules.maxLevel) {
+    errors.level_reached = `El nivel no puede superar ${rules.maxLevel}.`;
+  }
+  if (Object.keys(errors).length) {
+    return res.status(400).json({ code: "VALIDATION_ERROR", message: "Revisa los datos del formulario.", errors });
+  }
+
+  const userId = req.user.id;
+  const id = randomUUID();
+
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `INSERT INTO game_scores (id, user_id, game_id, score, level_reached)
+       VALUES (?, ?, ?, ?, ?)`,
+      [id, userId, game, score, levelReached],
+    );
+    return res.status(201).json({ success: true, id, game, score, level_reached: levelReached });
+  }
+
+  const db = getSqliteDb();
+  db.prepare(
+    `INSERT INTO game_scores (id, user_id, game_id, score, level_reached)
+     VALUES (?, ?, ?, ?, ?)`,
+  ).run(id, userId, game, score, levelReached);
+
+  res.status(201).json({ success: true, id, game, score, level_reached: levelReached });
 });
 
 app.get("/api/localities", async (_req, res) => {

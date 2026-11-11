@@ -563,7 +563,7 @@ export const setSessionExpiredHandler = (handler: (() => void) | null): void => 
   sessionExpiredHandler = handler;
 };
 
-const apiFetch = async (path: string, options?: RequestInit) => {
+export const apiFetch = async (path: string, options?: RequestInit) => {
   const token = getSessionToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',

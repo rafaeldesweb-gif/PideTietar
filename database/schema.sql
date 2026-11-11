@@ -446,6 +446,23 @@ BEFORE UPDATE ON business_daily_sales_summary
 FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 
 -- =========================================================
+-- MINIJUEGO: PUNTUACIONES DE REPARTO EXPRESS
+-- =========================================================
+
+CREATE TABLE game_scores (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  game_id VARCHAR(64) NOT NULL,
+  score INTEGER NOT NULL DEFAULT 0,
+  level_reached INTEGER NOT NULL DEFAULT 1,
+  played_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_game_scores_user_game ON game_scores(user_id, game_id);
+CREATE INDEX idx_game_scores_game_score ON game_scores(game_id, score DESC);
+
+-- =========================================================
 -- OPTIONAL: VIEWS FOR REPORTS
 -- =========================================================
 

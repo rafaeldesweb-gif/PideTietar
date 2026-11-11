@@ -23,10 +23,10 @@
 .project-logo-split {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 46px;
+  gap: 6px;
+  height: 40px;
   width: max-content;
-  transform: scale(1.4);
+  transform: scale(1.15);
   transform-origin: center;
 }
 
@@ -39,9 +39,9 @@
 }
 
 .project-logo-split__mark {
-  width: 46px;
+  width: 40px;
   /* Termina justo antes de que empiece el texto del PNG original. */
-  height: 43px;
+  height: 38px;
 }
 
 .project-logo-split__mark img,
@@ -55,19 +55,48 @@
 
 .project-logo-split__mark img {
   top: 0;
-  left: -8px;
-  width: 62px;
+  left: -7px;
+  width: 54px;
 }
 
 .project-logo-split__wordmark {
-  width: 90px;
-  height: 26px;
+  width: 80px;
+  height: 24px;
 }
 
 .project-logo-split__wordmark img {
-  top: -64px;
+  top: -56px;
   left: 0;
-  width: 90px;
+  width: 80px;
+}
+
+/* Tablet: logo más pequeño para que no solape con los botones laterales. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .project-logo-split {
+    gap: 5px;
+    height: 34px;
+    transform: scale(1.05);
+  }
+
+  .project-logo-split__mark {
+    width: 34px;
+    height: 32px;
+  }
+
+  .project-logo-split__mark img {
+    left: -6px;
+    width: 46px;
+  }
+
+  .project-logo-split__wordmark {
+    width: 64px;
+    height: 20px;
+  }
+
+  .project-logo-split__wordmark img {
+    top: -48px;
+    width: 64px;
+  }
 }
 
 /* En móvil el selector y las acciones laterales conservan su espacio; el

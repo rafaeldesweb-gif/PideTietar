@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   Menu, X, ShoppingBag, MapPin,
-  ChevronDown, LogOut
+  ChevronDown, LogOut, Gamepad2
 } from 'lucide-react';
 import { ProjectLogo } from './ProjectLogo';
 import { MediaView } from './MediaView';
@@ -72,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               id="locality-selector-btn"
               onClick={() => setLocalityMenuOpen(!localityMenuOpen)}
-              className="flex max-w-[130px] min-w-0 items-center gap-1.5 rounded-full border border-stone-200 bg-stone-100 px-2.5 py-1.5 text-left text-[11px] font-medium text-stone-800 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:max-w-[190px] sm:text-sm"
+              className="flex max-w-[120px] min-w-0 items-center gap-1.5 rounded-full border border-stone-200 bg-stone-100 px-2 py-1.5 text-left text-[10px] font-medium text-stone-800 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:max-w-[150px] sm:text-[10px] md:max-w-[140px]"
             >
               <MapPin className="h-3.5 w-3.5 shrink-0 text-[#FF4E00]" />
               <span className="truncate">{selectedLocality?.name || 'Sin localidad'}</span>
@@ -113,12 +113,23 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             id="brand-logo-btn"
             onClick={() => setCurrentView('home')}
-            className="flex h-full min-w-0 shrink-0 flex-1 items-center justify-center self-stretch p-0 text-left"
+            className="flex h-full min-w-[56px] shrink-0 flex-1 items-center justify-center self-stretch p-0 text-left sm:min-w-[72px]"
           >
             <ProjectLogo variant="split" />
           </button>
 
-          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2.5">
+          <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-1 md:gap-1.5 lg:gap-2.5">
+            {currentUser && (
+              <button
+                id="games-trigger-btn"
+                onClick={() => setCurrentView('juegos')}
+                title="Juegos de PideTiétar"
+                className="hidden items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70 sm:px-2 sm:py-1 sm:text-[10px] sm:gap-1 sm:inline-flex md:px-2 md:py-1 md:gap-1"
+              >
+                <Gamepad2 className="h-3.5 w-3.5" aria-hidden="true" />
+                Juegos
+              </button>
+            )}
             <button
               id="cart-trigger-btn"
               onClick={openCart}
@@ -137,7 +148,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="orders-trigger-btn"
                 onClick={() => setCurrentView('orders')}
-                className={`hidden rounded-full border border-stone-200 bg-stone-100 px-3 py-1.5 text-[11px] font-semibold text-stone-700 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 ${isCourier ? 'lg:inline-flex' : 'sm:inline-flex'}`}
+                className={`hidden rounded-full border border-stone-200 bg-stone-100 px-2 py-1 text-[10px] font-semibold text-stone-700 transition hover:bg-stone-200 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-200 sm:px-2 sm:py-1 sm:text-[10px] md:px-2 md:py-1 md:text-[10px] ${isCourier ? 'lg:inline-flex' : 'sm:inline-flex'}`}
               >
                 {currentUser?.role === 'SUPERADMIN' ? 'Seguimiento' : (currentUser?.role === 'BUSINESS_ADMIN' ? 'Pedidos del negocio' : 'Mis pedidos')}
               </button>
@@ -147,7 +158,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="business-dashboard-btn"
                 onClick={() => setCurrentView('business-dashboard')}
-                className="hidden rounded-full border border-[#ffd7c2] bg-[#fff2eb] px-3 py-1.5 text-[11px] font-semibold text-[#A32300] transition hover:bg-[#ffe6d6] sm:inline-flex"
+                className="hidden rounded-full border border-[#ffd7c2] bg-[#fff2eb] px-2 py-1 text-[10px] font-semibold text-[#A32300] transition hover:bg-[#ffe6d6] sm:px-2 sm:py-1 sm:text-[10px] md:px-2 md:py-1 md:text-[10px] sm:inline-flex"
               >
                 {currentUser.role === 'SUPERADMIN' ? 'Panel de pedidos' : 'Panel negocio'}
               </button>
@@ -167,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="admin-dashboard-btn"
                 onClick={() => setCurrentView('admin-dashboard')}
-                className="hidden rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 sm:inline-flex"
+                className="hidden rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold text-blue-700 transition hover:bg-blue-100 md:hidden lg:inline-flex"
               >
                 Superadmin
               </button>
@@ -178,7 +189,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <button
                   id="user-profile-btn"
                   onClick={handleAvatarPress}
-                  className={`hidden items-center gap-2 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] ${isCourier ? 'md:flex' : 'sm:flex'}`}
+                  className={`hidden items-center gap-1 rounded-full p-1 transition hover:ring-2 hover:ring-[#FF4E00] ${isCourier ? 'md:flex' : 'sm:flex'}`}
                   aria-label="Editar mi avatar"
                 >
                   <MediaView
@@ -212,7 +223,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="login-trigger-btn"
                 onClick={openAuthModal}
-                className="hidden rounded-lg bg-[#FF4E00] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#A32300] sm:inline-flex"
+                className="hidden rounded-lg bg-[#FF4E00] px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-[#A32300] sm:px-2 sm:py-1 sm:text-[10px] md:px-2 md:py-1 md:text-[10px] sm:inline-flex"
               >
                 Entrar
               </button>
@@ -233,6 +244,12 @@ export const Header: React.FC<HeaderProps> = ({
         <div className={`border-t border-stone-200 bg-white px-4 pb-6 pt-3 dark:border-stone-800 dark:bg-stone-900 ${isCourier ? 'lg:hidden' : 'md:hidden'}`}>
           <div className="space-y-2">
             <button onClick={() => { setCurrentView('home'); setMobileNavOpen(false); }} className="w-full py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200">Comercios del Valle</button>
+            {currentUser && (
+              <button onClick={() => { setCurrentView('juegos'); setMobileNavOpen(false); }} className="flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200">
+                <Gamepad2 className="h-4 w-4 text-[#FF4E00]" aria-hidden="true" />
+                Juegos · Reparto Express
+              </button>
+            )}
             {canSeeOrdersPage && (
               <button onClick={() => { setCurrentView('orders'); setMobileNavOpen(false); }} className="w-full py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200">
                 {currentUser?.role === 'SUPERADMIN' ? 'Seguimiento de pedidos' : (currentUser?.role === 'BUSINESS_ADMIN' ? 'Pedidos del negocio' : 'Mis Pedidos')}

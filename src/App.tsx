@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useApp } from './context/AppContext';
+import React, { useEffect, useState, Suspense, lazy } from 'react';
+import { useApp, getSessionToken } from './context/AppContext';
 import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
 import { BusinessDetailView } from './components/BusinessDetailView';
@@ -15,6 +15,7 @@ import { ResetPasswordView } from './components/ResetPasswordView';
 import { TermsAndConditionsView } from './components/TermsAndConditionsView';
 import { ContactView } from './components/ContactView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
+import { GameLeaderboardSection } from './components/GameLeaderboardSection';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
@@ -38,8 +39,29 @@ const isTermsHash = (hash: string): boolean =>
 
 const isContactHash = (hash: string): boolean => hash === '#contacto';
 
+const isGamesHash = (hash: string): boolean => hash === '#juegos';
+
+// El minijuego solo está disponible con sesión: si no hay token, ni siquiera
+// se restaura la vista al recargar (la comprobación real la hace `currentUser`).
 const readInitialView = (): string =>
-  isTermsHash(window.location.hash) ? 'terms' : isContactHash(window.location.hash) ? 'contact' : 'home';
+  isTermsHash(window.location.hash)
+    ? 'terms'
+    : isContactHash(window.location.hash)
+      ? 'contact'
+      : isGamesHash(window.location.hash) && getSessionToken()
+        ? 'juegos'
+        : 'home';
+
+// El minijuego se carga solo al entrar: así el motor y sus estilos no pesan en
+// la portada ni en los paneles.
+const RepartoExpress = lazy(() => import('./games/RepartoExpress/RepartoExpress'));
+
+const GamesLoadingFallback: React.FC = () => (
+  <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-3 bg-[#061033] text-white">
+    <ProjectLogo variant="split" />
+    <p className="text-sm font-semibold tracking-wide text-[#bfe9ff]">Cargando Reparto Express…</p>
+  </div>
+);
 
 export default function App() {
   const { 
@@ -49,7 +71,8 @@ export default function App() {
     pageError, 
     setPageError,
     currentUser,
-    businesses
+    businesses,
+    sessionChecked
   } = useApp();
 
   const [currentView, setCurrentView] = useState<string>(readInitialView);
@@ -78,6 +101,7 @@ export default function App() {
       setResetToken(readResetTokenFromHash());
       if (isTermsHash(window.location.hash)) setCurrentView('terms');
       if (isContactHash(window.location.hash)) setCurrentView('contact');
+      if (isGamesHash(window.location.hash)) setCurrentView('juegos');
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -112,6 +136,24 @@ export default function App() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [currentView]);
+
+  // La vista de juegos mantiene el hash sincronizado para que el enlace se
+  // pueda compartir y sobreviva a una recarga. Al salir se limpia. El juego
+  // exige sesión iniciada, así que un invitado que llegue por hash vuelve a la
+  // portada sin conservar la URL del minijuego.
+  useEffect(() => {
+    if (!sessionChecked || currentUser || currentView !== 'juegos') return;
+    setCurrentView('home');
+  }, [sessionChecked, currentUser, currentView]);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (currentView === 'juegos' && currentUser && hash !== '#juegos') {
+      window.history.replaceState(null, '', '#juegos');
+    } else if ((currentView !== 'juegos' || !currentUser) && isGamesHash(hash)) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+  }, [currentView, currentUser]);
 
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -292,9 +334,48 @@ export default function App() {
                 )}
               </>
             )}
+
+            {/* Mientras se restaura la sesión no se monta el juego: solo está
+                disponible para usuarios registrados y con sesión iniciada. */}
+            {currentView === 'juegos' && !currentUser && !sessionChecked && (
+              <GamesLoadingFallback />
+            )}
+
+            {currentView === 'juegos' && currentUser && (
+              <>
+                <SeoHead
+                  title="Juegos – PideTiétar"
+                  description="Juega mientras esperas tu pedido en PideTiétar."
+                  type="website"
+                />
+                <Breadcrumbs items={[homeBreadcrumb, { label: 'Juegos', href: '#juegos' }]} />
+                <Suspense fallback={<GamesLoadingFallback />}>
+                  <RepartoExpress
+                    onClose={() => {
+                      setSelectedBusiness(null);
+                      setCurrentView('home');
+                    }}
+                  />
+                </Suspense>
+              </>
+            )}
           </>
         )}
       </main>
+
+      {/* Sección Reparto Express (antes del footer): visible en todas las vistas excepto el juego */}
+      {!isLoading && !pageError && currentView !== 'juegos' && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <GameLeaderboardSection
+            currentUser={currentUser}
+            onOpenGame={() => {
+              setSelectedBusiness(null);
+              setCurrentView('juegos');
+            }}
+            onRequestLogin={() => setAuthModalOpen(true)}
+          />
+        </div>
+      )}
 
       {/* Product Customizer Modal */}
       <ProductCustomizerModal
@@ -347,54 +428,58 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-8 transition-colors mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-stone-500 dark:text-stone-400">
-          <div className="flex items-center space-x-2">
-            <ProjectLogo variant="badge" className="h-7 w-auto max-w-[120px]" />
-            <span className="font-bold text-stone-800 dark:text-stone-200">PideTiétar</span>
-            <span>• Valle del Tiétar (Ávila)</span>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-center gap-y-2 space-x-4">
-            <span>Verificación por correo</span>
-            <span>Integración con Google Calendar</span>
-            <span>Pagos en modo de prueba</span>
-            <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-500">
-              <a
-                href="#contacto"
-                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
-              >
-                Contáctame
-              </a>
-              <span className="text-stone-400">|</span>
-              <a
-                href="#terminos-clientes"
-                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
-              >
-                Términos clientes
-              </a>
-              <span className="text-stone-400">|</span>
-              <a
-                href="#politica-privacidad"
-                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
-              >
-                Privacidad
-              </a>
-              <span className="text-stone-400">|</span>
-              <a
-                href="#politica-cookies"
-                className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
-              >
-                Cookies
-              </a>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center gap-4 text-xs text-stone-500 dark:text-stone-400">
+          <div className="flex w-full flex-col items-center justify-between gap-4 sm:flex-row">
+            <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap">
+              <ProjectLogo variant="badge" className="h-6 sm:h-8 w-auto max-w-[90px] sm:max-w-[150px]" />
+              <span className="font-bold text-stone-800 dark:text-stone-200 text-sm sm:text-base">PideTiétar</span>
+              <span className="hidden sm:inline text-stone-600 dark:text-stone-400 text-[10px] sm:text-xs">
+                • Valle del Tiétar (Ávila)
+              </span>
             </div>
-            <button
-              onClick={() => {
-                setPageError('Simulación intencionada de error del servidor para validar la página de error personalizada.');
-              }}
-              className="text-stone-400 hover:text-stone-600 underline text-[11px]"
-            >
-              Probar página de error
-            </button>
+
+            <div className="flex flex-wrap items-center justify-center gap-y-2 space-x-4">
+              <span>Verificación por correo</span>
+              <span>Integración con Google Calendar</span>
+              <span>Pagos en modo de prueba</span>
+              <div className="flex items-center gap-1 text-[10px] text-stone-500 dark:text-stone-500">
+                <a
+                  href="#contacto"
+                  className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+                >
+                  Contáctame
+                </a>
+                <span className="text-stone-400">|</span>
+                <a
+                  href="#terminos-clientes"
+                  className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+                >
+                  Términos clientes
+                </a>
+                <span className="text-stone-400">|</span>
+                <a
+                  href="#politica-privacidad"
+                  className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+                >
+                  Privacidad
+                </a>
+                <span className="text-stone-400">|</span>
+                <a
+                  href="#politica-cookies"
+                  className="font-semibold text-stone-700 underline underline-offset-2 hover:text-[#FF4E00] dark:text-stone-200"
+                >
+                  Cookies
+                </a>
+              </div>
+              <button
+                onClick={() => {
+                  setPageError('Simulación intencionada de error del servidor para validar la página de error personalizada.');
+                }}
+                className="text-stone-400 hover:text-stone-600 underline text-[11px]"
+              >
+                Probar página de error
+              </button>
+            </div>
           </div>
         </div>
       </footer>

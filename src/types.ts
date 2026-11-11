@@ -348,3 +348,39 @@ export interface AuditLog {
   details: string;
   timestamp: string;
 }
+
+export interface GameScore {
+  id: string;
+  userId: string;
+  gameId: string;
+  score: number;
+  levelReached: number;
+  playedAt: string;
+  createdAt: string;
+}
+
+export interface GameScoreSummary {
+  game: string;
+  bestScore: number;
+  bestLevel: number;
+  gamesPlayed: number;
+  lastScore: number | null;
+  lastLevel: number | null;
+  lastPlayedAt: string | null;
+}
+
+export interface GameLeaderboardEntry {
+  position: number;
+  userId: string;
+  name: string;
+  avatarUrl: string | null;
+  score: number;
+  levelReached: number;
+  playedAt: string | null;
+}
+
+export interface GameLeaderboard {
+  game: string;
+  leaders: GameLeaderboardEntry[];
+  me: GameLeaderboardEntry | null;
+}

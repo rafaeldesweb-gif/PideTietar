@@ -391,6 +391,20 @@ CREATE TABLE audit_logs (
   CONSTRAINT chk_audit_action CHECK (action IN ('INSERT','UPDATE','DELETE','SOFT_DELETE'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE game_scores (
+  id CHAR(36) NOT NULL DEFAULT (UUID()),
+  user_id CHAR(36) NOT NULL,
+  game_id VARCHAR(64) NOT NULL,
+  score INT NOT NULL DEFAULT 0,
+  level_reached INT NOT NULL DEFAULT 1,
+  played_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (id),
+  KEY idx_game_scores_user_game (user_id, game_id),
+  KEY idx_game_scores_score (score),
+  CONSTRAINT fk_game_scores_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE INDEX idx_user_addresses_user ON user_addresses(user_id);
 CREATE INDEX idx_businesses_locality ON businesses(locality_id);
 CREATE INDEX idx_businesses_status ON businesses(status);
