@@ -83,23 +83,35 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const addressVerificationInput = useRef({ address: addressInput, localityId, isOpen });
   addressVerificationInput.current = { address: addressInput, localityId, isOpen };
 
-  // Resetea el formulario de registro cada vez que se cierra el modal, para que
-  // al volver a abrirlo los campos estén limpios (sin datos residuales).
+  // Resetea TODOS los campos del formulario cada vez que se abre el modal,
+  // para que nunca queden datos residuales de sesiones o aperturas previas.
+  // Limpia tanto al abrir como al cerrar por seguridad.
   useEffect(() => {
-    if (!isOpen) {
-      setFullName('');
-      setPhoneNumber('');
-      setAddressInput('');
-      setEmailInput('');
-      setPassword('');
-      setLocalityId('');
-      setTermsAccepted(false);
-      setRegisterFieldErrors({});
-      setAddressVerification(null);
-      setAddressVerificationLoading(false);
-      setRequiresEmailVerification(false);
-      setVerificationCodeInput('');
-    }
+    setFullName('');
+    setPhoneNumber('');
+    setAddressInput('');
+    setEmailInput('');
+    setPassword('');
+    setLocalityId('');
+    setTermsAccepted(false);
+    setRegisterFieldErrors({});
+    setAddressVerification(null);
+    setAddressVerificationLoading(false);
+    setRequiresEmailVerification(false);
+    setVerificationCodeInput('');
+    setIsRegisterMode(true);
+    // Campos de perfil y cambio de contraseña también vacíos.
+    setProfileFullName('');
+    setProfileEmail('');
+    setProfilePhone('');
+    setProfileNewPassword('');
+    setProfileAvatarUrl('');
+    setProfileAvatarUrlText('');
+    setRequiresPasswordChange(false);
+    setPasswordChangeIdentifier('');
+    setPasswordChangeCurrentPassword('');
+    setNewPassword('');
+    setConfirmNewPassword('');
   }, [isOpen]);
 
   useEffect(() => {

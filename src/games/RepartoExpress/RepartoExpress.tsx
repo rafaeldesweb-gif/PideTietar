@@ -66,7 +66,7 @@ const START_TAB = {
 
 type StartTab = (typeof START_TAB)[keyof typeof START_TAB];
 
-const LEADERBOARD_LIMIT = 10;
+const LEADERBOARD_LIMIT = 25;
 
 export default function RepartoExpress({ onClose }: RepartoExpressProps) {
   const { currentUser, showNotification } = useApp();
@@ -168,16 +168,13 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
       if (finalScore > MAX_SCORE_PER_GAME) return;
 
       try {
-        const prev = Number(sessionStore.getItem(LOCAL_RECORD_KEY) || "0");
-        const prevLevel = Number(sessionStore.getItem(LOCAL_LEVEL_KEY) || "1");
-        if (finalScore > prev) {
-          sessionStore.setItem(LOCAL_RECORD_KEY, String(finalScore));
-          setBestScore(finalScore);
-        }
-        if (finalLevel > prevLevel) {
-          sessionStore.setItem(LOCAL_LEVEL_KEY, String(finalLevel));
-          setBestLevel(finalLevel);
-        }
+        // Siempre guardar el último puntaje y nivel alcanzados, sean mejores
+        // o peores que los previos. Esos son los que se publican y se usan
+        // para la posición en la clasificación.
+        sessionStore.setItem(LOCAL_RECORD_KEY, String(finalScore));
+        sessionStore.setItem(LOCAL_LEVEL_KEY, String(finalLevel));
+        setBestScore(finalScore);
+        setBestLevel(finalLevel);
       } catch { /* Almacenamiento bloqueado */ }
 
       if (currentUser) {
