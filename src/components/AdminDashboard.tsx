@@ -1153,7 +1153,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               value={courierForm.email}
               onChange={(e) => setCourierForm({ ...courierForm, email: e.target.value })}
               className={fieldClass('w-full bg-white border border-stone-200 outline-none focus:border-[#FF4E00] rounded-xl px-4 py-2 text-sm text-black placeholder-stone-400', Boolean(courierFormErrors.email))}
-              placeholder="repartidor@pidetietar.es"
+              placeholder="repartidor@pidetietar.com"
             />
             <FieldError message={courierFormErrors.email} />
           </div>

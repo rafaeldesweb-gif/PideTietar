@@ -25,7 +25,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
   priceCents,
 }) => {
   useEffect(() => {
-    const baseUrl = 'https://pidetietar.es';
+    const baseUrl = 'https://pidetietar.com';
     const pageTitle = title
       ? `${title} · PideTiétar`
       : 'PideTiétar - Todo el valle a tu puerta';

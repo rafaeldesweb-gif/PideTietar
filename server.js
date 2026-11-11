@@ -1816,7 +1816,7 @@ function buildVerificationCode() {
 
 function smtpFromAddress() {
   return (
-    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.es"
+    process.env.EMAIL_FROM || process.env.SMTP_FROM || "noreply@pidetietar.com"
   );
 }
 
