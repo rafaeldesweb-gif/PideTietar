@@ -75,14 +75,10 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
   const bestScoreRef = useRef(0);
   const swipeStartRef = useRef<{ x: number; y: number; time: number } | null>(null);
 
+  // Estado lento (cambia en transiciones de pantalla): pantalla actual y datos finales.
   const [screen, setScreen] = useState("start"); // start | playing | paused | gameover | victory
   const [durationSeconds] = useState(DEFAULT_DURATION_SECONDS);
-  const [score, setScore] = useState(0);
-  const [level, setLevel] = useState(1);
-  const [deliveries, setDeliveries] = useState(0);
-  const [levelBags, setLevelBags] = useState(0);
   const [finalDeliveries, setFinalDeliveries] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(DEFAULT_DURATION_SECONDS);
   const [bestScore, setBestScore] = useState(0);
   const [bestLevel, setBestLevel] = useState(1);
   const [newRecord, setNewRecord] = useState(false);
@@ -92,12 +88,17 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
   const [myRank, setMyRank] = useState<GameLeaderboardEntry | null>(null);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState<string | null>(null);
-  const targetBags = LEVEL_RULES[level - 1].bags;
 
-  // Mantener una referencia al mejor récord para comparar sin valores obsoletos.
-  useEffect(() => {
-    bestScoreRef.current = bestScore;
-  }, [bestScore]);
+  // Estado rápido (cambia cada frame del juego): se guarda en refs para evitar
+  // re-renders de React en cada fotograma del canvas. El HUD se sincroniza
+  // desde los callbacks del motor sin forzar render de todo el componente.
+  const scoreRef = useRef(0);
+  const levelRef = useRef(1);
+  const deliveriesRef = useRef(0);
+  const levelBagsRef = useRef(0);
+  const timeRemainingRef = useRef(DEFAULT_DURATION_SECONDS);
+
+  const targetBags = LEVEL_RULES[levelRef.current - 1].bags;
 
   // Récord de invitado en la sesión del navegador: AGENTS.md reserva
   // localStorage para preferencias y las claves antiguas se migran una vez.
@@ -205,21 +206,26 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
     [currentUser, loadLeaderboard, showNotification, startTab]
   );
 
-  // Callbacks del motor
+  // Callbacks del motor: escriben en refs para forzar re-render de React solo en
+  // transiciones de pantalla, no en cada fotograma del canvas.
   useEffect(() => {
     setCallbacks({
-      onScoreChange: (s) => setScore(s),
-      onTimeChange: (remainingMs) => {
-        setTimeRemaining(Math.max(0, Math.ceil(remainingMs / 1000)));
+      onScoreChange: (s) => {
+        scoreRef.current = s;
       },
-      onLevelChange: (l) => setLevel(l),
+      onTimeChange: (remainingMs) => {
+        timeRemainingRef.current = Math.max(0, Math.ceil(remainingMs / 1000));
+      },
+      onLevelChange: (l) => {
+        levelRef.current = l;
+      },
       onDelivery: (count, inLevel) => {
-        setDeliveries(count);
-        setLevelBags(inLevel);
+        deliveriesRef.current = count;
+        levelBagsRef.current = inLevel;
       },
       onGameOver: ({ score: finalScore, level: finalLevel, deliveries: finalCount, victory: won }) => {
-        setScore(finalScore);
-        setLevel(finalLevel);
+        scoreRef.current = finalScore;
+        levelRef.current = finalLevel;
         setFinalDeliveries(finalCount);
         setNewRecord(finalScore > bestScoreRef.current);
         setScreen(won ? "victory" : "gameover");
@@ -276,13 +282,13 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
 
   const beginRound = () => {
     setScreen("playing");
-    setScore(0);
-    setLevel(1);
-    setDeliveries(0);
-    setLevelBags(0);
+    scoreRef.current = 0;
+    levelRef.current = 1;
+    deliveriesRef.current = 0;
+    levelBagsRef.current = 0;
     setFinalDeliveries(0);
     setNewRecord(false);
-    setTimeRemaining(durationSeconds);
+    timeRemainingRef.current = durationSeconds;
     start();
   };
 
@@ -378,28 +384,28 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
                 <span className="hud-label">TIEMPO</span>
                 <span className="hud-value">
                   <Clock className="hud-icon" aria-hidden="true" />
-                  {timeRemaining}s
+                  {timeRemainingRef.current}s
                 </span>
               </div>
               <div className="hud-panel hud-points">
                 <span className="hud-label">PUNTOS</span>
-                <span className={`hud-value ${score >= 10000 ? "hud-value-compact" : ""}`}>
+                <span className={`hud-value ${scoreRef.current >= 10000 ? "hud-value-compact" : ""}`}>
                   <Star className="hud-icon" aria-hidden="true" />
-                  {score}
+                  {scoreRef.current}
                 </span>
               </div>
               <div className="hud-panel hud-level">
                 <span className="hud-label">NIVEL</span>
                 <span className="hud-value">
                   <BarChart3 className="hud-icon" aria-hidden="true" />
-                  {level}
+                  {levelRef.current}
                 </span>
               </div>
-              <div className="hud-panel hud-bags" role="status" aria-live="polite" aria-label={`Bolsas del nivel ${level}: ${levelBags} de ${targetBags}. Total: ${deliveries}.`}>
+              <div className="hud-panel hud-bags" role="status" aria-live="polite" aria-label={`Bolsas del nivel ${levelRef.current}: ${levelBagsRef.current} de ${LEVEL_RULES[levelRef.current - 1].bags}. Total: ${deliveriesRef.current}.`}>
                 <span className="hud-label">BOLSAS</span>
                 <span className="hud-value">
                   <ShoppingBag className="hud-icon" aria-hidden="true" />
-                  {levelBags}<span className="hud-goal">/{targetBags}</span>
+                  {levelBagsRef.current}<span className="hud-goal">/{LEVEL_RULES[levelRef.current - 1].bags}</span>
                 </span>
               </div>
             </div>
@@ -525,17 +531,6 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
                         />
                         <div className="reparto-ranking-meta">
                           <span className="reparto-ranking-name">{entry.name}</span>
-                          {entry.playedAt && (
-                            <span className="reparto-ranking-date">
-                              {new Intl.DateTimeFormat("es-ES", {
-                                day: "2-digit",
-                                month: "2-digit",
-                                year: "2-digit",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              }).format(new Date(entry.playedAt))}
-                            </span>
-                          )}
                         </div>
                         <span className="reparto-ranking-score">
                           {entry.score} pts · Lvl {entry.levelReached}
@@ -566,7 +561,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
           <div className="reparto-express-card">
             <h2>Pausa</h2>
             <p>
-              Tiempo: {timeRemaining}s · Bolsas nivel {level}: {levelBags}/{targetBags} · Puntos: {score}
+              Tiempo: {timeRemainingRef.current}s · Bolsas nivel {levelRef.current}: {levelBagsRef.current}/{LEVEL_RULES[levelRef.current - 1].bags} · Puntos: {scoreRef.current}
             </p>
             <button className="reparto-express-btn-primary" onClick={handleTogglePause}>
               Continuar
@@ -584,7 +579,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
             <div className="stats">
               <div className="stat">
                 <span>Puntuación</span>
-                <span className="value">{score}</span>
+                <span className="value">{scoreRef.current}</span>
               </div>
               <div className="stat">
                 <span>Bolsas recogidas</span>
@@ -592,7 +587,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
               </div>
               <div className="stat">
                 <span>Nivel alcanzado</span>
-                <span className="value">{level}</span>
+                <span className="value">{levelRef.current}</span>
               </div>
             </div>
             {newRecord && <div className="record">🏆 ¡Nuevo récord personal!</div>}
@@ -632,7 +627,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
             />
             <div className="victory-score">
               <span>PUNTUACIÓN FINAL</span>
-              <strong>{score}</strong>
+              <strong>{scoreRef.current}</strong>
             </div>
             <p>{finalDeliveries} bolsas recogidas. ¡Próximos niveles y juegos muy pronto!</p>
             {newRecord && <div className="record">🏆 ¡Nuevo récord personal!</div>}

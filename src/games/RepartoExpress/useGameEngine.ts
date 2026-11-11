@@ -375,19 +375,26 @@ function computeBand() {
   gameBandX = (width - gameBandWidth) / 2;
 }
 
+let resizePending = false;
+
 function resizeCanvas() {
-  width = window.innerWidth;
-  height = window.innerHeight;
-  computeBand();
-  if (canvas) {
-    canvas.width = width * dpr;
-    canvas.height = height * dpr;
-    canvas.style.width = width + "px";
-    canvas.style.height = height + "px";
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-  groundY = height * (height < 650 ? 0.76 : GROUND_Y_FRACTION);
-  resetMotoPosition();
+  if (resizePending) return;
+  resizePending = true;
+  requestAnimationFrame(() => {
+    width = window.innerWidth;
+    height = window.innerHeight;
+    computeBand();
+    if (canvas) {
+      canvas.width = width * dpr;
+      canvas.height = height * dpr;
+      canvas.style.width = width + "px";
+      canvas.style.height = height + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    }
+    groundY = height * (height < 650 ? 0.76 : GROUND_Y_FRACTION);
+    resetMotoPosition();
+    resizePending = false;
+  });
 }
 
 export function setCallbacks(cb: GameCallbacks) {
@@ -1735,8 +1742,12 @@ function drawFloaters() {
 }
 
 // ---------------------------------------------------------------------------
-// Bucle principal (único)
+// Bucle principal (único) con fixed timestep
 // ---------------------------------------------------------------------------
+
+// Paso fijo de lógica (60 fps) para que velocidad y colisiones sean
+// deterministas independientemente del fps real del dispositivo.
+const FIXED_STEP_MS = 1000 / 60;
 
 export function loop() {
   if (!running) return;
@@ -1746,7 +1757,14 @@ export function loop() {
   lastFrameTime = now;
   if (dt > 100) dt = 100;
 
-  update(dt);
+  // Acumular tiempo y ejecutar pasos de lógica fijos antes de dibujar.
+  let accumulated = dt;
+  while (accumulated >= FIXED_STEP_MS) {
+    update(FIXED_STEP_MS);
+    accumulated -= FIXED_STEP_MS;
+  }
+  // El remanente se lleva al siguiente frame para no perder tiempo.
+  lastFrameTime = now - accumulated;
 
   if (gameOver) return;
 

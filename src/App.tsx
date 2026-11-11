@@ -429,8 +429,8 @@ export default function App() {
       {/* Footer */}
       <footer className="border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-8 transition-colors mt-auto">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center gap-4 text-xs text-stone-500 dark:text-stone-400">
-          <div className="flex w-full flex-col items-center justify-between gap-4 sm:flex-row">
-            <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap">
+          <div className="flex w-full flex-col items-center justify-between gap-4 lg:flex-row">
+            <div className="flex items-center space-x-2 flex-wrap sm:flex-nowrap lg:flex-nowrap">
               <ProjectLogo variant="badge" className="h-6 sm:h-8 w-auto max-w-[90px] sm:max-w-[150px]" />
               <span className="font-bold text-stone-800 dark:text-stone-200 text-sm sm:text-base">PideTiétar</span>
               <span className="hidden sm:inline text-stone-600 dark:text-stone-400 text-[10px] sm:text-xs">
