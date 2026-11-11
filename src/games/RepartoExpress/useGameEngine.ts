@@ -46,6 +46,17 @@ let width = window.innerWidth;
 let height = window.innerHeight;
 let dpr = Math.max(1, window.devicePixelRatio || 1);
 
+// Ancho de la banda de juego centrada: ancho completo en móviles, limitado en
+// tablets y ordenadores para que la calzada y los objetos no se desvíen ni
+// crezcan desproporcionadamente en pantallas anchas. El fondo (cielo, colinas,
+// pueblo y castillo) sigue pintándose a lo ancho completo del canvas, por lo
+// que los laterales de la banda se rellenan con paisaje del juego.
+const GAME_BAND_MAX_WIDTH = 900;
+const GAME_BAND_MIN_FRACTION = 0.70;
+
+let gameBandWidth = width;
+let gameBandX = 0;
+
 // Estado del juego
 let running = false;
 let paused = false;
@@ -291,7 +302,10 @@ function roadHalfAt(y: number) {
   // Después reserva cuatro carriles enteros dentro de la zona visible.
   const visibleTail = Math.max(0, (fraction - ROAD_FULL_WIDTH_FRACTION) /
     (1 - ROAD_FULL_WIDTH_FRACTION));
-  return width * (0.16 + 0.34 * Math.pow(approach, 0.85) + 0.02 * visibleTail);
+  // La anchura de la calzada se mide sobre la banda de juego (no sobre el
+  // ancho total de pantalla), así en tablets y ordenadores la carretera se
+  // mantiene proporcionada y centrada, dejando paisaje a los lados.
+  return gameBandWidth * (0.16 + 0.34 * Math.pow(approach, 0.85) + 0.02 * visibleTail);
 }
 
 function laneWidthAt(y: number) {
@@ -352,9 +366,19 @@ export function init(
   window.addEventListener("orientationchange", resizeCanvas);
 }
 
+function computeBand() {
+  if (width <= 768) {
+    gameBandWidth = width;
+  } else {
+    gameBandWidth = Math.min(width * GAME_BAND_MIN_FRACTION, GAME_BAND_MAX_WIDTH);
+  }
+  gameBandX = (width - gameBandWidth) / 2;
+}
+
 function resizeCanvas() {
   width = window.innerWidth;
   height = window.innerHeight;
+  computeBand();
   if (canvas) {
     canvas.width = width * dpr;
     canvas.height = height * dpr;
@@ -539,8 +563,9 @@ function currentLevelRule() {
   return levelRule(level);
 }
 
-// La velocidad inicial sube un 20 % por nivel; durante cada nivel, un 10 % cada
-// 10 s. La fórmula vive en gameLogic para poder probarla sin canvas.
+// La velocidad inicial arranca un 20 % más lenta (0,8x) y sube un 20 % por
+// nivel; durante cada nivel, un 10 % cada 10 s. La fórmula vive en gameLogic
+// para poder probarla sin canvas.
 function currentSpeed() {
   return computeSpeedMultiplier(level, levelElapsedMs);
 }

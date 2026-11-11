@@ -14,6 +14,7 @@ import {
   MAX_SCORE_PER_GAME,
   SPEED_ACCEL_FACTOR,
   SPEED_ACCEL_INTERVAL_MS,
+  START_SPEED_FACTOR,
   TIME_BONUS_PER_SECOND,
 } from "./gameConstants";
 import type { LevelRule } from "./gameConstants";
@@ -47,12 +48,14 @@ export function deliveryIntervalFor(level: number): number {
 }
 
 /**
- * Multiplicador de velocidad: +20 % al empezar cada nivel y +10 % cada 10 s
- * dentro del propio nivel.
+ * Multiplicador de velocidad: arranca un 20 % más lento (START_SPEED_FACTOR =
+ * 0,8 en el nivel 1), sube un 20 % por nivel y un 10 % cada 10 s dentro del
+ * propio nivel.
  */
 export function speedMultiplier(level: number, levelElapsedMs: number): number {
   const steps = Math.max(0, Math.floor(levelElapsedMs / SPEED_ACCEL_INTERVAL_MS));
   return (
+    START_SPEED_FACTOR *
     Math.pow(LEVEL_START_SPEED_FACTOR, Math.max(0, level - 1)) *
     Math.pow(SPEED_ACCEL_FACTOR, steps)
   );

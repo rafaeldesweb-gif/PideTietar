@@ -33,11 +33,11 @@ test('los niveles suben la meta y acortan el intervalo de bolsas', () => {
   assert.equal(levelGoal(0), LEVEL_RULES[0].bags);
 });
 
-test('la velocidad arranca en 1, sube un 20 % por nivel y un 10 % cada 10 s', () => {
-  assert.equal(speedMultiplier(1, 0), 1);
-  assert.ok(Math.abs(speedMultiplier(2, 0) - 1.2) < 1e-9);
-  assert.ok(Math.abs(speedMultiplier(1, 10000) - 1.1) < 1e-9);
-  assert.ok(Math.abs(speedMultiplier(1, 25000) - 1.1 ** 2) < 1e-9);
+test('la velocidad arranca un 20 % más lenta (0,8), sube un 20 % por nivel y un 10 % cada 10 s', () => {
+  assert.equal(speedMultiplier(1, 0), 0.8);
+  assert.ok(Math.abs(speedMultiplier(2, 0) - 0.96) < 1e-9);
+  assert.ok(Math.abs(speedMultiplier(1, 10000) - 0.88) < 1e-9);
+  assert.ok(Math.abs(speedMultiplier(1, 25000) - 0.8 * 1.1 ** 2) < 1e-9);
   assert.ok(speedMultiplier(5, 50000) > speedMultiplier(4, 50000));
 });
 

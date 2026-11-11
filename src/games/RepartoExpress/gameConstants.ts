@@ -61,6 +61,9 @@ export const LANE_COUNT = LANES.length;
 // Velocidad base de caída.
 export const BASE_FALL_SPEED = 3.4;
 
+// El nivel 1 arranca un 20 % más lento (0,8x) y luego sube un 20 % por nivel.
+export const START_SPEED_FACTOR = 0.8;
+
 // Aceleración de la carretera: cada 10 s sube un 10 %.
 export const SPEED_ACCEL_INTERVAL_MS = 10000;
 export const SPEED_ACCEL_FACTOR = 1.1;

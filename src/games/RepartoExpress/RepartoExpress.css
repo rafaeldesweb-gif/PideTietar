@@ -8,7 +8,7 @@
 
 .reparto-express-overlay {
   --navy: #0a1a4a;
-  --navy-deep: #061033;
+  --navy-deep: #05132b;
   --blue: #1565ff;
   --blue-light: #4fc3f7;
   --cyan: #00e5ff;
@@ -521,7 +521,7 @@
   border-radius: 22px;
   color: #ffffff;
   background: linear-gradient(180deg, rgba(24, 58, 140, 0.96), rgba(6, 16, 48, 0.97));
-  border: 2px solid rgba(0, 229, 255, 0.6);
+  border: none;
   box-shadow:
     0 0 28px rgba(0, 229, 255, 0.35),
     0 18px 50px rgba(0, 0, 0, 0.55),
@@ -1221,7 +1221,7 @@ body.game-open {
 
   .reparto-express-brand {
     top: clamp(8px, 1vh, 16px);
-    width: min(68vw, 460px);
+    width: min(64vw, 420px);
     height: clamp(70px, 9vh, 118px);
   }
 
@@ -1231,7 +1231,7 @@ body.game-open {
 
   .hud-wrap {
     top: clamp(100px, 11vh, 158px);
-    width: min(720px, calc(100vw - 100px));
+    width: min(600px, calc(100vw - 100px));
     gap: 8px;
   }
 
@@ -1250,7 +1250,7 @@ body.game-open {
   }
 
   .hud-value {
-    font-size: clamp(18px, 4.6vw, 28px);
+    font-size: clamp(16px, 4vw, 24px);
     gap: 5px;
   }
 
@@ -1265,13 +1265,13 @@ body.game-open {
   }
 
   .reparto-express-btn.move {
-    width: clamp(72px, 18vw, 104px);
-    height: clamp(72px, 18vw, 104px);
+    width: clamp(64px, 14vw, 92px);
+    height: clamp(64px, 14vw, 92px);
   }
 
   .reparto-express-btn.jump {
-    width: clamp(84px, 22vw, 120px);
-    height: clamp(84px, 22vw, 120px);
+    width: clamp(72px, 18vw, 104px);
+    height: clamp(72px, 18vw, 104px);
   }
 
   .reparto-express-btn.move svg,
@@ -1346,7 +1346,7 @@ body.game-open {
 
   .reparto-express-brand {
     top: clamp(5px, 0.7vh, 12px);
-    width: min(74vw, 540px);
+    width: min(68vw, 480px);
     height: clamp(64px, 7.5vh, 104px);
   }
 
@@ -1356,7 +1356,7 @@ body.game-open {
 
   .hud-wrap {
     top: clamp(100px, 10.5vh, 156px);
-    width: min(940px, calc(100vw - 140px));
+    width: min(800px, calc(100vw - 140px));
   }
 
   .reparto-express-hud {
@@ -1374,7 +1374,7 @@ body.game-open {
   }
 
   .hud-value {
-    font-size: clamp(20px, 4vw, 34px);
+    font-size: clamp(18px, 3.5vw, 28px);
     gap: 6px;
   }
 
@@ -1389,13 +1389,13 @@ body.game-open {
   }
 
   .reparto-express-btn.move {
-    width: clamp(84px, 20vw, 132px);
-    height: clamp(84px, 20vw, 132px);
+    width: clamp(72px, 16vw, 110px);
+    height: clamp(72px, 16vw, 110px);
   }
 
   .reparto-express-btn.jump {
-    width: clamp(100px, 24vw, 150px);
-    height: clamp(100px, 24vw, 150px);
+    width: clamp(84px, 20vw, 124px);
+    height: clamp(84px, 20vw, 124px);
   }
 
   .reparto-express-btn.move svg,
