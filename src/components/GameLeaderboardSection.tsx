@@ -119,9 +119,9 @@ export const GameLeaderboardSection: React.FC<GameLeaderboardSectionProps> = ({
 
           {/* Derecha: top 3 puntuaciones */}
           <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Trophy className="h-4 w-4 text-[#ffd400] drop-shadow-[0_0_6px_rgba(255,212,0,0.5)]" />
-              <h3 className="text-[12px] font-bold text-stone-900 dark:text-stone-100 tracking-tight leading-none">
+            <div className="flex items-center gap-2">
+              <Trophy className="h-6 w-6 text-[#ffd400] drop-shadow-[0_0_8px_rgba(255,212,0,0.5)]" />
+              <h3 className="text-[16px] font-bold text-stone-900 dark:text-stone-100 tracking-tight leading-none">
                 Mejores repartidores
               </h3>
               <span className="ml-auto px-2 py-0.5 rounded border border-orange-500/30 bg-orange-500/10 text-[10px] font-bold text-orange-600 dark:text-orange-400 uppercase tracking-wider">
