@@ -17,6 +17,7 @@ import { useApp } from "../../context/AppContext";
 import { apiFetch } from "../../context/AppContext";
 import { ProjectLogo } from "../../components/ProjectLogo";
 import { MediaView } from "../../components/MediaView";
+import { GameCelebration } from "../../components/GameCelebration";
 import { sessionStore } from "../../utils/browserSession";
 import {
   GAME_ID,
@@ -83,6 +84,8 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
   const [bestLevel, setBestLevel] = useState(1);
   const [newRecord, setNewRecord] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Celebración al completar los cinco niveles (se muestra sobre la pantalla de victoria).
+  const [celebrating, setCelebrating] = useState(false);
   const [startTab, setStartTab] = useState<StartTab>(START_TAB.info);
   const [leaders, setLeaders] = useState<GameLeaderboardEntry[]>([]);
   const [myRank, setMyRank] = useState<GameLeaderboardEntry | null>(null);
@@ -226,6 +229,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
         setFinalDeliveries(finalCount);
         setNewRecord(finalScore > bestScoreRef.current);
         setScreen(won ? "victory" : "gameover");
+        if (won) setCelebrating(true);
         void saveScore(finalScore, finalLevel);
       },
     });
@@ -285,6 +289,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
     levelBagsRef.current = 0;
     setFinalDeliveries(0);
     setNewRecord(false);
+    setCelebrating(false);
     timeRemainingRef.current = durationSeconds;
     start();
   };
@@ -634,6 +639,13 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
           </div>
         </div>
       </div>
+
+      <GameCelebration
+        open={celebrating}
+        gameTitle="Reparto Express"
+        gameColor="#ff8a00"
+        onClose={() => setCelebrating(false)}
+      />
     </section>
   );
 }

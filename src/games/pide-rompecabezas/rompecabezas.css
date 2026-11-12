@@ -1,0 +1,38 @@
+/*
+ * Estilos propios del juego Rompecabezas.
+ *
+ * Se importan desde el wrapper (`src/games/pide-rompecabezas/index.tsx`) al
+ * cargar el juego (lazy). Las reglas globales del proyecto original
+ * (`body`, `html`) se limitan a `.rompecabezas-game` para no alterar el resto
+ * de la app.
+ */
+
+.rompecabezas-game,
+.rompecabezas-game * {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rompecabezas-game {
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+/* Barra de desplazamiento discreta dentro de la bandeja de piezas. */
+.rompecabezas-game ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.rompecabezas-game ::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+.rompecabezas-game ::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.45);
+  border-radius: 9999px;
+}
+
+.rompecabezas-game ::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.7);
+}

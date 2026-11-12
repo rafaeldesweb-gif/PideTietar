@@ -1,0 +1,61 @@
+/*
+ * Estilos propios del juego Blocks.
+ *
+ * Se importan desde el wrapper (`src/games/pide-blocks/index.tsx`) al cargar el
+ * juego (lazy). Las reglas globales del proyecto original (html/body/#root,
+ * Tailwind y variante dark) se limitan a `.blocks-game` para no alterar el
+ * resto de la app.
+ */
+
+.blocks-game .font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.blocks-game,
+.blocks-game * {
+  font-family: 'Outfit', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.blocks-game .font-outfit {
+  font-family: 'Outfit', sans-serif;
+}
+
+.blocks-game {
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+/* Custom glow and stone frame accents */
+@keyframes neonPulse {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.45), inset 0 0 10px rgba(56, 189, 248, 0.25);
+  }
+  50% {
+    box-shadow: 0 0 25px rgba(56, 189, 248, 0.75), inset 0 0 16px rgba(56, 189, 248, 0.45);
+  }
+}
+
+@keyframes gemShine {
+  0% {
+    filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.6)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.9)) brightness(1.25);
+  }
+  100% {
+    filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.6)) brightness(1);
+  }
+}
+
+.gem-glow {
+  animation: gemShine 2.5s ease-in-out infinite;
+}
+
+.neon-active-pulse {
+  animation: neonPulse 2s ease-in-out infinite;
+}

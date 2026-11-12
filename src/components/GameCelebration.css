@@ -1,0 +1,305 @@
+/**
+ * GameCelebration – capa de celebración al completar los 5 niveles.
+ *
+ * Confeti aparte (canvas-confetti), aquí van los globos y las serpentinas
+ * animadas en CSS y la tarjeta de enhorabuena.
+ */
+
+.game-celebration {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 1rem;
+  background: radial-gradient(ellipse at 50% 45%, rgb(38 18 70 / 78%), rgb(4 2 12 / 94%) 70%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  animation: game-celebration-fade-in 0.35s ease-out both;
+}
+
+.game-celebration__decor {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ── Globos ─────────────────────────────────────────────────────────────── */
+
+.game-celebration__balloon {
+  position: absolute;
+  bottom: -20vh;
+  width: 42px;
+  height: 54px;
+  border-radius: 50% 50% 46% 46% / 44% 44% 56% 56%;
+  background:
+    radial-gradient(circle at 32% 26%, rgb(255 255 255 / 95%), transparent 30%),
+    radial-gradient(
+      circle at 50% 42%,
+      var(--balloon-color, #ff4e00) 0%,
+      color-mix(in srgb, var(--balloon-color, #ff4e00) 72%, #000) 100%
+    );
+  box-shadow:
+    0 0 26px color-mix(in srgb, var(--balloon-color, #ff4e00) 55%, transparent),
+    inset -7px -9px 12px rgb(0 0 0 / 22%),
+    inset 5px 6px 10px rgb(255 255 255 / 26%);
+  animation-name: game-celebration-rise;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+/* Nudo del globo. */
+.game-celebration__balloon::before {
+  content: "";
+  position: absolute;
+  top: calc(100% - 2px);
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  transform: translateX(-50%);
+  background: var(--balloon-color, #ff4e00);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  filter: brightness(0.82);
+}
+
+/* Hilo del globo. */
+.game-celebration__balloon::after {
+  content: "";
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  width: 2px;
+  height: 58px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 75%), rgb(255 255 255 / 4%));
+  transform: translateX(-50%);
+}
+
+/* ── Serpentinas ────────────────────────────────────────────────────────── */
+
+.game-celebration__streamer {
+  position: absolute;
+  top: -26vh;
+  width: 12px;
+  height: 140px;
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    #ffffff 0%,
+    var(--streamer-color, #ff4e00) 42%,
+    var(--streamer-color, #ff4e00) 100%
+  );
+  box-shadow: 0 0 14px color-mix(in srgb, var(--streamer-color, #ff4e00) 55%, transparent);
+  opacity: 0.95;
+  animation-name: game-celebration-fall;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+}
+
+/* ── Tarjeta ────────────────────────────────────────────────────────────── */
+
+.game-celebration__card {
+  position: relative;
+  z-index: 1;
+  width: min(92vw, 440px);
+  padding: 2rem 1.6rem 1.7rem;
+  text-align: center;
+  border: 1px solid rgb(255 255 255 / 22%);
+  border-radius: 1.8rem;
+  border-color: color-mix(in srgb, var(--celebration-accent, #ff4e00) 60%, transparent);
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in srgb, var(--celebration-accent, #ff4e00) 24%, transparent),
+      transparent 62%
+    ),
+    linear-gradient(160deg, rgb(30 18 58 / 98%), rgb(10 6 22 / 99%));
+  box-shadow:
+    0 30px 80px rgb(0 0 0 / 55%),
+    0 0 70px color-mix(in srgb, var(--celebration-accent, #ff4e00) 30%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 12%);
+  animation: game-celebration-card-in 0.55s cubic-bezier(0.2, 0.9, 0.25, 1.15) both;
+}
+
+.game-celebration__eyebrow {
+  display: inline-block;
+  padding: 0.3rem 0.85rem;
+  border: 1px solid color-mix(in srgb, var(--celebration-accent, #ff4e00) 55%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--celebration-accent, #ff4e00) 16%, transparent);
+  color: #ffe3b0;
+  font-size: 0.63rem;
+  font-weight: 800;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.game-celebration__trophy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  margin: 1.15rem auto 0.6rem;
+  border-radius: 999px;
+  color: #2a1600;
+  background: radial-gradient(circle at 35% 25%, #fff3c4, #ffc93c 45%, #ff8a00 100%);
+  box-shadow:
+    0 0 0 6px rgb(255 201 60 / 14%),
+    0 12px 36px rgb(255 138 0 / 45%),
+    inset 0 -6px 14px rgb(180 70 0 / 35%),
+    inset 0 4px 8px rgb(255 255 255 / 55%);
+  animation: game-celebration-trophy-pop 1.6s ease-in-out infinite;
+}
+
+.game-celebration__title {
+  margin: 0.35rem 0 0.4rem;
+  font-family: "Poppins", "Inter", system-ui, sans-serif;
+  font-size: clamp(1.9rem, 5vw, 2.5rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  background: linear-gradient(100deg, #ffe9a8 0%, #ffc93c 35%, #ff7a00 70%, #ff4e00 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 6px 22px rgb(255 78 0 / 35%));
+}
+
+.game-celebration__text {
+  max-width: 21rem;
+  margin: 0 auto 1.5rem;
+  color: rgb(255 255 255 / 76%);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.game-celebration__text strong {
+  color: #ffd98a;
+  font-weight: 700;
+}
+
+.game-celebration__button {
+  width: 100%;
+  padding: 0.85rem 1.4rem;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffb703, #ff7a00 50%, #ff4e00);
+  box-shadow:
+    0 12px 28px rgb(255 78 0 / 38%),
+    inset 0 1px 0 rgb(255 255 255 / 55%);
+  color: #2a1200;
+  font-size: 0.92rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    filter 0.16s ease;
+}
+
+.game-celebration__button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+  box-shadow:
+    0 16px 34px rgb(255 78 0 / 46%),
+    inset 0 1px 0 rgb(255 255 255 / 60%);
+}
+
+.game-celebration__button:active {
+  transform: translateY(0);
+}
+
+.game-celebration__button:focus-visible {
+  outline: 3px solid #00e5ff;
+  outline-offset: 3px;
+}
+
+/* ── Animaciones ────────────────────────────────────────────────────────── */
+
+@keyframes game-celebration-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes game-celebration-card-in {
+  0% {
+    opacity: 0;
+    transform: translateY(26px) scale(0.92);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes game-celebration-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(-5deg) scale(var(--balloon-scale, 1));
+  }
+  8% {
+    opacity: 1;
+  }
+  50% {
+    transform: translate3d(26px, -70vh, 0) rotate(5deg) scale(var(--balloon-scale, 1));
+  }
+  100% {
+    opacity: 0.85;
+    transform: translate3d(-20px, -155vh, 0) rotate(-4deg) scale(var(--balloon-scale, 1));
+  }
+}
+
+@keyframes game-celebration-fall {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -30vh, 0) rotate(-32deg);
+  }
+  10% {
+    opacity: 1;
+  }
+  45% {
+    transform: translate3d(40px, 35vh, 0) rotate(24deg);
+  }
+  75% {
+    transform: translate3d(-30px, 80vh, 0) rotate(-16deg);
+  }
+  100% {
+    opacity: 0.9;
+    transform: translate3d(20px, 130vh, 0) rotate(30deg);
+  }
+}
+
+@keyframes game-celebration-trophy-pop {
+  0%,
+  100% {
+    transform: scale(1) rotate(-3deg);
+  }
+  50% {
+    transform: scale(1.06) rotate(3deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-celebration,
+  .game-celebration__card,
+  .game-celebration__trophy {
+    animation: none;
+  }
+
+  .game-celebration__decor {
+    display: none;
+  }
+}

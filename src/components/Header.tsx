@@ -123,11 +123,11 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 id="games-trigger-btn"
                 onClick={() => setCurrentView('juegos')}
-                title="Juegos de PideTiétar"
+                title="PideTietar Play de PideTiétar"
                 className="hidden items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[10px] font-semibold text-amber-700 transition hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-950/70 sm:px-2 sm:py-1 sm:text-[10px] sm:gap-1 sm:inline-flex md:px-2 md:py-1 md:gap-1"
               >
                 <Gamepad2 className="h-3.5 w-3.5" aria-hidden="true" />
-                Juegos
+                PideTietar Play
               </button>
             )}
             <button
@@ -247,7 +247,7 @@ export const Header: React.FC<HeaderProps> = ({
             {currentUser && (
               <button onClick={() => { setCurrentView('juegos'); setMobileNavOpen(false); }} className="flex w-full items-center gap-2 py-2 text-left text-sm font-medium text-stone-800 dark:text-stone-200">
                 <Gamepad2 className="h-4 w-4 text-[#FF4E00]" aria-hidden="true" />
-                Juegos · Reparto Express
+                PideTietar Play
               </button>
             )}
             {canSeeOrdersPage && (

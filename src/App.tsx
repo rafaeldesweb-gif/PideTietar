@@ -15,7 +15,9 @@ import { ResetPasswordView } from './components/ResetPasswordView';
 import { TermsAndConditionsView } from './components/TermsAndConditionsView';
 import { ContactView } from './components/ContactView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
-import { GameLeaderboardSection } from './components/GameLeaderboardSection';
+import { GameCardsRow } from './components/GameCardsRow';
+import { GameDetailView } from './components/GameDetailView';
+import { GamePlayer } from './components/GamePlayer';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
@@ -77,6 +79,8 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState<string>(readInitialView);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [activeGameId, setActiveGameId] = useState<string | null>(null);
 
   const activeSelectedBusiness = selectedBusiness
     ? businesses.find((business) => business.id === selectedBusiness.id) ?? selectedBusiness
@@ -335,41 +339,51 @@ export default function App() {
               </>
             )}
 
-            {/* Mientras se restaura la sesión no se monta el juego: solo está
-                disponible para usuarios registrados y con sesión iniciada. */}
-            {currentView === 'juegos' && !currentUser && !sessionChecked && (
-              <GamesLoadingFallback />
+            {currentView === 'juegos' && selectedGameId ? (
+              <GameDetailView
+                currentUser={currentUser}
+                gameId={selectedGameId}
+                onBack={() => {
+                  setSelectedGameId(null);
+                  setSelectedBusiness(null);
+                  setCurrentView('home');
+                }}
+                onOpenGame={(game) => {
+                  setSelectedGameId(null);
+                  setActiveGameId(game.id);
+                  setCurrentView('juego-activo');
+                }}
+                onRequestLogin={() => setAuthModalOpen(true)}
+              />
+            ) : (
+              <>
+                {currentView === 'juegos' && !currentUser && !sessionChecked && (
+                  <GamesLoadingFallback />
+                )}
+              </>
             )}
 
-            {currentView === 'juegos' && currentUser && (
-              <>
-                <SeoHead
-                  title="Juegos – PideTiétar"
-                  description="Juega mientras esperas tu pedido en PideTiétar."
-                  type="website"
-                />
-                <Breadcrumbs items={[homeBreadcrumb, { label: 'Juegos', href: '#juegos' }]} />
-                <Suspense fallback={<GamesLoadingFallback />}>
-                  <RepartoExpress
-                    onClose={() => {
-                      setSelectedBusiness(null);
-                      setCurrentView('home');
-                    }}
-                  />
-                </Suspense>
-              </>
+            {/* Juego activo a pantalla completa */}
+            {currentView === 'juego-activo' && activeGameId && currentUser && (
+              <GamePlayer
+                gameId={activeGameId}
+                onClose={() => {
+                  setActiveGameId(null);
+                  setCurrentView('home');
+                }}
+              />
             )}
           </>
         )}
       </main>
 
-      {/* Sección Reparto Express (antes del footer): visible en todas las vistas excepto el juego */}
-      {!isLoading && !pageError && currentView !== 'juegos' && (
+      {/* Fila de portadas de juegos de PideTietar Play: visible en portada y en la vista de juegos sin partida activa */}
+      {!isLoading && !pageError && (currentView !== 'juegos' || !selectedGameId) && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
-          <GameLeaderboardSection
-            currentUser={currentUser}
-            onOpenGame={() => {
+          <GameCardsRow
+            onOpenGame={(game) => {
               setSelectedBusiness(null);
+              setSelectedGameId(game.id);
               setCurrentView('juegos');
             }}
             onRequestLogin={() => setAuthModalOpen(true)}

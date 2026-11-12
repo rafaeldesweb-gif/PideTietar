@@ -61,6 +61,8 @@ app.use(
       scriptSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
+      // canvas-confetti (juegos) crea su animación en un worker desde un blob.
+      workerSrc: ["'self'", "blob:"],
       connectSrc: ["'self'", "http://localhost:4000", "ws://localhost:4000"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
       objectSrc: ["'none'"],
