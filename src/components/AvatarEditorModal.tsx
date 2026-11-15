@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { MediaView } from './MediaView';
 import { MEDIA_ACCEPT, processMediaFile, processMediaUrl } from '../utils/mediaUpload';
+import { uploadMediaAsset } from '../utils/mediaApi';
 
 interface AvatarEditorModalProps {
   isOpen: boolean;
@@ -33,13 +34,31 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({ isOpen, on
 
   const DEFAULT_AVATAR = 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80';
 
+  // Sube la foto en cuanto se elige y deja en el formulario la URL pública.
+  // Si la subida falla, se conserva el data URL y el servidor la subirá al
+  // guardar el perfil (mismo comportamiento anterior).
+  const persistAvatar = async (dataUrl: string, originalName?: string): Promise<string> => {
+    if (!currentUser?.id || !dataUrl.startsWith('data:')) return dataUrl;
+    try {
+      return await uploadMediaAsset({
+        dataUrl,
+        entityType: 'USER',
+        entityId: currentUser.id,
+        fieldName: 'avatar',
+        originalName,
+      });
+    } catch {
+      return dataUrl;
+    }
+  };
+
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     try {
       const media = await processMediaFile(file);
-      setAvatarUrl(media.dataUrl);
+      setAvatarUrl(await persistAvatar(media.dataUrl, media.originalName));
       setUrlText('');
     } catch (error) {
       showNotification(error instanceof Error ? error.message : 'No se pudo leer el archivo del avatar.', 'error');
@@ -51,7 +70,7 @@ export const AvatarEditorModal: React.FC<AvatarEditorModalProps> = ({ isOpen, on
     if (!text) return;
     try {
       const media = await processMediaUrl(text);
-      setAvatarUrl(media.dataUrl);
+      setAvatarUrl(await persistAvatar(media.dataUrl, media.originalName));
       setUrlText('');
     } catch (error) {
       showNotification(error instanceof Error ? error.message : 'No se pudo procesar la dirección web.', 'error');

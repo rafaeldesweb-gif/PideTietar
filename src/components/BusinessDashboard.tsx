@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import {
   AlertTriangle,
@@ -221,7 +221,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
     removableIngredients: '',
     additionalIngredients: '',
     priceCents: '0',
-    imageUrl: '/PideTietar_logo_animado.gif',
+    imageUrl: '/PideTietar_logo_animado.webp',
     categoryId: '',
     isAvailable: true,
     allergens: '',
@@ -448,6 +448,100 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   // cabecera no debe mostrar el nombre ni el estado del primer negocio.
   const hideBusinessHeader = !!isSuperAdmin && activeTab === 'orders' && !business;
 
+  // Cálculos derivados: se recalculan sólo cuando cambian los pedidos, el
+  // catálogo o los filtros, no en cada refresco del contexto.
+  const logicalDayKey = (() => {
+    const logicalDay = new Date(Date.now() - 4 * 60 * 60 * 1000);
+    return `${logicalDay.getFullYear()}-${logicalDay.getMonth()}-${logicalDay.getDate()}`;
+  })();
+
+  const businessesById = useMemo(
+    () => new Map(businesses.map((item) => [item.id, item])),
+    [businesses],
+  );
+
+  const businessOrders = useMemo(() => {
+    const isCurrentLogicalDay = (dateStr: string) => {
+      const d = new Date(dateStr);
+      const orderDate = new Date(d.getTime() - 4 * 60 * 60 * 1000); // 4 AM offset for late night shifts
+      const todayDate = new Date(Date.now() - 4 * 60 * 60 * 1000);
+      return orderDate.getDate() === todayDate.getDate()
+        && orderDate.getMonth() === todayDate.getMonth()
+        && orderDate.getFullYear() === todayDate.getFullYear();
+    };
+    const scoped = isSuperAdmin
+      ? orders.filter((order) => {
+          const orderBusiness = businessesById.get(order.businessId);
+          if (!orderBusiness) return false;
+          if (ordersZoneFilter !== 'all' && orderBusiness.localityId !== ordersZoneFilter) return false;
+          if (ordersBusinessFilter !== 'all' && order.businessId !== ordersBusinessFilter) return false;
+          return true;
+        })
+      : orders.filter((o) => o.businessId === business?.id);
+    return scoped.filter((o) => isCurrentLogicalDay(o.createdAt));
+  }, [orders, isSuperAdmin, businessesById, ordersZoneFilter, ordersBusinessFilter, business?.id, logicalDayKey]);
+
+  const restaurantProducts = useMemo(
+    () => (business
+      ? sortProductsByCategory(
+          products.filter((product) => product.businessId === business.id),
+          categories,
+        )
+      : []),
+    [business?.id, products, categories],
+  );
+
+  const zoneBusinessesForFilter = useMemo(
+    () => (ordersZoneFilter === 'all'
+      ? businesses
+      : businesses.filter((b) => b.localityId === ordersZoneFilter)),
+    [businesses, ordersZoneFilter],
+  );
+
+  const orderStats = useMemo(() => {
+    const deliveryOrders = businessOrders.filter((order) => order.deliveryType === 'DELIVERY');
+    const pickupOrders = businessOrders.filter((order) => order.deliveryType === 'PICKUP');
+    const deliverySalesCents = deliveryOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
+    const pickupSalesCents = pickupOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
+    const totalSalesCents = businessOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
+    const averageTicketCents = businessOrders.length > 0 ? Math.round(totalSalesCents / businessOrders.length) : 0;
+    const activeUnfinishedOrders = businessOrders.filter(
+      (order) => !['DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'].includes(order.status),
+    );
+    const productSalesMap = businessOrders.reduce<Record<string, { name: string; quantity: number }>>((acc, order) => {
+      order.items.forEach((item) => {
+        const key = item.productId;
+        const current = acc[key] || { name: item.productName, quantity: 0 };
+        current.quantity += item.quantity;
+        acc[key] = current;
+      });
+      return acc;
+    }, {});
+    const topProduct = Object.values(productSalesMap).sort((a, b) => b.quantity - a.quantity)[0];
+    return {
+      deliveryOrders,
+      pickupOrders,
+      deliverySalesCents,
+      pickupSalesCents,
+      totalSalesCents,
+      averageTicketCents,
+      activeUnfinishedOrders,
+      productSalesMap,
+      topProduct,
+    };
+  }, [businessOrders]);
+  const {
+    deliveryOrders,
+    pickupOrders,
+    deliverySalesCents,
+    pickupSalesCents,
+    totalSalesCents,
+    averageTicketCents,
+    activeUnfinishedOrders,
+    productSalesMap,
+    topProduct,
+  } = orderStats;
+
   if (!currentUser || !canManageOrders) {
     return (
       <div className="flex min-h-[420px] items-center justify-center">
@@ -467,56 +561,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
   if (!business && !(isSuperAdmin && activeTab === 'orders')) {
     return <div className="p-6 text-stone-700">No hay negocio disponible.</div>;
   }
-
-  const isCurrentLogicalDay = (dateStr: string) => {
-    const d = new Date(dateStr);
-    const orderDate = new Date(d.getTime() - 4 * 60 * 60 * 1000); // 4 AM offset for late night shifts
-    const todayDate = new Date(Date.now() - 4 * 60 * 60 * 1000);
-    return orderDate.getDate() === todayDate.getDate() 
-      && orderDate.getMonth() === todayDate.getMonth() 
-      && orderDate.getFullYear() === todayDate.getFullYear();
-  };
-
-  const businessOrders = (isSuperAdmin
-    ? orders.filter((order) => {
-        const orderBusiness = businesses.find((b) => b.id === order.businessId);
-        if (!orderBusiness) return false;
-        if (ordersZoneFilter !== 'all' && orderBusiness.localityId !== ordersZoneFilter) return false;
-        if (ordersBusinessFilter !== 'all' && order.businessId !== ordersBusinessFilter) return false;
-        return true;
-      })
-    : orders.filter((o) => o.businessId === business.id))
-    .filter(o => isCurrentLogicalDay(o.createdAt));
-  const restaurantProducts = business
-    ? sortProductsByCategory(
-      products.filter((product) => product.businessId === business.id),
-      categories,
-    )
-    : [];
-  const zoneBusinessesForFilter =
-    ordersZoneFilter === 'all'
-      ? businesses
-      : businesses.filter((b) => b.localityId === ordersZoneFilter);
-  const deliveryOrders = businessOrders.filter((order) => order.deliveryType === 'DELIVERY');
-  const pickupOrders = businessOrders.filter((order) => order.deliveryType === 'PICKUP');
-  const deliverySalesCents = deliveryOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
-  const pickupSalesCents = pickupOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
-  const totalSalesCents = businessOrders.reduce((acc, order) => acc + order.subtotalCents, 0);
-  const averageTicketCents = businessOrders.length > 0 ? Math.round(totalSalesCents / businessOrders.length) : 0;
-  const activeUnfinishedOrders = businessOrders.filter(
-    (order) => !['DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'].includes(order.status),
-  );
-
-  const productSalesMap = businessOrders.reduce<Record<string, { name: string; quantity: number }>>((acc, order) => {
-    order.items.forEach((item) => {
-      const key = item.productId;
-      const current = acc[key] || { name: item.productName, quantity: 0 };
-      current.quantity += item.quantity;
-      acc[key] = current;
-    });
-    return acc;
-  }, {});
-  const topProduct = Object.values(productSalesMap).sort((a, b) => b.quantity - a.quantity)[0];
 
   const kanbanColumns: Array<{
     id: string;
@@ -740,7 +784,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
       removableIngredients: '',
       additionalIngredients: '',
       priceCents: '0',
-      imageUrl: '/PideTietar_logo_animado.gif',
+      imageUrl: '/PideTietar_logo_animado.webp',
       categoryId: defaultCategoryIdForBusiness(),
       isAvailable: true,
       allergens: '',
@@ -797,7 +841,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
           .map(parseExtraIngredient)
           .filter(Boolean) as Array<{ name: string; priceCents: number }>,
       priceCents: Math.round(normalizedPrice * 100),
-      imageUrl: catalogForm.imageUrl || '/PideTietar_logo_animado.gif',
+      imageUrl: catalogForm.imageUrl || '/PideTietar_logo_animado.webp',
       categoryId: catalogForm.categoryId,
       taxPercentage: 10,
       isAvailable: catalogForm.isAvailable,
@@ -1849,7 +1893,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ initialBus
                       </div>
                       <MediaView
                         src={catalogForm.imageUrl || undefined}
-                        defaultSrc="/PideTietar_logo_animado.gif"
+                        defaultSrc="/PideTietar_logo_animado.webp"
                         alt={catalogForm.name}
                         className="mt-2 w-full h-24 rounded-xl border border-[#e6d7c5]"
                         showLoading

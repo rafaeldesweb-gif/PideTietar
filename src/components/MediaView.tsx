@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { isVideoUrl } from '../utils/mediaUpload';
 
 // Logo animado de la app (public). Se usa como placeholder/default de MediaView.
-const BRAND_LOGO = '/PideTietar_logo_animado.gif';
+const BRAND_LOGO = '/PideTietar_logo_animado.webp';
 
 // El tamaño se aplica al contenedor para no cubrir otros controles durante la carga.
 export const MediaView: React.FC<{

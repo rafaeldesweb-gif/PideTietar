@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   ArrowLeft, Star, Clock, Motorbike, MapPin, Phone,
@@ -23,9 +23,12 @@ export const BusinessDetailView: React.FC<BusinessDetailViewProps> = ({
   const { products, categories, userSubscription, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<'catalog' | 'info'>('catalog');
 
-  const bizProducts = sortProductsByCategory(
-    products.filter((product) => product.businessId === business.id),
-    categories,
+  const bizProducts = useMemo(
+    () => sortProductsByCategory(
+      products.filter((product) => product.businessId === business.id),
+      categories,
+    ),
+    [products, categories, business.id],
   );
   const courierActiveForBusiness = Boolean(business.hasOnlineCourier);
 

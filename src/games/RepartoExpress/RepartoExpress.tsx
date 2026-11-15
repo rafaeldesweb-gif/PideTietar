@@ -448,7 +448,7 @@ export default function RepartoExpress({ onClose }: RepartoExpressProps) {
         <div className={`reparto-express-screen start-screen ${screen !== "start" ? "hidden" : ""}`}>
           <div className="start-game-logo" aria-label="PideTiétar">
             <img
-              src="/PideTietar_logo_animado.gif"
+              src="/PideTietar_logo_animado.webp"
               alt="Logo animado de PideTiétar"
             />
           </div>

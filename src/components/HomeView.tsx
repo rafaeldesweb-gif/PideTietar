@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Star, Clock, Motorbike, Store, ArrowRight,
@@ -55,36 +55,72 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
 
   const activeLocalityId = selectedLocality?.id || null;
 
-  const localityProducts = activeLocalityId
-    ? products.filter(
-        (product) => product.localityId === activeLocalityId && product.isAvailable,
-      )
-    : [];
-
-  const localityBusinesses = activeLocalityId
-    ? businesses.filter((biz) => biz.localityId === activeLocalityId)
-    : [];
-
-  const bannerSourceProducts = selectBannerProducts(
-    products.filter((product) => businesses.some((business) => business.id === product.businessId)),
-    bannerTime,
+  // Los cálculos se memorizan: antes se repetían en cada render (también en
+  // cada refresco de pedidos) y recorrían productos y negocios varias veces.
+  const localityProducts = useMemo(
+    () => (activeLocalityId
+      ? products.filter(
+          (product) => product.localityId === activeLocalityId && product.isAvailable,
+        )
+      : []),
+    [products, activeLocalityId],
   );
 
-  const bannerSlides = bannerSourceProducts.map((product) => {
-    const business = businesses.find((biz) => biz.id === product.businessId);
-    const category = categories.find((cat) => cat.id === product.categoryId);
+  const localityBusinesses = useMemo(
+    () => (activeLocalityId
+      ? businesses.filter((biz) => biz.localityId === activeLocalityId)
+      : []),
+    [businesses, activeLocalityId],
+  );
 
-    return {
-      id: `slide-${product.id}`,
-      tag: (category?.name || 'DESTACADO').toUpperCase(),
-      title: product.name,
-      product,
-      business,
-      discount: `${getBannerRating(product).toFixed(1)}★`,
-      image: product.imageUrl,
-      deliveryAvailable: Boolean(business?.hasOnlineCourier),
-    };
-  });
+  const businessesById = useMemo(
+    () => new Map(businesses.map((business) => [business.id, business])),
+    [businesses],
+  );
+
+  const categoriesById = useMemo(
+    () => new Map(categories.map((category) => [category.id, category])),
+    [categories],
+  );
+
+  // Categorías usadas por cada negocio, para filtrar sin recorrer todos los
+  // productos por cada negocio.
+  const categoriesByBusinessId = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const product of products) {
+      if (!product.categoryId) continue;
+      if (!map.has(product.businessId)) map.set(product.businessId, new Set());
+      map.get(product.businessId)!.add(product.categoryId);
+    }
+    return map;
+  }, [products]);
+
+  const bannerSourceProducts = useMemo(
+    () => selectBannerProducts(
+      products.filter((product) => businessesById.has(product.businessId)),
+      bannerTime,
+    ),
+    [products, businessesById, bannerTime],
+  );
+
+  const bannerSlides = useMemo(
+    () => bannerSourceProducts.map((product) => {
+      const business = businessesById.get(product.businessId);
+      const category = categoriesById.get(product.categoryId);
+
+      return {
+        id: `slide-${product.id}`,
+        tag: (category?.name || 'DESTACADO').toUpperCase(),
+        title: product.name,
+        product,
+        business,
+        discount: `${getBannerRating(product).toFixed(1)}★`,
+        image: product.imageUrl,
+        deliveryAvailable: Boolean(business?.hasOnlineCourier),
+      };
+    }),
+    [bannerSourceProducts, businessesById, categoriesById],
+  );
   const activeBanner = bannerSlides[activeSlide] || bannerSlides[0];
 
   useEffect(() => {
@@ -105,21 +141,27 @@ export const HomeView: React.FC<HomeViewProps> = ({ onSelectBusiness, openProduc
   }, [bannerSlides.length, activeSlide, bannerHovered, bannerFocused]);
 
   // Filter businesses by locality and optional search / category
-  const filteredBusinesses = activeLocalityId
-    ? [...businesses.filter((biz) => {
-        const matchesLocality = biz.localityId === activeLocalityId;
-        const matchesCat = !selectedCategory ||
-          biz.category === selectedCategory ||
-          products.some((p) => p.businessId === biz.id && p.categoryId === selectedCategory);
-        const matchesOpen = !filterOpenOnly || biz.isShiftOpen;
+  const filteredBusinesses = useMemo(
+    () => (activeLocalityId
+      ? [...businesses.filter((biz) => {
+          const matchesLocality = biz.localityId === activeLocalityId;
+          const matchesCat = !selectedCategory ||
+            biz.category === selectedCategory ||
+            Boolean(categoriesByBusinessId.get(biz.id)?.has(selectedCategory));
+          const matchesOpen = !filterOpenOnly || biz.isShiftOpen;
 
-        return matchesLocality && matchesCat && matchesOpen;
-      })].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
-    : [];
+          return matchesLocality && matchesCat && matchesOpen;
+        })].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))
+      : []),
+    [businesses, activeLocalityId, selectedCategory, filterOpenOnly, categoriesByBusinessId],
+  );
 
-  const featuredProducts = activeLocalityId
-    ? getTopRatedProductsForLocality(localityProducts, activeLocalityId, 4)
-    : [];
+  const featuredProducts = useMemo(
+    () => (activeLocalityId
+      ? getTopRatedProductsForLocality(localityProducts, activeLocalityId, 4)
+      : []),
+    [localityProducts, activeLocalityId],
+  );
 
   return (
     <div className="space-y-8 pb-16">

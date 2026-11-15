@@ -1,6 +1,10 @@
 // La conexión nativa sigue respondiendo al servidor aunque la pestaña esté en
 // segundo plano. No se usa la IP como identificador: varias personas la comparten.
-export function watchSessionConnection(token: string, onExpired: () => void): () => void {
+export function watchSessionConnection(
+  token: string,
+  onExpired: () => void,
+  onEvent?: (event: { type: string; [key: string]: any }) => void,
+): () => void {
   let stopped = false;
   let socket: WebSocket | undefined;
   let lostAt: number | undefined;
@@ -39,6 +43,7 @@ export function watchSessionConnection(token: string, onExpired: () => void): ()
       try {
         const data = JSON.parse(event.data);
         if (data.type === 'ready' || data.type === 'pulse') connectionAlive();
+        else onEvent?.(data);
       } catch { /* Una respuesta inesperada no prolonga la sesión. */ }
     });
     socket.addEventListener('close', (event) => {

@@ -10,6 +10,7 @@ import {
   processMediaUrl,
 } from '../utils/mediaUpload';
 import { SensitiveInput } from './SensitiveInput';
+import { uploadMediaAsset } from '../utils/mediaApi';
 import { verifyAddress, type AddressVerificationResult } from '../services/addressValidation';
 import { getBrowserDeviceId } from '../utils/browserSession';
 import {
@@ -491,13 +492,28 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const persistAvatar = async (dataUrl: string, originalName?: string): Promise<string> => {
+    if (!currentUser?.id || !dataUrl.startsWith('data:')) return dataUrl;
+    try {
+      return await uploadMediaAsset({
+        dataUrl,
+        entityType: 'USER',
+        entityId: currentUser.id,
+        fieldName: 'avatar',
+        originalName,
+      });
+    } catch {
+      return dataUrl;
+    }
+  };
+
   const handleAvatarFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     try {
       const media = await processMediaFile(file);
-      setProfileAvatarUrl(media.dataUrl);
+      setProfileAvatarUrl(await persistAvatar(media.dataUrl, media.originalName));
       showNotification('Foto preparada. Pulsa «Guardar cambios» para guardarla.', 'info');
     } catch (error) {
       showNotification(
@@ -518,7 +534,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
     try {
       const media = await processMediaUrl(url);
-      setProfileAvatarUrl(media.dataUrl);
+      setProfileAvatarUrl(await persistAvatar(media.dataUrl, media.originalName));
       setUrlText('');
       showNotification('Foto preparada. Pulsa «Guardar cambios» para guardarla.', 'info');
     } catch (error) {

@@ -12,6 +12,7 @@ import Stripe from "stripe";
 import { WebSocketServer } from 'ws';
 import helmet from "helmet";
 import cors from "cors";
+import compression from "compression";
 import rateLimit from "express-rate-limit";
 import { buildActivityReport } from './server/activityReports.js';
 import {
@@ -47,6 +48,21 @@ if (process.env.STRIPE_SECRET_KEY) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
+
+// Compresión gzip/brotli para JSON, HTML, JS y CSS. Los catálogos y los
+// pedidos son respuestas grandes y sin comprimir viajaban enteras en cada
+// consulta. El umbral evita comprimir respuestas diminutas.
+app.use(
+  compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      // Los binarios ya vienen comprimidos: no se recodifican.
+      const type = String(res.getHeader("Content-Type") || "");
+      if (/^(image|video|audio|font)\//i.test(type)) return false;
+      return compression.filter(req, res);
+    },
+  }),
+);
 
 // =========================================================
 // CABECERAS DE SEGURIDAD (Helmet) — sin alterar la lógica de negocio
@@ -104,7 +120,9 @@ app.use(
 // =========================================================
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 20, // 20 intentos por ventana
+  // La batería de pruebas encadena muchos inicios de sesión sobre un mismo
+  // servidor aislado; en producción se mantiene el límite estricto.
+  max: process.env.NODE_ENV === "test" ? 1000 : 20,
   message: { code: "RATE_LIMITED", message: "Demasiados intentos. Intenta de nuevo más tarde." },
   standardHeaders: true,
   legacyHeaders: false,
@@ -206,11 +224,11 @@ function validatePasswordOrThrow(passwordRaw) {
   return password;
 }
 
-function isUsingInsecureDefaultPassword(hash) {
+async function isUsingInsecureDefaultPassword(hash) {
   if (!hash) return false;
 
   try {
-    return bcrypt.compareSync(INSECURE_DEFAULT_PASSWORD, String(hash));
+    return await bcrypt.compare(INSECURE_DEFAULT_PASSWORD, String(hash));
   } catch (error) {
     console.warn(
       "Unable to validate password hash while checking insecure default:",
@@ -922,6 +940,12 @@ function getSqliteDb() {
   if (!sqliteDb) {
     sqliteDb = new DatabaseSync(DB_PATH);
     sqliteDb.exec("PRAGMA journal_mode = WAL");
+    // WAL ya sincroniza en cada commit; NORMAL evita un fsync extra por
+    // escritura sin arriesgar la integridad de la base.
+    sqliteDb.exec("PRAGMA synchronous = NORMAL");
+    sqliteDb.exec("PRAGMA busy_timeout = 5000");
+    sqliteDb.exec("PRAGMA cache_size = -8000");
+    sqliteDb.exec("PRAGMA temp_store = MEMORY");
   }
   return sqliteDb;
 }
@@ -1410,6 +1434,7 @@ async function ensureSchema() {
   if (pool) {
     await applyMysqlSchema(pool);
     await ensureMySqlSchemaShape(pool);
+    await ensureDatabaseIndexes();
     await seedDefaultCategories();
     await seedSuperAdmin();
     await flagUsersWithInsecureDefaultPassword();
@@ -1417,9 +1442,56 @@ async function ensureSchema() {
   }
 
   ensureSqliteSchemaShape();
+  await ensureDatabaseIndexes();
   await seedDefaultCategories();
   await seedSuperAdmin();
   await flagUsersWithInsecureDefaultPassword();
+}
+
+// Índices que sostienen las consultas más frecuentes (pedidos por negocio,
+// cliente o repartidor; líneas por pedido; productos por negocio/categoría).
+// Sin ellos cada listado hace un SCAN completo y ordena en un árbol temporal.
+const DATABASE_INDEXES = [
+  ["orders", "idx_orders_business_created", "business_id, created_at"],
+  ["orders", "idx_orders_customer_created", "customer_id, created_at"],
+  ["orders", "idx_orders_courier_created", "courier_id, created_at"],
+  ["orders", "idx_orders_status_created", "status, created_at"],
+  ["order_items", "idx_order_items_order", "order_id, created_at"],
+  ["order_items", "idx_order_items_product", "product_id"],
+  ["products", "idx_products_business", "business_id, created_at"],
+  ["products", "idx_products_category", "category_id"],
+  ["business_hours", "idx_business_hours_business", "business_id"],
+  ["businesses", "idx_businesses_locality", "locality_id"],
+  ["app_users", "idx_app_users_role", "role"],
+];
+
+async function ensureDatabaseIndexes() {
+  if (mysqlPool) {
+    for (const [table, name, columns] of DATABASE_INDEXES) {
+      try {
+        const [rows] = await mysqlPool.execute(
+          "SELECT 1 FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1",
+          [table, name],
+        );
+        if (rows.length) continue;
+        await mysqlPool.execute(`CREATE INDEX ${name} ON ${table} (${columns})`);
+      } catch (error) {
+        // Una base antigua puede no tener todavía alguna columna: el índice
+        // se creará en el siguiente arranque tras la migración.
+        console.warn(`No se pudo crear el índice ${name}:`, error.message);
+      }
+    }
+    return;
+  }
+
+  const db = getSqliteDb();
+  for (const [table, name, columns] of DATABASE_INDEXES) {
+    try {
+      db.exec(`CREATE INDEX IF NOT EXISTS ${name} ON ${table} (${columns})`);
+    } catch (error) {
+      console.warn(`No se pudo crear el índice ${name}:`, error.message);
+    }
+  }
 }
 
 async function seedSuperAdmin() {
@@ -1428,7 +1500,7 @@ async function seedSuperAdmin() {
   // haya configuración de entorno. En producción debe sustituirse mediante
   // SUPERADMIN_PASSWORD y forzarse el cambio posterior.
   const loginPassword = process.env.SUPERADMIN_PASSWORD || "13021999";
-  const hash = bcrypt.hashSync(loginPassword, 10);
+  const hash = await bcrypt.hash(loginPassword, 10);
 
   if (mysqlPool) {
     await mysqlPool.execute(
@@ -1466,9 +1538,12 @@ async function flagUsersWithInsecureDefaultPassword() {
          FROM app_users
         WHERE COALESCE(password_change_required, 0) = 0`,
     );
-    const affectedIds = rows
-      .filter((row) => isUsingInsecureDefaultPassword(row.password_hash))
-      .map((row) => row.id);
+    const affectedIds = [];
+    for (const row of rows) {
+      if (await isUsingInsecureDefaultPassword(row.password_hash)) {
+        affectedIds.push(row.id);
+      }
+    }
 
     if (!affectedIds.length) {
       return;
@@ -1502,7 +1577,7 @@ async function flagUsersWithInsecureDefaultPassword() {
   );
 
   for (const row of rows) {
-    if (!isUsingInsecureDefaultPassword(row.password_hash)) continue;
+    if (!(await isUsingInsecureDefaultPassword(row.password_hash))) continue;
     markStatement.run(row.id);
     affectedCount += 1;
   }
@@ -2186,6 +2261,26 @@ async function findUserByUsernameOrEmail(username, email) {
   return db.prepare(sql).get(...params) || null;
 }
 
+// Caché en memoria de las respuestas públicas que cambian poco (catálogo,
+// negocios y localidades). Evita repetir las mismas consultas en cada visita
+// y en cada refresco del frontend; se invalida al guardar cambios.
+const responseCache = new Map();
+
+async function cachedResponse(key, ttlMs, loader) {
+  const now = Date.now();
+  const hit = responseCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.value;
+  const value = await loader();
+  responseCache.set(key, { value, expiresAt: now + ttlMs });
+  return value;
+}
+
+function invalidateResponseCache(prefix) {
+  for (const key of responseCache.keys()) {
+    if (!prefix || key.startsWith(prefix)) responseCache.delete(key);
+  }
+}
+
 async function listLocalities() {
   if (mysqlPool) {
     const [rows] = await mysqlPool.execute(
@@ -2264,9 +2359,22 @@ async function getBusinessById(businessId) {
     .get(String(businessId)) || null;
 }
 
-async function listProducts() {
+async function listProducts({ businessId = null, localityId = null } = {}) {
   // Cada pedido entregado aporta una valoración a cada producto que contiene,
   // sin duplicarla por unidades ni por líneas con opciones distintas.
+  const filters = [];
+  const filterParams = [];
+  if (businessId) {
+    filters.push("p.business_id = ?");
+    filterParams.push(String(businessId));
+  }
+  if (localityId) {
+    filters.push(
+      "p.business_id IN (SELECT id FROM businesses WHERE locality_id = ?)",
+    );
+    filterParams.push(String(localityId));
+  }
+  const filterSql = filters.length ? `WHERE ${filters.join(" AND ")}` : "";
   const sql = `SELECT p.*, COALESCE(stats.rating, 0) AS rating,
       COALESCE(stats.rating_count, 0) AS ratingCount
     FROM products p
@@ -2278,14 +2386,15 @@ async function listProducts() {
       WHERE o.status = 'DELIVERED' AND o.review_score BETWEEN 1 AND 5
       GROUP BY purchased.product_id
     ) stats ON stats.product_id = p.id
+    ${filterSql}
     ORDER BY p.created_at DESC`;
   if (mysqlPool) {
-    const [rows] = await mysqlPool.execute(sql);
+    const [rows] = await mysqlPool.execute(sql, filterParams);
     return rows;
   }
 
   const db = getSqliteDb();
-  return db.prepare(sql).all();
+  return db.prepare(sql).all(...filterParams);
 }
 
 async function getProductById(id) {
@@ -2681,24 +2790,83 @@ function buildOrderVisibilityFilter(user) {
   return { whereSql: "WHERE 1 = 0", params: [] };
 }
 
-async function listOrders(user) {
-  const { whereSql, params } = buildOrderVisibilityFilter(user);
+async function listOrders(user, options = {}) {
+  const {
+    scope = "recent",
+    limit = 200,
+    withItems = true,
+    since = null,
+    orderId = null,
+  } = options;
+  const visibility = buildOrderVisibilityFilter(user);
+  const clauses = [];
+  const params = [...visibility.params];
+
+  if (visibility.whereSql) {
+    clauses.push(`(${visibility.whereSql.replace(/^WHERE\s+/i, "")})`);
+  }
+
+  // El histórico completo de un negocio o de la plataforma crece sin límite.
+  // Por defecto se devuelven los pedidos activos y los últimos 30 días; el
+  // histórico completo se pide explícitamente con ?scope=all.
+  const activeStatuses = "'DELIVERED', 'CANCELLED', 'REJECTED', 'REFUNDED'";
+  if (scope === "active") {
+    clauses.push(`o.status NOT IN (${activeStatuses})`);
+  } else if (scope === "recent") {
+    const threshold = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    clauses.push(`(o.status NOT IN (${activeStatuses}) OR o.created_at >= ?)`);
+    params.push(threshold);
+  }
+
+  if (since) {
+    clauses.push("o.created_at >= ?");
+    params.push(since);
+  }
+
+  if (orderId) {
+    clauses.push("o.id = ?");
+    params.push(String(orderId));
+  }
+
+  const whereSql = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+  const safeLimit = Math.min(500, Math.max(1, Number(limit) || 200));
   const selectOrdersSql =
     "SELECT o.*, b.name AS joined_business_name, cu.avatar_url AS joined_courier_avatar_url FROM orders o " +
     "LEFT JOIN businesses b ON b.id = o.business_id " +
     "LEFT JOIN app_users cu ON cu.id = o.courier_id " +
-    `${whereSql} ORDER BY o.created_at DESC`;
-  // Se reutiliza el mismo WHERE para no cargar líneas de pedidos que el
-  // usuario no puede ver.
-  const selectItemsSql =
-    "SELECT oi.* FROM order_items oi " +
-    "JOIN orders o ON o.id = oi.order_id " +
-    `${whereSql} ORDER BY oi.created_at ASC`;
+    `${whereSql} ORDER BY o.created_at DESC LIMIT ${safeLimit}`;
+
+  if (!withItems) {
+    if (mysqlPool) {
+      const [orderRows] = await mysqlPool.execute(selectOrdersSql, params);
+      return orderRows.map((row) => normalizeOrderRow(row, []));
+    }
+    const db = getSqliteDb();
+    return db
+      .prepare(selectOrdersSql)
+      .all(...params)
+      .map((row) => normalizeOrderRow(row, []));
+  }
+
+  // Las líneas se piden sólo para los pedidos devueltos: con ?scope=all el
+  // histórico completo no debe arrastrar todos los order_items.
+  const fetchItemsFor = async (orderRows) => {
+    const orderIds = orderRows.map((row) => String(row.id));
+    if (!orderIds.length) return new Map();
+    const placeholders = orderIds.map(() => "?").join(", ");
+    const selectItemsSql =
+      `SELECT * FROM order_items WHERE order_id IN (${placeholders}) ORDER BY created_at ASC`;
+    if (mysqlPool) {
+      const [itemRows] = await mysqlPool.execute(selectItemsSql, orderIds);
+      return groupOrderItems(itemRows);
+    }
+    const db = getSqliteDb();
+    return groupOrderItems(db.prepare(selectItemsSql).all(...orderIds));
+  };
 
   if (mysqlPool) {
     const [orderRows] = await mysqlPool.execute(selectOrdersSql, params);
-    const [itemRows] = await mysqlPool.execute(selectItemsSql, params);
-    const itemsByOrder = groupOrderItems(itemRows);
+    const itemsByOrder = await fetchItemsFor(orderRows);
     return orderRows.map((row) =>
       normalizeOrderRow(row, itemsByOrder.get(String(row.id)) || []),
     );
@@ -2706,8 +2874,7 @@ async function listOrders(user) {
 
   const db = getSqliteDb();
   const orderRows = db.prepare(selectOrdersSql).all(...params);
-  const itemRows = db.prepare(selectItemsSql).all(...params);
-  const itemsByOrder = groupOrderItems(itemRows);
+  const itemsByOrder = await fetchItemsFor(orderRows);
   return orderRows.map((row) =>
     normalizeOrderRow(row, itemsByOrder.get(String(row.id)) || []),
   );
@@ -2757,17 +2924,26 @@ async function listReceivingCourierIds() {
   return new Set((await listReceivingCouriers()).map((row) => String(row.id)));
 }
 
-async function listUsers() {
+async function listUsers(roles = null) {
   const receivingCourierIds = await listReceivingCourierIds();
+  const roleList = Array.isArray(roles)
+    ? roles.map((role) => String(role || "").toUpperCase()).filter(Boolean)
+    : [];
+  const roleSql = roleList.length
+    ? ` WHERE role IN (${roleList.map(() => "?").join(", ")})`
+    : "";
   let rows;
 
   if (mysqlPool) {
     const [result] = await mysqlPool.execute(
-      "SELECT * FROM app_users ORDER BY created_at DESC",
+      `SELECT * FROM app_users${roleSql} ORDER BY created_at DESC`,
+      roleList,
     );
     rows = result;
   } else {
-    rows = getSqliteDb().prepare("SELECT * FROM app_users ORDER BY created_at DESC").all();
+    rows = getSqliteDb()
+      .prepare(`SELECT * FROM app_users${roleSql} ORDER BY created_at DESC`)
+      .all(...roleList);
   }
 
   return rows.map((row) => ({
@@ -2806,7 +2982,7 @@ async function createUser({
     email || `${cleanUsername}@pidetietar.local`,
   ).trim();
   const cleanPassword = validatePasswordOrThrow(password);
-  const hash = bcrypt.hashSync(cleanPassword, 10);
+  const hash = await bcrypt.hash(cleanPassword, 10);
   const requestedConfirmation = String(
     courierConfirmation || "PENDING",
   ).toUpperCase();
@@ -2958,6 +3134,70 @@ const SESSION_TTL_MS =
   Number(process.env.SESSION_TTL_HOURS || 168) * 60 * 60 * 1000;
 const SESSION_DISCONNECT_MS = Math.max(1000, Number(process.env.SESSION_DISCONNECT_MS || 10000));
 const sessionSockets = new Map();
+
+// ¿Puede esta cuenta ver este pedido? Replica en memoria el mismo filtro que
+// buildOrderVisibilityFilter aplica en SQL.
+function userCanReceiveOrder(user, { businessId, courierId, customerId, customerEmail }) {
+  const role = String(user?.role || "").toUpperCase();
+  if (role === "SUPERADMIN") return true;
+  if (role === "BUSINESS_ADMIN") {
+    return String(user.business_id || "") === businessId;
+  }
+  if (role === "BUSINESS_COURIER" || role === "PLATFORM_COURIER") {
+    return (
+      String(user.id || "") === courierId ||
+      parseCourierBusinessIds(user).includes(businessId)
+    );
+  }
+  if (role === "CLIENT") {
+    if (String(user.id || "") === customerId) return true;
+    // Los pedidos antiguos no tienen customer_id: se acepta el email.
+    return (
+      !customerId &&
+      !!customerEmail &&
+      String(user.email || "").toLowerCase() === customerEmail
+    );
+  }
+  return false;
+}
+
+// Difunde un pedido a las sesiones abiertas que pueden verlo. Evita que cada
+// cliente tenga que pedir /api/orders cada pocos segundos.
+function broadcastOrderEvent(type, order) {
+  if (!order?.id) return;
+  const target = {
+    businessId: String(order.businessId || order.business_id || ""),
+    courierId: String(order.courierId || order.courier_id || ""),
+    customerId: String(order.customerId || order.customer_id || ""),
+    customerEmail: String(
+      order.customerEmail || order.customer_email || "",
+    ).toLowerCase(),
+  };
+  const payload = JSON.stringify({ type, order });
+  for (const sockets of sessionSockets.values()) {
+    for (const socket of sockets) {
+      if (socket.readyState !== 1 || !socket.sessionUser) continue;
+      if (!userCanReceiveOrder(socket.sessionUser, target)) continue;
+      try {
+        socket.send(payload);
+      } catch {
+        // El socket se cerró entre la comprobación y el envío.
+      }
+    }
+  }
+}
+
+async function broadcastOrderChange(orderId) {
+  try {
+    const rows = await listOrders(
+      { role: "SUPERADMIN" },
+      { scope: "all", limit: 1, orderId: String(orderId) },
+    );
+    if (rows[0]) broadcastOrderEvent("order:changed", rows[0]);
+  } catch (error) {
+    console.warn("No se pudo difundir el pedido por WebSocket:", error.message);
+  }
+}
 
 async function sessionSql(sql, params = []) {
   if (mysqlPool) {
@@ -4295,7 +4535,7 @@ async function findOwnerAccount(owner) {
 // Crea o actualiza la cuenta del propietario del negocio dentro de la transacción.
 async function upsertOwnerAccount(tx, owner, businessId) {
   const existing = await findOwnerAccount(owner);
-  const hash = bcrypt.hashSync(owner.password, 10);
+  const hash = await bcrypt.hash(owner.password, 10);
 
   if (existing) {
     await txQuery(
@@ -4362,6 +4602,39 @@ app.use(express.json({ limit: "2mb" }));
 // Rate limiting general para la API y adicional para endpoints de auth.
 app.use("/api", apiLimiter);
 app.use("/api/auth", authLimiter);
+
+// Al guardar cambios se descarta la caché de las entidades afectadas. Se hace
+// al terminar la respuesta y sólo si la operación fue correcta, para no servir
+// catálogo viejo después de una edición.
+app.use("/api", (req, res, next) => {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  res.on("finish", () => {
+    if (res.statusCode >= 400) return;
+    const pathname = String(req.originalUrl || req.url || "");
+    if (pathname.includes("/api/businesses")) invalidateResponseCache("businesses");
+    if (pathname.includes("/api/products")) invalidateResponseCache("products");
+    if (pathname.includes("/api/categories")) {
+      invalidateResponseCache("categories");
+      invalidateResponseCache("products");
+      invalidateResponseCache("businesses");
+    }
+    if (pathname.includes("/api/localities")) invalidateResponseCache("localities");
+    if (pathname.includes("/api/orders")) {
+      // La valoración de un pedido actualiza la nota del negocio y sus productos.
+      invalidateResponseCache("businesses");
+      invalidateResponseCache("products");
+    }
+    if (pathname.includes("/api/users") || pathname.includes("/api/media")) {
+      invalidateResponseCache("businesses");
+    }
+    // Al entrar o salir un repartidor cambia la disponibilidad publicada y el
+    // turno del negocio; el perfil también puede cambiar su avatar.
+    if (pathname.includes("/api/auth")) {
+      invalidateResponseCache("businesses");
+    }
+  });
+  next();
+});
 
 app.get("/api/health", async (_req, res) => {
   // Consultar salud no debe cambiar de motor ni crear un pool nuevo.
@@ -4662,7 +4935,7 @@ app.post("/api/auth/login", async (req, res) => {
 
   const user = await getUserByIdentifier(identifier);
 
-  if (!user || !bcrypt.compareSync(cleanPassword, user.password_hash)) {
+  if (!user || !(await bcrypt.compare(cleanPassword, user.password_hash))) {
     return res
       .status(401)
       .json({ code: "INVALID_CREDENTIALS", message: "Credenciales inválidas" });
@@ -4745,14 +5018,14 @@ app.post("/api/auth/change-password", async (req, res) => {
   }
 
   const user = await getUserByIdentifier(cleanIdentifier);
-  if (!user || !bcrypt.compareSync(cleanCurrentPassword, user.password_hash)) {
+  if (!user || !(await bcrypt.compare(cleanCurrentPassword, user.password_hash))) {
     return res.status(401).json({
       code: "INVALID_CREDENTIALS",
       message: "No se pudo validar tu identidad para cambiar la contraseña.",
     });
   }
 
-  const newHash = bcrypt.hashSync(cleanNewPassword, 10);
+  const newHash = await bcrypt.hash(cleanNewPassword, 10);
   const changedAt = new Date().toISOString();
 
   if (mysqlPool) {
@@ -4860,7 +5133,7 @@ app.post("/api/auth/reset-password", async (req, res) => {
     );
   }
 
-  const newHash = bcrypt.hashSync(cleanNewPassword, 10);
+  const newHash = await bcrypt.hash(cleanNewPassword, 10);
   const changedAt = new Date().toISOString();
 
   if (mysqlPool) {
@@ -4914,7 +5187,7 @@ async function closeTrackedSession(session, user) {
         if (['BUSINESS_COURIER', 'PLATFORM_COURIER'].includes(user.role)) await sessionSql('UPDATE app_users SET is_online = 0 WHERE id = ?', [String(user.id)]);
         if (user.role === 'BUSINESS_ADMIN' && user.business_id) await sessionSql('UPDATE businesses SET is_shift_open = 0 WHERE id = ?', [user.business_id]);
       }
-      const [orders, businesses, localities] = await Promise.all([listOrders(user), listBusinesses(), listLocalities()]);
+      const [orders, businesses, localities] = await Promise.all([listOrders(user, { scope: "all", limit: 500 }), listBusinesses(), listLocalities()]);
       const report = buildActivityReport({ user, orders, businesses, localities, now: new Date(now), global: user.role === 'SUPERADMIN' });
       if (!user.email) return { sent: false, day: report.day, message: 'La cuenta no tiene un correo de destino.' };
       const delivery = await sendBrandEmail({ ...report.mail, timeoutMs: 8000 });
@@ -5314,7 +5587,8 @@ app.post("/api/game/score", requireAuth, async (req, res) => {
 });
 
 app.get("/api/localities", async (_req, res) => {
-  const rows = await listLocalities();
+  res.set("Cache-Control", "public, max-age=10, stale-while-revalidate=60");
+  const rows = await cachedResponse("localities", 15000, listLocalities);
   res.json(rows);
 });
 
@@ -5444,7 +5718,11 @@ app.get("/api/users", requireAuth, async (req, res) => {
     );
   }
 
-  const rows = await listUsers();
+  const roleQuery = String(req.query.roles || req.query.role || "").toLowerCase();
+  const onlyCouriers = ["courier", "couriers", "repartidor", "repartidores"].includes(roleQuery);
+  const rows = await listUsers(
+    onlyCouriers ? ["BUSINESS_COURIER", "PLATFORM_COURIER"] : null,
+  );
 
   if (sessionRole === "SUPERADMIN") {
     return res.json(rows.map((row) => sanitizeUser(row)));
@@ -5943,7 +6221,7 @@ app.put("/api/users/:id", requireAuth, async (req, res) => {
       // Cambio de contraseña desde el perfil: se limpia la marca de cambio
       // pendiente para que el usuario pueda entrar con la nueva clave.
       updates.push("password_hash = ?");
-      values.push(bcrypt.hashSync(cleanPassword, 10));
+      values.push(await bcrypt.hash(cleanPassword, 10));
       updates.push("password_change_required = ?");
       values.push(0);
       updates.push("password_changed_at = ?");
@@ -6418,7 +6696,8 @@ app.delete("/api/users/:id", requireRole("SUPERADMIN"), async (req, res) => {
 });
 
 app.get("/api/businesses", async (_req, res) => {
-  const rows = await listBusinesses();
+  res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=30");
+  const rows = await cachedResponse("businesses", 5000, listBusinesses);
   res.json(rows);
 });
 
@@ -6788,7 +7067,8 @@ app.delete("/api/businesses/:id", requireRole("SUPERADMIN"), async (req, res) =>
 });
 
 app.get("/api/categories", async (_req, res) => {
-  const rows = await listCategories();
+  res.set("Cache-Control", "public, max-age=15, stale-while-revalidate=60");
+  const rows = await cachedResponse("categories", 15000, listCategories);
   res.json(rows);
 });
 
@@ -7008,8 +7288,14 @@ app.delete("/api/categories/:id", requireRole("SUPERADMIN"), async (req, res) =>
   res.json({ success: true });
 });
 
-app.get("/api/products", async (_req, res) => {
-  const rows = await listProducts();
+app.get("/api/products", async (req, res) => {
+  res.set("Cache-Control", "public, max-age=5, stale-while-revalidate=30");
+  const businessId = req.query.businessId || req.query.business_id || null;
+  const localityId = req.query.localityId || req.query.locality_id || null;
+  const cacheKey = `products:${businessId || ""}:${localityId || ""}`;
+  const rows = await cachedResponse(cacheKey, 5000, () =>
+    listProducts({ businessId, localityId }),
+  );
   res.json(rows);
 });
 
@@ -7242,8 +7528,75 @@ app.delete("/api/products/:id", requireRole("SUPERADMIN", "BUSINESS_ADMIN"), asy
 
 app.get("/api/orders", requireAuth, async (req, res) => {
   res.set("Cache-Control", "no-store");
-  const rows = await listOrders(req.user);
+  const role = String(req.user.role || "").toUpperCase();
+  const requestedScope = String(req.query.scope || "recent").toLowerCase();
+  const scope = ["active", "recent", "all"].includes(requestedScope)
+    ? requestedScope
+    : "recent";
+  const rawLimit = Number(req.query.limit);
+  const limit = Number.isFinite(rawLimit) ? rawLimit : 200;
+  const withItems = String(req.query.withItems ?? req.query.with_items ?? "true") !== "false";
+  const sinceRaw = req.query.since;
+  const since =
+    sinceRaw && Number.isFinite(Date.parse(String(sinceRaw)))
+      ? new Date(Date.parse(String(sinceRaw))).toISOString()
+      : null;
+
+  // El histórico completo queda reservado a quien gestiona la plataforma o un
+  // negocio; un cliente o repartidor no necesita años de pedidos de golpe.
+  const effectiveScope =
+    scope === "all" && !["SUPERADMIN", "BUSINESS_ADMIN"].includes(role)
+      ? "recent"
+      : scope;
+
+  const rows = await listOrders(req.user, {
+    scope: effectiveScope,
+    limit,
+    withItems,
+    since,
+  });
   res.json(rows);
+});
+
+// Totales históricos de los pedidos visibles para la sesión. Se calculan en
+// SQL para que el panel no tenga que descargar todo el histórico.
+app.get("/api/orders/summary", requireAuth, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const { whereSql, params } = buildOrderVisibilityFilter(req.user);
+  const prefix = whereSql ? `${whereSql} AND` : "WHERE";
+  const sql = `SELECT COUNT(*) AS total_orders,
+      COALESCE(SUM(o.total_cents), 0) AS gross_volume_cents,
+      COALESCE(SUM(o.platform_fee_cents), 0) AS platform_commissions_cents
+    FROM orders o
+    ${prefix} COALESCE(o.payment_status, 'PAID') = 'PAID'`;
+
+  let row;
+  if (mysqlPool) {
+    const [rows] = await mysqlPool.execute(sql, params);
+    row = rows[0];
+  } else {
+    row = getSqliteDb().prepare(sql).get(...params);
+  }
+
+  res.json({
+    orders: Number(row?.total_orders || 0),
+    grossVolumeCents: Number(row?.gross_volume_cents || 0),
+    platformCommissionsCents: Number(row?.platform_commissions_cents || 0),
+  });
+});
+
+app.get("/api/orders/:id", requireAuth, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const rows = await listOrders(req.user, {
+    scope: "all",
+    limit: 1,
+    withItems: true,
+    orderId: String(req.params.id || ""),
+  });
+  if (!rows.length) {
+    throw httpError(404, "NOT_FOUND", "El pedido no existe o no tienes acceso a él.");
+  }
+  res.json(rows[0]);
 });
 
 app.post("/api/orders", requireRole(), async (req, res) => {
@@ -7559,6 +7912,7 @@ app.post("/api/orders", requireRole(), async (req, res) => {
     }
   });
 
+  void broadcastOrderChange(orderId);
   res.status(201).json({ success: true, id: orderId });
 });
 
@@ -8077,6 +8431,7 @@ app.put("/api/orders/:id", requireRole(), async (req, res) => {
       .json({ success: false, message: "No hay campos para actualizar" });
   }
 
+  void broadcastOrderChange(id);
   res.json({ success: true });
 });
 
@@ -8447,9 +8802,30 @@ if (fs.existsSync(distPath)) {
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
     res.sendFile(manifestPath);
   });
-  app.use(express.static(distPath));
+  // Los archivos con hash de Vite no cambian nunca: se cachean un año. Las
+  // imágenes de public/ cambian con el mismo nombre, así que usan una caché
+  // más corta con revalidación. El HTML y el manifiesto se revalidan siempre.
+  app.use(
+    express.static(distPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        const relative = path
+          .relative(distPath, filePath)
+          .split(path.sep)
+          .join("/");
+        if (relative.startsWith("assets/")) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        } else if (/\.(?:png|jpe?g|gif|webp|avif|svg|ico|mp4|webm|woff2?)$/i.test(relative)) {
+          res.setHeader("Cache-Control", "public, max-age=604800, stale-while-revalidate=86400");
+        } else {
+          res.setHeader("Cache-Control", "no-cache");
+        }
+      },
+    }),
+  );
   app.get("*", (req, res, next) => {
     if (req.path.startsWith("/api/")) return next();
+    res.setHeader("Cache-Control", "no-cache");
     res.sendFile(indexFile);
   });
 } else {
@@ -8591,6 +8967,7 @@ function startSessionConnections(httpServer) {
         const user = await readRequestUser(request);
         if (!user || socket.readyState !== 1) return socket.close(4001, 'Sesión no válida');
         sessionId = request.authSession.id;
+        socket.sessionUser = user;
         const stamp = Date.now();
         const live = await sessionSql('UPDATE auth_sessions SET last_seen_at = ?, close_requested_at = NULL WHERE id = ? AND closed_at IS NULL AND last_seen_at > ? AND expires_at > ?', [stamp, sessionId, stamp - SESSION_DISCONNECT_MS, stamp]);
         if (!Number(live.affectedRows ?? live.changes)) return socket.close(4001, 'Sesión caducada');

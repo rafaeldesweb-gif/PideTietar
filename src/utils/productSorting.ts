@@ -32,30 +32,29 @@ const normalizeCategoryValue = (value: string | undefined): string =>
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
 
-const getCategoryRank = (product: Product, categories: BusinessCategory[]): number => {
-  const category = categories.find((item) => item.id === product.categoryId);
-  const categoryValues = [category?.name, category?.slug, category?.id, product.categoryId]
-    .map(normalizeCategoryValue)
-    .filter(Boolean);
-
-  for (const value of categoryValues) {
-    const rank = categoryOrderByName.get(value);
-    if (rank !== undefined) return rank;
-  }
-
-  return PRODUCT_CATEGORY_ORDER.length;
-};
-
 /** Ordena por categoría y conserva el orden recibido dentro de cada grupo. */
 export const sortProductsByCategory = (
   products: Product[],
   categories: BusinessCategory[],
-): Product[] =>
-  products
-    .map((product, index) => ({
-      product,
-      index,
-      rank: getCategoryRank(product, categories),
-    }))
+): Product[] => {
+  // Un Map evita recorrer todas las categorías por cada producto.
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  return products
+    .map((product, index) => {
+      const category = categoryById.get(product.categoryId);
+      const categoryValues = [category?.name, category?.slug, category?.id, product.categoryId]
+        .map(normalizeCategoryValue)
+        .filter(Boolean);
+      let rank: number = PRODUCT_CATEGORY_ORDER.length;
+      for (const value of categoryValues) {
+        const found = categoryOrderByName.get(value);
+        if (found !== undefined) {
+          rank = found;
+          break;
+        }
+      }
+      return { product, index, rank };
+    })
     .sort((a, b) => a.rank - b.rank || a.index - b.index)
     .map(({ product }) => product);
+};

@@ -18,7 +18,8 @@
     "test": "node --import tsx --test \"src/**/*.test.ts\"",
     "test:api": "node --test scripts/crud-check.test.mjs scripts/profile-check.test.mjs scripts/media-replacement.test.mjs scripts/address-verification.test.mjs scripts/activity-reports.test.mjs scripts/session-check.test.mjs scripts/game-score.test.mjs",
     "test:forms": "node --test --test-concurrency=1 scripts/forms-ui-check.test.mjs scripts/profile-ui-check.test.mjs scripts/media-upload-ui-check.test.mjs scripts/session-ui-check.test.mjs",
-    "test:preproduction": "npm run lint && npm test && npm run test:api && npm run test:forms && npm run build"
+    "test:preproduction": "npm run lint && npm test && npm run test:api && npm run test:forms && npm run build",
+    "optimize:assets": "node scripts/optimize-assets.mjs"
   },
   "dependencies": {
     "@geoapify/geocoder-autocomplete": "^3.1.0",
@@ -28,6 +29,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
+    "compression": "^1.8.2",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
@@ -45,6 +47,7 @@
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
+    "@types/compression": "^1.8.1",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "@types/react": "^19.3.0",
@@ -52,6 +55,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.28.2",
     "playwright": "^1.63.0",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2",

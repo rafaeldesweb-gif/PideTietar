@@ -91,7 +91,7 @@ export const TitleScreen: React.FC<TitleScreenProps> = ({
           >
             {/* The cover image asset */}
             <img
-              src="/assets/games/rompecabezas/cover.png"
+              src="/assets/games/rompecabezas/cover.webp"
               alt="Rompecabezas Valle del Tiétar"
               className="w-full h-full object-cover rounded-3xl"
             />

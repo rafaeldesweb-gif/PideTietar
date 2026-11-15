@@ -129,6 +129,14 @@ interface AppContextType {
 
   // Orders
   orders: Order[];
+  // Totales históricos para el panel de superadministración. Se calculan en
+  // el servidor para no descargar años de pedidos sólo para sumar importes.
+  orderSummary: {
+    orders: number;
+    grossVolumeCents: number;
+    platformCommissionsCents: number;
+  } | null;
+  refreshOrderSummary: () => Promise<void>;
   createOrder: (data: {
     deliveryType: 'DELIVERY' | 'PICKUP';
     addressIndex?: number;
@@ -508,13 +516,30 @@ const normalizeOrder = (item: any): Order => {
   };
 };
 
+// Firma barata para detectar cambios visibles sin comparar objetos completos.
+const orderSignature = (order: Order): string =>
+  [
+    order.status,
+    order.updatedAt,
+    order.courierId ?? '',
+    order.courierName ?? '',
+    order.reviewScore ?? '',
+    order.paymentStatus ?? '',
+    order.items?.length ?? 0,
+  ].join('|');
+
 // Mezcla los pedidos del servidor con los locales. El servidor manda, salvo
 // que el pedido local tenga un cambio optimista más reciente (por ejemplo, un
 // estado recién pulsado que aún se está guardando).
+//
+// Devuelve el MISMO array cuando nada ha cambiado: React compara por
+// identidad y evita re-renderizar toda la app en cada consulta periódica.
 const mergeOrderLists = (local: Order[], remote: Order[]): Order[] => {
+  const localById = new Map(local.map((order) => [order.id, order]));
   const remoteById = new Map(remote.map((order) => [order.id, order]));
+
   const merged = remote.map((remoteOrder) => {
-    const localOrder = local.find((order) => order.id === remoteOrder.id);
+    const localOrder = localById.get(remoteOrder.id);
     if (!localOrder) return remoteOrder;
     const localUpdated = Date.parse(localOrder.updatedAt || localOrder.createdAt || '') || 0;
     const remoteUpdated = Date.parse(remoteOrder.updatedAt || remoteOrder.createdAt || '') || 0;
@@ -522,15 +547,42 @@ const mergeOrderLists = (local: Order[], remote: Order[]): Order[] => {
   });
 
   const now = Date.now();
-  local.forEach((localOrder) => {
-    if (remoteById.has(localOrder.id)) return;
+  const pending = local.filter((localOrder) => {
+    if (remoteById.has(localOrder.id)) return false;
     const created = Date.parse(localOrder.createdAt || '') || 0;
     // Se conserva unos segundos para que el POST que aún está en vuelo no
     // haga desaparecer el pedido de la pantalla.
-    if (now - created < 30000) merged.unshift(localOrder);
+    return now - created < 30000;
   });
 
-  return merged;
+  const result = pending.length ? [...pending, ...merged] : merged;
+  const unchanged =
+    result.length === local.length &&
+    result.every((order, index) => {
+      const previous = local[index];
+      return (
+        previous?.id === order.id &&
+        orderSignature(previous) === orderSignature(order)
+      );
+    });
+
+  return unchanged ? local : result;
+};
+
+// Aplica un único pedido recibido por WebSocket sin tocar el resto de la
+// lista. Devuelve el mismo array si el pedido no aporta cambios.
+const upsertOrderList = (previous: Order[], incoming: Order): Order[] => {
+  const index = previous.findIndex((order) => order.id === incoming.id);
+  if (index === -1) return [incoming, ...previous];
+  const current = previous[index];
+  const currentUpdated = Date.parse(current.updatedAt || current.createdAt || '') || 0;
+  const incomingUpdated = Date.parse(incoming.updatedAt || incoming.createdAt || '') || 0;
+  // Se mantiene el cambio optimista que aún no ha llegado al servidor.
+  if (currentUpdated > incomingUpdated + 750) return previous;
+  if (orderSignature(current) === orderSignature(incoming)) return previous;
+  const next = previous.slice();
+  next[index] = incoming;
+  return next;
 };
 
 // La sesión viaja en un token firmado por el backend. Se guarda aquí para que
@@ -650,7 +702,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // [] = el servidor respondió y no hay filas: se reemplaza por vacío.
       const fetchRows = async (path: string): Promise<any[] | null> => {
         try {
-          const data = await apiFetch(path, { cache: 'no-store' });
+          const data = await apiFetch(path, { cache: 'no-cache' });
           return Array.isArray(data) ? data : [];
         } catch {
           return null;
@@ -699,7 +751,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // la caché local no debe resucitar pedidos ya borrados.
         const nextOrders = ordersData.map(normalizeOrder);
         setOrders(nextOrders);
-        sessionStore.setItem('pidetietar_orders', JSON.stringify(nextOrders));
+        sessionStore.setItem('pidetietar_orders', JSON.stringify(nextOrders.slice(0, 50)));
       }
     };
 
@@ -712,7 +764,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (!event.key || event.storageArea !== window.sessionStorage) return;
 
       if (event.key === 'pidetietar_orders') {
-        setOrders(event.newValue ? JSON.parse(event.newValue) : []);
+        const shared = event.newValue ? JSON.parse(event.newValue) : [];
+        if (Array.isArray(shared) && shared.length) {
+          // Otra pestaña guarda un extracto: se aplican sus pedidos uno a uno
+          // sin borrar los que esta pestaña tenga cargados.
+          setOrders((previous) =>
+            shared.reduce<Order[]>(
+              (list, order) => upsertOrderList(list, normalizeOrder(order)),
+              previous,
+            ),
+          );
+        }
       }
       if (event.key === 'pidetietar_cart') {
         setCart(event.newValue ? JSON.parse(event.newValue) : null);
@@ -743,10 +805,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) return JSON.parse(saved);
     return [];
   });
+  const [orderSummary, setOrderSummary] = useState<{
+    orders: number;
+    grossVolumeCents: number;
+    platformCommissionsCents: number;
+  } | null>(null);
 
+  // La copia local de pedidos es sólo un respaldo para F5: la API es la
+  // fuente de verdad. Se guarda en segundo plano, con un pequeño retardo y un
+  // extracto acotado, para no serializar todo el histórico en cada refresco.
   useEffect(() => {
-    if (getSessionToken()) sessionStore.setItem('pidetietar_orders', JSON.stringify(orders));
-    else sessionStore.removeItem('pidetietar_orders');
+    if (!getSessionToken()) {
+      sessionStore.removeItem('pidetietar_orders');
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      try {
+        sessionStore.setItem('pidetietar_orders', JSON.stringify(orders.slice(0, 50)));
+      } catch {
+        // Sin espacio o sin sessionStorage: la app sigue funcionando.
+      }
+    }, 1000);
+    return () => window.clearTimeout(timeout);
   }, [orders]);
 
   // Al cerrar sesión (o si el token guardado ya no vale) no deben quedar en
@@ -779,6 +859,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (!active || !Array.isArray(data)) return;
         const remoteOrders = data.map(normalizeOrder);
         setOrders((previous) => mergeOrderLists(previous, remoteOrders));
+        void refreshOrderSummary();
       } finally {
         inFlight = false;
       }
@@ -786,7 +867,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const intervalId = window.setInterval(() => {
       void syncOrders();
-    }, 4000);
+    }, 8000);
 
     const handleFocus = () => {
       void syncOrders();
@@ -911,6 +992,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSessionToken(null);
     setCurrentUser(null);
     setOrders([]);
+    setOrderSummary(null);
     setCart(null);
     sessionStore.removeItem('pidetietar_orders');
     sessionStore.removeItem('pidetietar_cart');
@@ -1025,17 +1107,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const token = getSessionToken();
     if (!currentUser || !token) return;
-    return watchSessionConnection(token, () => {
-      // Se captura la autorización antes de limpiar los datos del navegador.
-      // Si no hay red, el servidor cierra la sesión al faltar su conexión.
-      void apiFetch('/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
-      setSessionToken(null);
-      currentUserRef.current = null;
-      setCurrentUser(null);
-      setOrders([]);
-      setCart(null);
-      showNotification('Sesión cerrada tras perder la conexión durante 10 segundos. Vuelve a iniciar sesión.', 'error');
-    });
+    return watchSessionConnection(
+      token,
+      () => {
+        // Se captura la autorización antes de limpiar los datos del navegador.
+        // Si no hay red, el servidor cierra la sesión al faltar su conexión.
+        void apiFetch('/auth/logout', { method: 'POST', keepalive: true }).catch(() => {});
+        setSessionToken(null);
+        currentUserRef.current = null;
+        setCurrentUser(null);
+        setOrders([]);
+        setOrderSummary(null);
+        setCart(null);
+        showNotification('Sesión cerrada tras perder la conexión durante 10 segundos. Vuelve a iniciar sesión.', 'error');
+      },
+      // El servidor avisa del pedido creado o modificado: no hace falta
+      // esperar al siguiente sondeo para verlo en cocina o en el móvil.
+      (event) => {
+        if (event.type !== 'order:changed' || !event.order) return;
+        const incoming = normalizeOrder(event.order);
+        setOrders((previous) => upsertOrderList(previous, incoming));
+        void refreshOrderSummary();
+      },
+    );
   }, [currentUser?.id]);
 
   const updateCurrentUserProfile = async (data: Partial<User>) => {
@@ -1260,7 +1354,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshCategories = async (): Promise<BusinessCategory[] | null> => {
     try {
-      const data = await apiFetch('/categories', { cache: 'no-store' });
+      const data = await apiFetch('/categories', { cache: 'no-cache' });
       const rows = (Array.isArray(data) ? data : []).map(normalizeCategory);
       setCategories(rows);
       return rows;
@@ -1371,9 +1465,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // incluida una lista vacía.
   const refreshBusinesses = async (): Promise<Business[] | null> => {
     try {
-      const data = await apiFetch('/businesses', { cache: 'no-store' });
+      const data = await apiFetch('/businesses', { cache: 'no-cache' });
       const rows = (Array.isArray(data) ? data : []).map(normalizeBusiness);
-      setBusinesses(rows);
+      // Si el servidor devuelve exactamente lo mismo, se conserva el array
+      // anterior para que React no repinte toda la app.
+      setBusinesses((previous) => {
+        try {
+          return JSON.stringify(previous) === JSON.stringify(rows) ? previous : rows;
+        } catch {
+          return rows;
+        }
+      });
       return rows;
     } catch (error) {
       const message = error instanceof Error
@@ -1386,11 +1488,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Totales históricos del panel de superadministración. La suma se hace en
+  // el servidor: el listado periódico sólo trae pedidos activos y recientes.
+  const refreshOrderSummary = async (): Promise<void> => {
+    if (currentUserRef.current?.role !== 'SUPERADMIN') {
+      setOrderSummary(null);
+      return;
+    }
+    try {
+      const data = await apiFetch('/orders/summary', { cache: 'no-store' });
+      if (data && typeof data === 'object') {
+        setOrderSummary({
+          orders: Number((data as any).orders) || 0,
+          grossVolumeCents: Number((data as any).grossVolumeCents) || 0,
+          platformCommissionsCents: Number((data as any).platformCommissionsCents) || 0,
+        });
+      }
+    } catch {
+      // Se conserva el último resumen conocido.
+    }
+  };
+
   // La disponibilidad del repartidor se comparte en las fichas públicas.
-  // Refresca los negocios periódicamente y al volver a la pestaña.
+  // Se refresca al volver a la pestaña y cada minuto (antes cada 20 s, lo que
+  // repintaba todos los dashboards sin que hubiera cambios reales).
   useEffect(() => {
     const refresh = () => { void refreshBusinesses(); };
-    const intervalId = window.setInterval(refresh, 20000);
+    const intervalId = window.setInterval(refresh, 60000);
     window.addEventListener('focus', refresh);
     return () => {
       window.clearInterval(intervalId);
@@ -1698,7 +1822,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // real lo aplica el backend).
   const listCouriers = async (): Promise<User[]> => {
     try {
-      const data = await apiFetch('/users');
+      const data = await apiFetch('/users?roles=courier');
       const rows = Array.isArray(data) ? data : [];
 
       return rows
@@ -2519,6 +2643,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       removeFromCart,
       updateCartQuantity,
       orders,
+      orderSummary,
+      refreshOrderSummary,
       createOrder,
       updateOrderStatus,
       verifyDeliveryPin,

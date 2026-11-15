@@ -3,26 +3,57 @@ import { useApp, getSessionToken } from './context/AppContext';
 import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
 import { BusinessDetailView } from './components/BusinessDetailView';
-import { ProductCustomizerModal } from './components/ProductCustomizerModal';
-import { CartDrawer } from './components/CartDrawer';
-import { OrdersView } from './components/OrdersView';
-import { BusinessDashboard } from './components/BusinessDashboard';
-import { CourierDashboard } from './components/CourierDashboard';
-import { AdminDashboard } from './components/AdminDashboard';
-import { AuthModal } from './components/AuthModal';
-import { AvatarEditorModal } from './components/AvatarEditorModal';
-import { ResetPasswordView } from './components/ResetPasswordView';
-import { TermsAndConditionsView } from './components/TermsAndConditionsView';
-import { ContactView } from './components/ContactView';
 import { ErrorPage, LoadingPage } from './components/ErrorAndLoading';
-import { GameCardsRow } from './components/GameCardsRow';
-import { GameDetailView } from './components/GameDetailView';
-import { GamePlayer } from './components/GamePlayer';
 import { ProjectLogo } from './components/ProjectLogo';
 import { Business, Product } from './types';
 import { AlertCircle, CheckCircle2, Info, X } from 'lucide-react';
 import { SeoHead } from './components/SeoHead';
 import { Breadcrumbs, homeBreadcrumb, categoriesBreadcrumb } from './components/Breadcrumbs';
+
+// Los paneles, modales y vistas secundarias se cargan sólo cuando se abren:
+// antes viajaban en el bundle inicial (más de 1 MB) aunque nadie los usara.
+const ProductCustomizerModal = lazy(() =>
+  import('./components/ProductCustomizerModal').then((module) => ({ default: module.ProductCustomizerModal })),
+);
+const CartDrawer = lazy(() =>
+  import('./components/CartDrawer').then((module) => ({ default: module.CartDrawer })),
+);
+const OrdersView = lazy(() =>
+  import('./components/OrdersView').then((module) => ({ default: module.OrdersView })),
+);
+const BusinessDashboard = lazy(() =>
+  import('./components/BusinessDashboard').then((module) => ({ default: module.BusinessDashboard })),
+);
+const CourierDashboard = lazy(() =>
+  import('./components/CourierDashboard').then((module) => ({ default: module.CourierDashboard })),
+);
+const AdminDashboard = lazy(() =>
+  import('./components/AdminDashboard').then((module) => ({ default: module.AdminDashboard })),
+);
+const AuthModal = lazy(() =>
+  import('./components/AuthModal').then((module) => ({ default: module.AuthModal })),
+);
+const AvatarEditorModal = lazy(() =>
+  import('./components/AvatarEditorModal').then((module) => ({ default: module.AvatarEditorModal })),
+);
+const ResetPasswordView = lazy(() =>
+  import('./components/ResetPasswordView').then((module) => ({ default: module.ResetPasswordView })),
+);
+const TermsAndConditionsView = lazy(() =>
+  import('./components/TermsAndConditionsView').then((module) => ({ default: module.TermsAndConditionsView })),
+);
+const ContactView = lazy(() =>
+  import('./components/ContactView').then((module) => ({ default: module.ContactView })),
+);
+const GameCardsRow = lazy(() =>
+  import('./components/GameCardsRow').then((module) => ({ default: module.GameCardsRow })),
+);
+const GameDetailView = lazy(() =>
+  import('./components/GameDetailView').then((module) => ({ default: module.GameDetailView })),
+);
+const GamePlayer = lazy(() =>
+  import('./components/GamePlayer').then((module) => ({ default: module.GamePlayer })),
+);
 
 /** Token del enlace de recuperación si la URL trae #restablecer-clave?token=… */
 const readResetTokenFromHash = (): string | null => {
@@ -193,7 +224,7 @@ export default function App() {
 
       {/* Main App Container */}
       <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6 pb-6">
-        
+        <Suspense fallback={<LoadingPage message="Cargando el valle…" />}>
         {isLoading ? (
           <LoadingPage message="Conectando con la red del Valle del Tiétar..." />
         ) : pageError ? (
@@ -375,9 +406,11 @@ export default function App() {
             )}
           </>
         )}
+        </Suspense>
       </main>
 
       {/* Fila de portadas de juegos de PideTietar Play: visible en portada y en la vista de juegos sin partida activa */}
+      <Suspense fallback={null}>
       {!isLoading && !pageError && (currentView !== 'juegos' || !selectedGameId) && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
           <GameCardsRow
@@ -439,6 +472,7 @@ export default function App() {
           }}
         />
       )}
+      </Suspense>
 
       {/* Footer */}
       <footer className="border-t border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 py-8 transition-colors mt-auto">

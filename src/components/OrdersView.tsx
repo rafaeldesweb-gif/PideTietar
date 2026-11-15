@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   Package, Clock, CheckCircle2, MapPin, Bike, Phone,
@@ -41,6 +41,28 @@ export const OrdersView: React.FC = () => {
   const [businessFilter, setBusinessFilter] = useState('all');
   const [clearedOrderIds, setClearedOrderIds] = useState<Set<string>>(new Set());
 
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
+  const businessesById = useMemo(
+    () => new Map(businesses.map((business) => [business.id, business])),
+    [businesses],
+  );
+  const userOrders = useMemo(
+    () => filterOrdersForCurrentUser(orders, currentUser).filter((order) => {
+      if (clearedOrderIds.has(order.id)) return false;
+      if (!isSuperAdmin) return true;
+      const orderBusiness = businessesById.get(order.businessId);
+      if (!orderBusiness) return false;
+      if (zoneFilter !== 'all' && orderBusiness.localityId !== zoneFilter) return false;
+      if (businessFilter !== 'all' && order.businessId !== businessFilter) return false;
+      return true;
+    }),
+    [orders, currentUser, clearedOrderIds, isSuperAdmin, businessesById, zoneFilter, businessFilter],
+  );
+  const businessesForFilter = useMemo(
+    () => (zoneFilter === 'all' ? businesses : businesses.filter((b) => b.localityId === zoneFilter)),
+    [businesses, zoneFilter],
+  );
+
   if (!canViewOrdersPage(currentUser)) {
     return (
       <div className="mx-auto max-w-xl rounded-3xl border border-stone-200 bg-white p-8 text-center shadow-xs dark:border-stone-800 dark:bg-stone-900">
@@ -52,19 +74,6 @@ export const OrdersView: React.FC = () => {
       </div>
     );
   }
-
-  const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
-  const userOrders = filterOrdersForCurrentUser(orders, currentUser).filter((order) => {
-    if (clearedOrderIds.has(order.id)) return false;
-    if (!isSuperAdmin) return true;
-    const orderBusiness = businesses.find((b) => b.id === order.businessId);
-    if (!orderBusiness) return false;
-    if (zoneFilter !== 'all' && orderBusiness.localityId !== zoneFilter) return false;
-    if (businessFilter !== 'all' && order.businessId !== businessFilter) return false;
-    return true;
-  });
-  const businessesForFilter =
-    zoneFilter === 'all' ? businesses : businesses.filter((b) => b.localityId === zoneFilter);
 
   const statusLabels: Record<OrderStatus, { label: string; color: string }> = {
     PENDING_PAYMENT: { label: 'Pago Pendiente', color: 'bg-stone-100 text-stone-700' },

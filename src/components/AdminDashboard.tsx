@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { 
   ShieldCheck, Users, Store, DollarSign, 
@@ -108,6 +108,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
     currentUser,
     businesses, 
     orders, 
+    orderSummary,
     categories,
     updateBusinessShift,
     localities,
@@ -128,8 +129,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
   } = useApp();
 
 
-  const totalGrossVolumeCents = orders.reduce((acc, o) => acc + o.totalCents, 0);
-  const totalPlatformCommissionsCents = orders.reduce((acc, o) => acc + o.platformFeeCents, 0);
+  const totalGrossVolumeCents = useMemo(
+    () => orderSummary?.grossVolumeCents
+      ?? orders.reduce((acc, order) => acc + order.totalCents, 0),
+    [orderSummary, orders],
+  );
+  const totalPlatformCommissionsCents = useMemo(
+    () => orderSummary?.platformCommissionsCents
+      ?? orders.reduce((acc, order) => acc + order.platformFeeCents, 0),
+    [orderSummary, orders],
+  );
+  const businessesById = useMemo(
+    () => new Map(businesses.map((item) => [item.id, item])),
+    [businesses],
+  );
 
   // Forms State
   const [newZoneName, setNewZoneName] = useState('');
@@ -1255,7 +1268,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                   Monto por reparto para cada negocio seleccionado
                 </p>
                 {courierForm.businessIds.map((businessId) => {
-                  const business = businesses.find((item) => item.id === businessId);
+                  const business = businessesById.get(businessId);
                   return (
                     <div key={businessId} className="flex flex-col gap-2 text-xs text-stone-600 dark:text-stone-300">
                       <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>
@@ -1433,7 +1446,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
               const isReceivingDeliveries = courier.courierProfile?.isReceivingDeliveries === true;
               const assignedIds = assignedBusinessIds(courier);
               const assignedNames = assignedIds
-                .map((bizId) => businesses.find((biz) => biz.id === bizId)?.name)
+                .map((bizId) => businessesById.get(bizId)?.name)
                 .filter(Boolean)
                 .join(', ');
               const confirmationLabel =
@@ -1495,7 +1508,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                     <p className="mt-0.5 text-xs text-stone-400">
                       Reparto por negocio: {assignedBusinessIds(courier).map((businessId) => {
                         const setting = courier.courierBusinessSettings?.[businessId];
-                        const business = businesses.find((item) => item.id === businessId);
+                        const business = businessesById.get(businessId);
                         const cents = setting?.courierRateCents ?? courier.courierRateCents ?? 0;
                         return `${business?.name || 'Negocio'} ${((cents || 0) / 100).toFixed(2)}€`;
                       }).join(' · ') || 'Sin negocios'} · Descuento: {courier.courierDiscountEnabled
@@ -2119,7 +2132,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigateToBusi
                       Monto por reparto para cada negocio seleccionado
                     </p>
                     {courierEditForm.businessIds.map((businessId) => {
-                      const business = businesses.find((item) => item.id === businessId);
+                      const business = businessesById.get(businessId);
                       return (
                     <div key={businessId} className="flex flex-col gap-2 text-xs text-stone-600 dark:text-stone-300">
                           <span className="font-semibold">{business?.name || 'Negocio seleccionado'}</span>

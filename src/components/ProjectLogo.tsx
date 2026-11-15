@@ -1,5 +1,5 @@
 import React from 'react';
-import brandLogo from '../assets/logo.png';
+import brandLogo from '../assets/logo.webp';
 
 interface ProjectLogoProps {
   variant?: 'badge' | 'full' | 'split';

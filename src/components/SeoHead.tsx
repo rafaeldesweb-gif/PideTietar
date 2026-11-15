@@ -33,7 +33,7 @@ export const SeoHead: React.FC<SeoHeadProps> = ({
       description ||
       'Plataforma de delivery y comercio local en el Valle del Tiétar con gestión de pedidos, negocios, repartidores, pagos y sincronización.';
     const pageUrl = url ? `${baseUrl}${url}` : baseUrl;
-    const pageImage = image || '/og-image.svg';
+    const pageImage = image || '/og-image.jpg';
 
     // Actualizar <title>
     if (document.title !== pageTitle) {

@@ -13,6 +13,9 @@ const MAX_WIDTH = 800; // Reducido para carga más rápida
 const JPEG_QUALITY = 0.65; // Reducido para menor tamaño
 // Margen por debajo del límite del servidor (~1.048.576 caracteres).
 const MAX_DATA_URL_LENGTH = 700_000; // Más margen de seguridad
+// Los GIF suelen pesar más y perderían la animación al reescalarlos, así que
+// se admite un margen mayor (siempre por debajo del cuerpo JSON de 2 MB).
+const MAX_GIF_DATA_URL_LENGTH = 1_350_000;
 // Duración máxima permitida para un vídeo (segundos).
 const MAX_VIDEO_DURATION_SECONDS = 2;
 // Vídeo recodificado: 480p, ~800 kbps, sin audio, H.264 para compatibilidad.
@@ -215,7 +218,8 @@ export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
   const original = await readAsDataUrl(file);
 
   // Si ya cabe en el límite se envía tal cual (conserva transparencia y animación GIF).
-  if (original.length <= MAX_DATA_URL_LENGTH) {
+  const maxLength = mimeType === 'image/gif' ? MAX_GIF_DATA_URL_LENGTH : MAX_DATA_URL_LENGTH;
+  if (original.length <= maxLength) {
     return {
       type: 'image',
       dataUrl: original,
@@ -224,13 +228,15 @@ export const processMediaFile = async (file: File): Promise<ProcessedMedia> => {
     };
   }
 
-  // Las imágenes pesadas se reescala con calidad reducida.
+  // Las imágenes pesadas se reescala con calidad reducida. En un GIF esto
+  // detiene la animación (el navegador no puede volver a codificarlo), así que
+  // sólo se usa cuando el archivo no cabe en el límite anterior.
   const image = await loadImage(original);
   const scaled = await scaleToDataUrl(
     original,
     image.naturalWidth,
     image.naturalHeight,
-    mimeType,
+    mimeType === 'image/gif' ? 'image/jpeg' : mimeType,
     JPEG_QUALITY,
   );
 
