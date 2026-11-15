@@ -7,7 +7,7 @@
  *
  * Para añadir un nuevo juego:
  * 1. Crea su carpeta en src/games/<juego>/ con su componente default export.
- * 2. Coloca su portada en public/assets/games/<id>/icon.jpg o icon.webp.
+ * 2. Coloca su portada en public/assets/games/<id>/icon.jpg con formato 407×512.
  * 3. Añade una entrada a GAMES_REGISTRY con un id único, su título y su imagen.
  * 4. El hub, la navegación y los rankings se actualizan solos a partir de este registro.
  */
@@ -44,7 +44,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
     title: 'Reparto Express',
     description:
       'Conduce la moto por la carretera del valle, recoge bolsas y salta obstáculos para completar los cinco niveles.',
-    image: '/assets/games/reparto-express/icon.webp',
+    image: '/assets/games/reparto-express/icon.jpg',
     category: 'Arcade',
     color: '#ff7a00',
     icon: 'Gamepad2',
@@ -56,7 +56,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
     id: 'burbujas',
     title: 'Burbujas',
     description: 'Dispara burbujas de colores y forma grupos de tres o más para reventarlas.',
-    image: '/assets/games/burbujas/icon.webp',
+    image: '/assets/games/burbujas/icon.jpg',
     category: 'Arcade',
     color: '#c084fc',
     icon: 'Sparkles',
@@ -68,7 +68,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
     id: 'pide-blocks',
     title: 'Blocks',
     description: 'Coloca bloques de colores y completa líneas para sumar puntos.',
-    image: '/assets/games/pide-blocks/icon.webp',
+    image: '/assets/games/pide-blocks/icon.jpg',
     category: 'Puzle',
     color: '#06b6d4',
     icon: 'Grid',
@@ -80,7 +80,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
     id: 'rompecabezas',
     title: 'Rompecabezas',
     description: 'Arma los paisajes del Valle del Tiétar pieza a pieza a lo largo de cinco niveles.',
-    image: '/assets/games/rompecabezas/icon.webp',
+    image: '/assets/games/rompecabezas/icon.jpg',
     category: 'Puzle',
     color: '#f59e0b',
     icon: 'Puzzle',
