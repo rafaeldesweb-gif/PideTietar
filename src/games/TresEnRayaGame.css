@@ -1,0 +1,27 @@
+.pidetietar-tres-en-raya { display: flex; width: 100%; height: 100%; min-height: 0; align-items: center; justify-content: center; overflow: auto; background: radial-gradient(circle at 50% 18%, rgb(176 38 255 / 22%), transparent 32%), linear-gradient(145deg, #061432, #130c3d 58%, #32104e); color: white; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.pidetietar-tres-en-raya__panel, .pidetietar-tres-en-raya__game { width: min(92%, 480px); padding: 28px; border: 1px solid rgb(0 229 255 / 45%); border-radius: 26px; background: linear-gradient(145deg, rgb(8 29 77 / 94%), rgb(42 11 76 / 95%)); box-shadow: 0 0 30px rgb(0 229 255 / 20%), inset 0 0 24px rgb(255 78 0 / 10%); text-align: center; }
+.pidetietar-tres-en-raya__eyebrow { color: #ffb703; font-size: .68rem; font-weight: 800; letter-spacing: .2em; text-transform: uppercase; }
+.pidetietar-tres-en-raya h2 { margin: 8px 0 10px; font-size: clamp(1.8rem, 6vw, 2.7rem); font-weight: 900; text-shadow: 0 0 18px rgb(0 229 255 / 60%); }
+.pidetietar-tres-en-raya__panel p { color: #d9e8ff; font-size: .9rem; }
+.pidetietar-tres-en-raya__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 22px 0 4px; }
+.pidetietar-tres-en-raya__actions button, .pidetietar-tres-en-raya__primary, .pidetietar-tres-en-raya__secondary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 0; border-radius: 999px; padding: 11px 15px; color: white; font-weight: 800; cursor: pointer; }
+.pidetietar-tres-en-raya__actions button, .pidetietar-tres-en-raya__primary { background: linear-gradient(135deg, #00cfff, #1565ff); box-shadow: 0 0 16px rgb(0 229 255 / 30%); }
+.pidetietar-tres-en-raya__actions svg, .pidetietar-tres-en-raya__primary svg { width: 16px; height: 16px; }
+.pidetietar-tres-en-raya__panel small { display: block; margin-top: 16px; color: #a8c2e8; font-size: .72rem; }
+.pidetietar-tres-en-raya__game { padding: 20px; }
+.pidetietar-tres-en-raya__topline { display: flex; align-items: center; justify-content: space-between; text-align: left; }
+.pidetietar-tres-en-raya__topline h2 { margin-bottom: 0; font-size: clamp(1.4rem, 5vw, 2rem); }
+.pidetietar-tres-en-raya__icon-button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgb(255 255 255 / 20%); border-radius: 50%; background: rgb(255 255 255 / 8%); color: white; cursor: pointer; }
+.pidetietar-tres-en-raya__icon-button svg { width: 18px; height: 18px; }
+.pidetietar-tres-en-raya__score { display: flex; justify-content: center; gap: 12px; margin: 18px 0; color: #c5eaff; font-size: .75rem; font-weight: 800; }
+.pidetietar-tres-en-raya__score span { border: 1px solid rgb(0 229 255 / 30%); border-radius: 999px; padding: 6px 9px; background: rgb(0 229 255 / 7%); }
+.pidetietar-tres-en-raya__board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 360px; margin: 0 auto; }
+.pidetietar-tres-en-raya__cell { aspect-ratio: 1; border: 1px solid rgb(0 229 255 / 36%); border-radius: 16px; background: linear-gradient(145deg, rgb(10 36 88 / 95%), rgb(31 10 71 / 95%)); color: white; font-size: clamp(2.4rem, 13vw, 5rem); font-weight: 900; line-height: 1; cursor: pointer; box-shadow: inset 0 0 18px rgb(0 229 255 / 8%); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.pidetietar-tres-en-raya__cell:not(:disabled):hover { transform: translateY(-2px); border-color: #ffb703; box-shadow: 0 0 20px rgb(255 183 3 / 25%); }
+.pidetietar-tres-en-raya__cell.is-x { color: #00e5ff; text-shadow: 0 0 18px rgb(0 229 255 / 75%); }
+.pidetietar-tres-en-raya__cell.is-o { color: #ff9d00; text-shadow: 0 0 18px rgb(255 157 0 / 75%); }
+.pidetietar-tres-en-raya__hint { min-height: 22px; color: #bdd8ff; font-size: .8rem; }
+.pidetietar-tres-en-raya__primary, .pidetietar-tres-en-raya__secondary { margin: 8px 4px 0; }
+.pidetietar-tres-en-raya__secondary { border: 1px solid rgb(255 255 255 / 18%); background: rgb(255 255 255 / 8%); }
+
+@media (max-width: 440px) { .pidetietar-tres-en-raya__panel, .pidetietar-tres-en-raya__game { padding: 20px 14px; } .pidetietar-tres-en-raya__score { gap: 5px; } .pidetietar-tres-en-raya__score span { padding: 5px 6px; font-size: .66rem; } }

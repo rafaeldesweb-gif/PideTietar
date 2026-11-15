@@ -7,7 +7,7 @@
  *
  * Para añadir un nuevo juego:
  * 1. Crea su carpeta en src/games/<juego>/ con su componente default export.
- * 2. Coloca su portada en public/assets/games/<id>/icon.webp.
+ * 2. Coloca su portada en public/assets/games/<id>/icon.jpg o icon.webp.
  * 3. Añade una entrada a GAMES_REGISTRY con un id único, su título y su imagen.
  * 4. El hub, la navegación y los rankings se actualizan solos a partir de este registro.
  */
@@ -37,8 +37,6 @@ export interface GameEntry {
 
 /**
  * Catálogo de juegos de PideTietar Play.
- * El primero es "Reparto Express" (el juego existente). Los demás se añaden
- * con su portada; no tienen componente propio aún y muestran "Próximamente".
  */
 export const GAMES_REGISTRY: GameEntry[] = [
   {
@@ -92,6 +90,94 @@ export const GAMES_REGISTRY: GameEntry[] = [
         (m) => m.PideRompecabezas as import('react').ComponentType<any>,
       ),
   },
+  {
+    id: 'breakout',
+    title: 'Breakout',
+    description: 'Rompe los bloques con la pala y supera los modos clásico y arcade.',
+    image: '/assets/games/breakout/icon.jpg',
+    category: 'Arcade',
+    color: '#00cfff',
+    icon: 'Zap',
+    available: true,
+    lazy: () => import('./BreakoutGame').then((m) => m.default),
+  },
+  {
+    id: 'tres-en-raya',
+    title: 'Tres en raya',
+    description: 'Juega contra otra persona o reta a la máquina y consigue tres en línea.',
+    image: '/assets/games/tres-en-raya/icon.jpg',
+    category: 'Estrategia',
+    color: '#ff9d00',
+    icon: 'Grid3X3',
+    available: true,
+    lazy: () => import('./TresEnRayaGame').then((m) => m.default),
+  },
+  {
+    id: 'times-tables-sprint',
+    title: 'Times Tables Sprint',
+    description: 'Responde operaciones de multiplicar durante un sprint de 60 segundos.',
+    image: '/assets/games/times-tables-sprint/icon.jpg',
+    category: 'Educativo',
+    color: '#00cfff',
+    icon: 'Calculator',
+    available: true,
+    lazy: () => import('./TimesTablesSprintGame').then((m) => m.default),
+  },
+  {
+    id: 'flappy-bird',
+    title: 'Flappy Bird',
+    description: 'Ayuda al pájaro a volar entre los tubos y supera tu récord.',
+    image: '/assets/games/flappy-bird/icon.jpg',
+    category: 'Reflejos',
+    color: '#ffd447',
+    icon: 'Bird',
+    available: true,
+    lazy: () => import('./FlappyBirdGame').then((m) => m.default),
+  },
+  {
+    id: 'asteroids-html5',
+    title: 'Asteroids HTML5',
+    description: 'Controla la nave, dispara a los asteroides y sobrevive en el espacio.',
+    image: '/assets/games/asteroids-html5/icon.jpg',
+    category: 'Arcade',
+    color: '#b86cff',
+    icon: 'Orbit',
+    available: true,
+    lazy: () => import('./AsteroidsHtml5Game').then((m) => m.default),
+  },
+  {
+    id: 'space-invaders',
+    title: 'Space Invaders',
+    description: 'Defiende tu nave, elimina las filas invasoras y consigue la mayor puntuación.',
+    image: '/assets/games/space-invaders/icon.jpg',
+    category: 'Arcade',
+    color: '#00e5ff',
+    icon: 'Zap',
+    available: true,
+    lazy: () => import('./SpaceInvadersGame').then((m) => m.default),
+  },
+  {
+    id: 'classic-puzzle',
+    title: 'Classic Puzzle',
+    description: 'Ordena las 15 fichas deslizantes hasta reconstruir el tablero.',
+    image: '/assets/games/classic-puzzle/icon.jpg',
+    category: 'Puzle',
+    color: '#00cfff',
+    icon: 'Grid3X3',
+    available: true,
+    lazy: () => import('./ClassicPuzzleGame').then((m) => m.default),
+  },
+  {
+    id: 'memory-html',
+    title: 'Memory HTML',
+    description: 'Encuentra las seis parejas y consigue el mejor tiempo y número de movimientos.',
+    image: '/assets/games/memory-html/icon.jpg',
+    category: 'Memoria',
+    color: '#c084fc',
+    icon: 'Grid3X3',
+    available: true,
+    lazy: () => import('./MemoryHtmlGame').then((m) => m.default),
+  },
 ];
 
 /**
@@ -111,6 +197,51 @@ export const resolveGameIcon = (iconName: string): ComponentType<any> | null => 
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require('lucide-react');
         return mod.Gamepad2 ?? null;
+      } catch {
+        return null;
+      }
+    })(),
+    Zap: (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('lucide-react');
+        return mod.Zap ?? null;
+      } catch {
+        return null;
+      }
+    })(),
+    Grid3X3: (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('lucide-react');
+        return mod.Grid3X3 ?? null;
+      } catch {
+        return null;
+      }
+    })(),
+    Calculator: (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('lucide-react');
+        return mod.Calculator ?? null;
+      } catch {
+        return null;
+      }
+    })(),
+    Bird: (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('lucide-react');
+        return mod.Bird ?? null;
+      } catch {
+        return null;
+      }
+    })(),
+    Orbit: (() => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('lucide-react');
+        return mod.Orbit ?? null;
       } catch {
         return null;
       }
