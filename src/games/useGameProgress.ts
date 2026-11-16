@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { apiFetch, useApp } from '../context/AppContext';
 import { sessionStore } from '../utils/browserSession';
-import { mergeCompletedLevels, parseCompletedLevels, withCompletedLevel } from './gameProgress';
+import {
+  mergeCompletedLevels,
+  parseCompletedLevels,
+  userProgressKey,
+  withCompletedLevel,
+} from './gameProgress';
 
 interface GameProgressOptions {
   /** Identificador del juego en el servidor («memory-html», «classic-puzzle»…). */
@@ -22,28 +27,38 @@ interface GameProgressOptions {
  */
 export const useGameProgress = ({ gameId, maxLevel, localKey }: GameProgressOptions) => {
   const { currentUser } = useApp();
-  const userId = currentUser?.id ?? null;
-  const [completed, setCompleted] = useState<number[]>(() =>
-    parseCompletedLevels(sessionStore.getItem(localKey), maxLevel),
-  );
+  const userId = currentUser?.id ? String(currentUser.id) : null;
+  const [completed, setCompleted] = useState<number[]>([]);
   const [ready, setReady] = useState(!userId);
 
   useEffect(() => {
     let active = true;
+    // Las claves antiguas no tenían usuario y no se pueden atribuir con
+    // seguridad. Se ignoran y se eliminan para que ningún usuario las herede.
+    sessionStore.removeItem(localKey);
+
     if (!userId) {
+      setCompleted([]);
       setReady(true);
       return () => {
         active = false;
       };
     }
 
+    const scopedKey = userProgressKey(localKey, userId);
+    const local = parseCompletedLevels(sessionStore.getItem(scopedKey), maxLevel);
+    // Al cambiar de cuenta se sustituye inmediatamente el estado visible por
+    // el de esa cuenta, antes de consultar el servidor.
+    setCompleted(local);
     setReady(false);
     void apiFetch(`/game/progress?game=${encodeURIComponent(gameId)}`)
       .then((data) => {
         if (!active) return;
-        const local = parseCompletedLevels(sessionStore.getItem(localKey), maxLevel);
-        const merged = mergeCompletedLevels(local, data?.levels, maxLevel);
-        sessionStore.setItem(localKey, merged.join(','));
+        // Se vuelve a leer la caché: el jugador puede haber terminado un nivel
+        // mientras la consulta GET estaba en vuelo.
+        const latestLocal = parseCompletedLevels(sessionStore.getItem(scopedKey), maxLevel);
+        const merged = mergeCompletedLevels(latestLocal, data?.levels, maxLevel);
+        sessionStore.setItem(scopedKey, merged.join(','));
         setCompleted(merged);
       })
       .catch(() => {
@@ -63,7 +78,9 @@ export const useGameProgress = ({ gameId, maxLevel, localKey }: GameProgressOpti
       setCompleted((previous) => {
         const next = withCompletedLevel(previous, level, maxLevel);
         if (next.length === previous.length) return previous;
-        sessionStore.setItem(localKey, next.join(','));
+        if (userId) {
+          sessionStore.setItem(userProgressKey(localKey, userId), next.join(','));
+        }
         return next;
       });
 

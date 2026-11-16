@@ -5,6 +5,7 @@ import {
   mergeCompletedLevels,
   normalizeCompletedLevels,
   parseCompletedLevels,
+  userProgressKey,
   withCompletedLevel,
 } from './gameProgress';
 
@@ -35,4 +36,15 @@ test('añade un nivel completado en orden y sin duplicados', () => {
   assert.deepEqual(withCompletedLevel([1, 2], 3, 10), [1, 2, 3]);
   assert.deepEqual(withCompletedLevel([1, 2], 2, 10), [1, 2]);
   assert.deepEqual(withCompletedLevel([], 4, 10), [4]);
+});
+
+test('genera una caché distinta para cada usuario', () => {
+  assert.notEqual(
+    userProgressKey('pidetietar-game-memory-html-completed-v1', 'usuario-a'),
+    userProgressKey('pidetietar-game-memory-html-completed-v1', 'usuario-b'),
+  );
+  assert.equal(
+    userProgressKey('progreso', 'usuario/a'),
+    'progreso:user:usuario%2Fa',
+  );
 });

@@ -11,8 +11,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronRight, Lock, Play, RotateCcw, Timer, Trophy, X } from 'lucide-react';
 import { useGameScore } from './useGameScore';
 import { GameCelebration } from '../components/GameCelebration';
-import { sessionStore } from '../utils/browserSession';
-import { parseCompletedLevels } from './gameProgress';
 import { useGameProgress } from './useGameProgress';
 import { CLASSIC_PUZZLE_LEVELS } from './classicPuzzleLevels';
 import type { ClassicPuzzleLevel } from './classicPuzzleLevels';
@@ -66,9 +64,6 @@ const shuffleBoard = (grid: number): number[] => {
 const formatTime = (totalSeconds: number): string =>
   `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
 
-const readCompleted = (): number[] =>
-  parseCompletedLevels(sessionStore.getItem(COMPLETED_KEY), CLASSIC_PUZZLE_LEVELS.length);
-
 /**
  * Un nivel se desbloquea al completar el anterior: el 1 siempre está abierto y
  * el resto espera a que el jugador termine el dibujo de delante.
@@ -83,7 +78,9 @@ const firstPendingLevel = (completed: number[]): number => {
 };
 
 export default function ClassicPuzzleGame({ onClose }: ClassicPuzzleGameProps) {
-  const [levelIndex, setLevelIndex] = useState(() => firstPendingLevel(readCompleted()));
+  // El progreso se carga por usuario en `useGameProgress`; no se lee una
+  // clave común de la pestaña porque podría pertenecer a otra cuenta.
+  const [levelIndex, setLevelIndex] = useState(0);
   const level: ClassicPuzzleLevel = CLASSIC_PUZZLE_LEVELS[levelIndex];
 
   const [tiles, setTiles] = useState<number[]>([]);

@@ -14,8 +14,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Check, ChevronRight, Clock3, Lock, Play, RotateCcw, Trophy, X } from 'lucide-react';
 import { GameCelebration } from '../components/GameCelebration';
-import { sessionStore } from '../utils/browserSession';
-import { parseCompletedLevels } from './gameProgress';
 import { useGameProgress } from './useGameProgress';
 import { useGameScore } from './useGameScore';
 import {
@@ -42,9 +40,6 @@ interface Card extends MemoryCard {
 const COMPLETED_KEY = 'pidetietar-game-memory-html-completed-v1';
 const SCORE_KEY = 'pidetietar-game-memory-html-best-v1';
 
-const readCompleted = (): number[] =>
-  parseCompletedLevels(sessionStore.getItem(COMPLETED_KEY), MEMORY_LEVELS.length);
-
 const dealCards = (level: MemoryLevel): Card[] =>
   createDeck(level).map((card) => ({ ...card, revealed: false, matched: false }));
 
@@ -52,7 +47,9 @@ const formatTime = (totalSeconds: number): string =>
   `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`;
 
 export default function MemoryHtmlGame({ onClose }: MemoryHtmlGameProps) {
-  const [levelIndex, setLevelIndex] = useState(() => firstPendingIndex(readCompleted()));
+  // El progreso se carga por usuario en `useGameProgress`; no se lee una
+  // clave común de la pestaña porque podría pertenecer a otra cuenta.
+  const [levelIndex, setLevelIndex] = useState(0);
   const level = MEMORY_LEVELS[levelIndex];
 
   const [cards, setCards] = useState<Card[]>(() => dealCards(level));

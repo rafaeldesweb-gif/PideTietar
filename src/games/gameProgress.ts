@@ -24,6 +24,14 @@ export const parseCompletedLevels = (raw: string | null, maxLevel: number): numb
   return normalizeCompletedLevels(raw.split(','), maxLevel);
 };
 
+/**
+ * La caché de sesión debe pertenecer a una cuenta concreta. `sessionStorage`
+ * vive en la pestaña y, por tanto, una clave común haría que el siguiente
+ * usuario heredase los niveles del anterior después de cerrar sesión.
+ */
+export const userProgressKey = (baseKey: string, userId: string): string =>
+  `${baseKey}:user:${encodeURIComponent(userId)}`;
+
 /** Une el avance local y el del servidor: nunca se pierde un nivel. */
 export const mergeCompletedLevels = (
   local: unknown,
