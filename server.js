@@ -702,6 +702,18 @@ const mysqlSchema = `
       ON DELETE CASCADE
       ON UPDATE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+  CREATE TABLE IF NOT EXISTS game_progress (
+    user_id CHAR(36) NOT NULL,
+    game_id VARCHAR(64) NOT NULL,
+    level INT NOT NULL,
+    updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (user_id, game_id, level),
+    CONSTRAINT fk_game_progress_user
+      FOREIGN KEY (user_id) REFERENCES app_users (id)
+      ON DELETE CASCADE
+      ON UPDATE CASCADE
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 `;
 
 const mysqlSchemaStatements = mysqlSchema
@@ -1175,6 +1187,19 @@ function ensureSqliteSchemaShape() {
       level_reached INTEGER NOT NULL DEFAULT 1,
       played_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  );
+
+  // Niveles desbloqueados de PideTiétar Play. Una fila por usuario, juego y
+  // nivel completado; la clave primaria evita duplicados al repetir un nivel.
+  ensureTable(
+    "game_progress",
+    `CREATE TABLE game_progress (
+      user_id TEXT NOT NULL,
+      game_id TEXT NOT NULL,
+      level INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, game_id, level)
     )`,
   );
 
@@ -5584,6 +5609,94 @@ app.post("/api/game/score", requireAuth, async (req, res) => {
   ).run(id, userId, game, score, levelReached);
 
   res.status(201).json({ success: true, id, game, score, level_reached: levelReached });
+});
+
+// =========================================================
+// PROGRESO DE NIVELES (MEMORY, CLASSIC PUZZLE…)
+// =========================================================
+
+// Niveles que admite cada juego con desbloqueo progresivo. El servidor es la
+// fuente definitiva: así el avance sobrevive al cierre de sesión, a otra
+// pestaña y a otro dispositivo.
+const GAME_PROGRESS_LEVELS = {
+  "memory-html": 10,
+  "classic-puzzle": 12,
+};
+
+const gameProgressMaxLevel = (game) => GAME_PROGRESS_LEVELS[game] || 0;
+
+app.get("/api/game/progress", requireAuth, async (req, res) => {
+  const game = cleanString(req.query.game);
+  const maxLevel = gameProgressMaxLevel(game);
+  if (!game || !maxLevel) {
+    throw validationError("Juego no válido.", {
+      game: "El identificador del juego no es válido.",
+    });
+  }
+
+  const userId = req.user.id;
+  let rows = [];
+  if (mysqlPool) {
+    const [result] = await mysqlPool.execute(
+      `SELECT level FROM game_progress
+       WHERE user_id = ? AND game_id = ?
+       ORDER BY level`,
+      [userId, game],
+    );
+    rows = result;
+  } else {
+    rows = getSqliteDb()
+      .prepare(
+        `SELECT level FROM game_progress
+         WHERE user_id = ? AND game_id = ?
+         ORDER BY level`,
+      )
+      .all(userId, game);
+  }
+
+  const levels = rows
+    .map((row) => Number(row.level))
+    .filter((level) => Number.isInteger(level) && level >= 1 && level <= maxLevel);
+
+  res.json({ game, maxLevel, levels });
+});
+
+app.post("/api/game/progress", requireAuth, async (req, res) => {
+  const body = req.body || {};
+  const game = cleanString(body.game);
+  const level = asInteger(body.level);
+  const maxLevel = gameProgressMaxLevel(game);
+  const errors = {};
+
+  if (!game || !maxLevel) errors.game = "El identificador del juego no es válido.";
+  if (level === null || level < 1 || level > (maxLevel || 1)) {
+    errors.level = `El nivel debe ser un número entero entre 1 y ${maxLevel || 1}.`;
+  }
+  if (Object.keys(errors).length) {
+    return res.status(400).json({
+      code: "VALIDATION_ERROR",
+      message: "Revisa los datos de la partida.",
+      errors,
+    });
+  }
+
+  const userId = req.user.id;
+  if (mysqlPool) {
+    await mysqlPool.execute(
+      `INSERT IGNORE INTO game_progress (user_id, game_id, level)
+       VALUES (?, ?, ?)`,
+      [userId, game, level],
+    );
+  } else {
+    getSqliteDb()
+      .prepare(
+        `INSERT OR IGNORE INTO game_progress (user_id, game_id, level)
+         VALUES (?, ?, ?)`,
+      )
+      .run(userId, game, level);
+  }
+
+  res.status(201).json({ success: true, game, level });
 });
 
 app.get("/api/localities", async (_req, res) => {

@@ -93,7 +93,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
   {
     id: 'breakout',
     title: 'Breakout',
-    description: 'Rompe los bloques con la pala y supera los modos clásico y arcade.',
+    description: 'Rompe todos los bloques con la pala antes de perder las tres vidas.',
     image: '/assets/games/breakout/icon.jpg',
     category: 'Arcade',
     color: '#00cfff',
@@ -136,8 +136,8 @@ export const GAMES_REGISTRY: GameEntry[] = [
   },
   {
     id: 'asteroids-html5',
-    title: 'Asteroids HTML5',
-    description: 'Controla la nave, dispara a los asteroides y sobrevive en el espacio.',
+    title: 'Asteroids',
+    description: 'Rompe los cristales, esquiva la lluvia y mejora tu arma nivel a nivel.',
     image: '/assets/games/asteroids-html5/icon.jpg',
     category: 'Arcade',
     color: '#b86cff',
@@ -159,7 +159,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
   {
     id: 'classic-puzzle',
     title: 'Classic Puzzle',
-    description: 'Ordena las 15 fichas deslizantes hasta reconstruir el tablero.',
+    description: 'Recompón doce dibujos para niños deslizando las fichas: del arcoíris al bosque, cada nivel tiene más detalle.',
     image: '/assets/games/classic-puzzle/icon.jpg',
     category: 'Puzle',
     color: '#00cfff',
@@ -169,7 +169,7 @@ export const GAMES_REGISTRY: GameEntry[] = [
   },
   {
     id: 'memory-html',
-    title: 'Memory HTML',
+    title: 'Memory',
     description: 'Encuentra las seis parejas y consigue el mejor tiempo y número de movimientos.',
     image: '/assets/games/memory-html/icon.jpg',
     category: 'Memoria',

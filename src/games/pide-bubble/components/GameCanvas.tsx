@@ -15,6 +15,13 @@ import {
 } from '../utils/bubblePhysics';
 import { soundManager } from '../utils/audio';
 
+// Margen extra alrededor de la burbuja para que quepan el halo neón y el aro
+// de peligro dentro del sprite pre-renderizado.
+const BUBBLE_SPRITE_PAD = 24;
+// Tope de partículas simultáneas: una cadena grande no puede llenar la
+// pantalla de destellos y congelar el fotograma.
+const MAX_PARTICLES = 220;
+
 interface GameCanvasProps {
   currentLevel: LevelConfig;
   score: number;
@@ -85,6 +92,33 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
   // Local state for UI indicators
   const [, setFrameTick] = useState(0);
+
+  // --- Rendimiento en móvil ------------------------------------------------
+  // Espejo de los datos que React actualiza a menudo (puntuación, burbujas
+  // restantes, pausa, callbacks). El bucle de dibujo los lee de aquí para no
+  // reiniciar requestAnimationFrame en cada explosión, que era lo que
+  // provocaba microtirones justo al reventar las burbujas.
+  const loopApiRef = useRef({
+    bubblesRemaining,
+    isPaused,
+    onScoreAdd,
+    onBubbleDropped,
+    onBubblePopped,
+    onMissShot,
+    onLevelComplete,
+    onGameOver,
+    spawnFiveBubblesInDiversePlaces: (w: number, cy: number, dl: number) => {},
+    spawnColorSpecialBubble: (c: BubbleColor, r: number, col: number, w: number, cy: number) => {},
+    triggerCeilingDrop: () => {},
+  });
+
+  // Sprites pre-renderizados: dibujar degradados y sombras por burbuja y
+  // fotograma hunde la GPU de un móvil. Se generan una vez y se estampan
+  // con drawImage.
+  const spriteCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const glowCacheRef = useRef<Map<string, HTMLCanvasElement>>(new Map());
+  const backdropCacheRef = useRef<{ key: string; canvas: HTMLCanvasElement } | null>(null);
+  const effectiveDprRef = useRef<number>(1);
 
   // Helper to pick random regular color from current level's palette
   const getRandomColor = useCallback((): BubbleColor => {
@@ -568,7 +602,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // Create Particle Explosions
   const spawnExplosion = (x: number, y: number, colorKey: BubbleColor, text?: string) => {
     const theme = BUBBLE_THEMES[colorKey] || BUBBLE_THEMES.magenta;
-    const pCount = 20;
+    // En pantallas pequeñas la explosión se queda en lo justo para que una
+    // cadena de 8-10 burbujas no sature el hilo principal.
+    const anchoCss = effectiveDprRef.current
+      ? (canvasRef.current?.width || 400) / effectiveDprRef.current
+      : 400;
+    const compacto = anchoCss < 520;
+    const pCount = compacto ? 8 : 14;
 
     // Expanding shockwave ring
     particlesRef.current.push({
@@ -603,8 +643,13 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       });
     }
 
-    // Floating score tag
-    if (text) {
+    // Floating score tag (máximo 3 etiquetas a la vez: el texto con sombra
+    // es de lo más caro de pintar en un móvil)
+    const etiquetas = particlesRef.current.reduce(
+      (n, p) => n + (p.type === 'score' ? 1 : 0),
+      0
+    );
+    if (text && etiquetas < 3) {
       particlesRef.current.push({
         x,
         y: y - 10,
@@ -619,6 +664,27 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         text,
       });
     }
+
+    // Tope de partículas: se descartan las más antiguas.
+    if (particlesRef.current.length > MAX_PARTICLES) {
+      particlesRef.current.splice(0, particlesRef.current.length - MAX_PARTICLES);
+    }
+  };
+
+  // Espejo de datos mutables: se actualiza en cada render y el bucle de
+  // dibujo lo lee sin reiniciarse.
+  loopApiRef.current = {
+    bubblesRemaining,
+    isPaused,
+    onScoreAdd,
+    onBubbleDropped,
+    onBubblePopped,
+    onMissShot,
+    onLevelComplete,
+    onGameOver,
+    spawnFiveBubblesInDiversePlaces,
+    spawnColorSpecialBubble,
+    triggerCeilingDrop,
   };
 
   // Main 60FPS Game Loop
@@ -631,34 +697,53 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let animationFrameId: number;
 
     const render = () => {
-      const dpr = window.devicePixelRatio || 1;
       const rect = canvas.getBoundingClientRect();
+      // En un móvil con DPR 3 el búfer del canvas se va a más de 2 millones
+      // de píxeles por fotograma. Con DPR 2 se ve igual de nítido y cuesta
+      // la mitad; el ahorro es la mayor palanca contra los tirones.
+      const dpr = Math.min(window.devicePixelRatio || 1, rect.width < 520 ? 2 : 2.5);
+      const targetW = Math.round(rect.width * dpr);
+      const targetH = Math.round(rect.height * dpr);
 
-      if (canvas.width !== rect.width * dpr || canvas.height !== rect.height * dpr) {
-        canvas.width = rect.width * dpr;
-        canvas.height = rect.height * dpr;
+      if (canvas.width !== targetW || canvas.height !== targetH) {
+        canvas.width = targetW;
+        canvas.height = targetH;
+      }
+
+      // DPR nuevo => los sprites se vuelven a generar con la escala correcta.
+      if (effectiveDprRef.current !== dpr) {
+        effectiveDprRef.current = dpr;
+        spriteCacheRef.current.clear();
+        glowCacheRef.current.clear();
+        backdropCacheRef.current = null;
       }
 
       ctx.save();
-      ctx.scale(dpr, dpr);
+      // setTransform (en vez de scale) evita que la escala se acumule entre
+      // fotogramas cuando el canvas se redimensiona.
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
       const width = rect.width;
       const height = rect.height;
+      const api = loopApiRef.current;
 
       // Delta time calculation
       const now = performance.now();
       const dt = Math.min((now - lastTimeRef.current) / 1000, 0.1);
       lastTimeRef.current = now;
+      // Paso normalizado a 60 fps: el movimiento va a la misma velocidad en
+      // pantallas de 120 Hz y en móviles que caen a 30 fps.
+      const step = Math.min(Math.max(dt * 60, 0.5), 2);
 
       // Freeze duration handling
       const isFrozen = freezeTimeRemainingRef.current > 0;
       if (isFrozen) {
         freezeTimeRemainingRef.current -= dt;
-      } else if (!isPaused && !isLevelFinishedRef.current) {
+      } else if (!api.isPaused && !isLevelFinishedRef.current) {
         // Decrement timed ceiling descent only if not frozen
         timeUntilDropRef.current -= dt;
         if (timeUntilDropRef.current <= 0) {
-          triggerCeilingDrop();
+          api.triggerCeilingDrop();
         }
       }
 
@@ -670,9 +755,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         screenShakeRef.current = Math.max(0, screenShakeRef.current - 0.1);
       }
 
-      // 1. CLEAR & BACKGROUND
+      // 1. CLEAR & BACKGROUND (el fondo va cacheado en un sprite)
       ctx.clearRect(0, 0, width, height);
-      drawAtmosphericBackdrop(ctx, width, height);
+      drawAtmosphericBackdrop(ctx, width, height, dpr);
 
       const ceilingY = ceilingOffsetRowsRef.current * (BUBBLE_RADIUS * 1.732);
 
@@ -691,7 +776,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       drawDangerLine(ctx, width, dangerLineY);
 
       // 4. DRAW AIMING TRAJECTORY
-      if (!projectileRef.current && bubblesRemaining > 0 && !isPaused && !isLevelFinishedRef.current) {
+      if (!projectileRef.current && api.bubblesRemaining > 0 && !api.isPaused && !isLevelFinishedRef.current) {
         drawTrajectory(ctx, trajectoryRef.current, currentBubbleRef.current);
       }
 
@@ -727,7 +812,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       ) {
         isLevelFinishedRef.current = true;
         soundManager.playLevelWin();
-        onLevelComplete();
+        api.onLevelComplete();
       }
 
       // Check Game Over Condition 1: Bubbles crossed danger line
@@ -735,14 +820,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         isLevelFinishedRef.current = true;
         screenShakeRef.current = 3.0;
         soundManager.playGameOver();
-        onGameOver();
+        api.onGameOver();
       }
 
       // 6. UPDATE & DRAW PROJECTILE
       const proj = projectileRef.current;
       if (proj && proj.active) {
-        proj.x += proj.vx;
-        proj.y += proj.vy;
+        proj.x += proj.vx * step;
+        proj.y += proj.vy * step;
 
         // Wall collisions
         const leftLimit = proj.radius;
@@ -836,19 +921,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
               }
             });
 
-            onBubblePopped(radiusAffected.length, 1);
-            onScoreAdd(mortarPoints);
+            api.onBubblePopped(radiusAffected.length, 1);
+            api.onScoreAdd(mortarPoints);
 
             // Spawn any 3X special bubbles earned
             specialSpawnsInMortar.forEach(color => {
-              spawnColorSpecialBubble(color, impactRow, impactCol, width, ceilingY);
+              api.spawnColorSpecialBubble(color, impactRow, impactCol, width, ceilingY);
             });
 
             // RULE 2: Por cada 10 burbujas explotadas salen 5 mas de diversos colores y en diversos lugares
             tenPopsAccumulatorRef.current += radiusAffected.length;
             while (tenPopsAccumulatorRef.current >= 10) {
               tenPopsAccumulatorRef.current -= 10;
-              spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
+              api.spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
             }
 
             // Check floating drops after mortar
@@ -944,8 +1029,8 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                 }
               });
 
-              onScoreAdd(totalClusterPoints);
-              onBubblePopped(allPoppedCoords.length, combo);
+              api.onScoreAdd(totalClusterPoints);
+              api.onBubblePopped(allPoppedCoords.length, combo);
 
               allPoppedCoords.forEach((pos, idx) => {
                 const b = grid[pos.row]?.[pos.col];
@@ -958,7 +1043,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
                     ? `+${bubblePts} ★3X!`
                     : idx === 0
                     ? `+${totalClusterPoints}`
-                    : `+${bubblePts}`;
+                    : undefined;
                   spawnExplosion(b.x, b.y, b.color, tag);
                   grid[pos.row][pos.col] = null;
                 }
@@ -966,14 +1051,14 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
               // Spawn any 3X special bubbles earned from 6 of the same color
               colorSpecialSpawns.forEach(color => {
-                spawnColorSpecialBubble(color, targetSpecialRow, targetSpecialCol, width, ceilingY);
+                api.spawnColorSpecialBubble(color, targetSpecialRow, targetSpecialCol, width, ceilingY);
               });
 
               // RULE 2: Por cada 10 burbujas explotadas salen 5 mas de diversos colores y en diversos lugares (alternativo)
               tenPopsAccumulatorRef.current += allPoppedCoords.length;
               while (tenPopsAccumulatorRef.current >= 10) {
                 tenPopsAccumulatorRef.current -= 10;
-                spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
+                api.spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
               }
 
               // Check for orphaned floating bubbles that drop!
@@ -981,15 +1066,15 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
             } else {
               // Miss / No match: reset combo & decay mortar charge
               comboMultiplierRef.current = 1;
-              onMissShot?.();
+              api.onMissShot?.();
 
               // Check if out of bubbles
-              if (bubblesRemaining <= 0) {
+              if (api.bubblesRemaining <= 0) {
                 setTimeout(() => {
                   if (activeBubbleCount > 0 && !isLevelFinishedRef.current) {
                     isLevelFinishedRef.current = true;
                     soundManager.playGameOver();
-                    onGameOver();
+                    api.onGameOver();
                   }
                 }, 600);
               }
@@ -1020,10 +1105,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 7. UPDATE & DRAW DROPPING ORPHAN BUBBLES
       for (let i = droppingBubblesRef.current.length - 1; i >= 0; i--) {
         const b = droppingBubblesRef.current[i];
-        b.vy = (b.vy || 0) + 0.45;
-        b.x += b.vx || 0;
-        b.y += b.vy;
-        b.rotation = (b.rotation || 0) + (b.vRot || 0.05);
+        b.vy = (b.vy || 0) + 0.45 * step;
+        b.x += (b.vx || 0) * step;
+        b.y += b.vy * step;
+        b.rotation = (b.rotation || 0) + (b.vRot || 0.05) * step;
 
         drawBubble(ctx, b.x, b.y, b.radius, b.color, 0.95, b.rotation, false, b.isColorSpecial);
 
@@ -1036,9 +1121,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       // 8. UPDATE & DRAW PARTICLES & SCORE LABELS
       for (let i = particlesRef.current.length - 1; i >= 0; i--) {
         const p = particlesRef.current[i];
-        p.life++;
-        p.x += p.vx;
-        p.y += p.vy;
+        p.life += step;
+        p.x += p.vx * step;
+        p.y += p.vy * step;
         p.alpha = Math.max(0, 1 - p.life / p.maxLife);
 
         if (p.type === 'ring') {
@@ -1050,24 +1135,34 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           ctx.stroke();
           ctx.globalAlpha = 1;
         } else if (p.type === 'score' && p.text) {
+          // Sin shadowBlur: el contorno oscuro da la misma legibilidad y
+          // cuesta una fracción de lo que cuesta una sombra difusa.
           ctx.save();
           ctx.font = 'bold 18px "Outfit", sans-serif';
           ctx.textAlign = 'center';
-          ctx.fillStyle = '#ffffff';
-          ctx.shadowColor = p.color || '#00f0ff';
-          ctx.shadowBlur = 10;
           ctx.globalAlpha = p.alpha;
+          ctx.lineWidth = 4;
+          ctx.strokeStyle = 'rgba(10, 5, 32, 0.85)';
+          ctx.strokeText(p.text, p.x, p.y);
+          ctx.fillStyle = '#ffffff';
           ctx.fillText(p.text, p.x, p.y);
           ctx.restore();
         } else {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, p.size * (1 - (p.life / p.maxLife) * 0.4), 0, Math.PI * 2);
-          ctx.fillStyle = p.color;
+          // Destello con sprite de resplandor en modo aditivo: se pinta con
+          // drawImage en lugar de sombra difusa (mucho más barato en móvil).
+          const size = p.size * (1 - (p.life / p.maxLife) * 0.4);
+          const glow = getGlowSprite(p.color || '#ffffff', dpr);
           ctx.globalAlpha = p.alpha;
-          ctx.shadowColor = p.color;
-          ctx.shadowBlur = p.sparkle ? 8 : 4;
+          if (glow) {
+            const g = size * 4.5;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.drawImage(glow, p.x - g / 2, p.y - g / 2, g, g);
+            ctx.globalCompositeOperation = 'source-over';
+          }
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+          ctx.fillStyle = p.color;
           ctx.fill();
-          ctx.shadowBlur = 0;
           ctx.globalAlpha = 1;
         }
 
@@ -1085,7 +1180,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
         launcherY,
         currentBubbleRef.current,
         nextBubbleRef.current,
-        bubblesRemaining
+        api.bubblesRemaining
       );
 
       ctx.restore();
@@ -1094,19 +1189,10 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
 
     animationFrameId = requestAnimationFrame(render);
     return () => cancelAnimationFrame(animationFrameId);
-  }, [
-    bubblesRemaining,
-    currentLevel.ceilingDropIntervalSec,
-    isPaused,
-    onBubblePopped,
-    onGameOver,
-    onLevelComplete,
-    onMissShot,
-    onScoreAdd,
-    spawnColorSpecialBubble,
-    spawnFiveBubblesInDiversePlaces,
-    triggerCeilingDrop,
-  ]);
+    // El bucle no depende de la puntuación ni de las burbujas restantes: esos
+    // valores se leen de loopApiRef. Antes, cada explosión reiniciaba el bucle
+    // de animación en medio del efecto, que es donde se notaba el tirón.
+  }, [currentLevel.ceilingDropIntervalSec]);
 
   // Handle dropping unanchored bubbles
   const checkAndDropFloatingBubbles = (
@@ -1116,8 +1202,9 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   ) => {
     const floating = findFloatingBubbles(grid);
     if (floating.length > 0) {
+      const api = loopApiRef.current;
       soundManager.playDrop(floating.length);
-      onBubbleDropped(floating.length);
+      api.onBubbleDropped(floating.length);
 
       // RULE 3: Score based on color value
       let dropTotalPoints = 0;
@@ -1129,14 +1216,19 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
           dropTotalPoints += baseVal * mult * 2; // Dropping gives 2x color value
         }
       });
-      onScoreAdd(dropTotalPoints);
+      api.onScoreAdd(dropTotalPoints);
 
       // Dropped bubbles also count towards RULE 2: 10-pops rule!
       tenPopsAccumulatorRef.current += floating.length;
-      const dangerLineY = (canvasRef.current?.getBoundingClientRect().height || 560) - 125;
+      // Alto en píxeles CSS sin provocar un reflujo (getBoundingClientRect).
+      const altoCss =
+        canvasRef.current && effectiveDprRef.current
+          ? canvasRef.current.height / effectiveDprRef.current
+          : 560;
+      const dangerLineY = altoCss - 125;
       while (tenPopsAccumulatorRef.current >= 10) {
         tenPopsAccumulatorRef.current -= 10;
-        spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
+        api.spawnFiveBubblesInDiversePlaces(width, ceilingY, dangerLineY);
       }
 
       floating.forEach(pos => {
@@ -1161,7 +1253,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   // BESPOKE CANVAS ART & RENDERING FUNCTIONS
   // -------------------------------------------------------------
 
-  const drawAtmosphericBackdrop = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
+  // Fondo atmosférico: es estático, así que se pinta una sola vez por tamaño
+  // en un lienzo aparte y cada fotograma solo se estampa con drawImage.
+  const drawAtmosphericBackdrop = (
+    ctx: CanvasRenderingContext2D,
+    width: number,
+    height: number,
+    dpr: number
+  ) => {
+    const key = `${Math.round(width)}x${Math.round(height)}@${dpr}`;
+    if (!backdropCacheRef.current || backdropCacheRef.current.key !== key) {
+      const layer = document.createElement('canvas');
+      layer.width = Math.max(1, Math.round(width * dpr));
+      layer.height = Math.max(1, Math.round(height * dpr));
+      const lctx = layer.getContext('2d');
+      if (!lctx) return;
+      lctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      paintBackdrop(lctx, width, height);
+      backdropCacheRef.current = { key, canvas: layer };
+    }
+    ctx.drawImage(backdropCacheRef.current.canvas, 0, 0, width, height);
+  };
+
+  const paintBackdrop = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
     const skyGrad = ctx.createLinearGradient(0, 0, 0, height);
     skyGrad.addColorStop(0, '#0a0520');
     skyGrad.addColorStop(0.5, '#190e3d');
@@ -1180,6 +1294,29 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     const pillarWidth = 44;
     drawPillar(ctx, 4, height, pillarWidth);
     drawPillar(ctx, width - pillarWidth - 4, height, pillarWidth);
+  };
+
+  // Resplandor radial cacheado por color (para chispas y puntos de la mirilla).
+  const getGlowSprite = (color: string, dpr: number): HTMLCanvasElement | null => {
+    const key = `${color}|${dpr}`;
+    const cached = glowCacheRef.current.get(key);
+    if (cached) return cached;
+
+    const size = 64;
+    const sprite = document.createElement('canvas');
+    sprite.width = Math.round(size * dpr);
+    sprite.height = Math.round(size * dpr);
+    const g = sprite.getContext('2d');
+    if (!g) return null;
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const grad = g.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    grad.addColorStop(0, color);
+    grad.addColorStop(0.35, color);
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, size, size);
+    glowCacheRef.current.set(key, sprite);
+    return sprite;
   };
 
   const drawPillar = (ctx: CanvasRenderingContext2D, x: number, height: number, w: number) => {
@@ -1318,18 +1455,24 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     if (points.length < 2) return;
 
     const theme = BUBBLE_THEMES[colorKey] || BUBBLE_THEMES.magenta;
+    const glow = getGlowSprite(theme.glow, effectiveDprRef.current);
 
     ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
     points.forEach((pt, idx) => {
       if (idx === 0) return;
       const alpha = Math.max(0.2, 1 - (idx / points.length) * 0.7);
       const dotRadius = idx % 2 === 0 ? 3.5 : 2.5;
 
+      if (glow) {
+        const g = dotRadius * 5;
+        ctx.globalAlpha = alpha * 0.7;
+        ctx.drawImage(glow, pt.x - g / 2, pt.y - g / 2, g, g);
+      }
+
       ctx.beginPath();
       ctx.arc(pt.x, pt.y, dotRadius, 0, Math.PI * 2);
       ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = theme.glow;
-      ctx.shadowBlur = 8;
       ctx.globalAlpha = alpha;
       ctx.fill();
     });
@@ -1337,23 +1480,18 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
   };
 
   // 3D Glass / Neon Marble Bubble Drawing with Special Symbols
-  const drawBubble = (
+  // El cuerpo se pinta una sola vez por color/estado en un sprite; el bucle
+  // solo hace drawImage. Antes, cada burbuja creaba dos degradados radiales y
+  // aplicaba shadowBlur en cada fotograma (lo más caro en un móvil).
+  const paintBubble = (
     ctx: CanvasRenderingContext2D,
-    x: number,
-    y: number,
     radius: number,
     colorKey: BubbleColor,
-    scale: number = 1,
-    rotation: number = 0,
-    isDanger: boolean = false,
-    isColorSpecial: boolean = false
+    isDanger: boolean,
+    isColorSpecial: boolean
   ) => {
     const theme = BUBBLE_THEMES[colorKey] || BUBBLE_THEMES.magenta;
-    const r = radius * scale;
-
-    ctx.save();
-    ctx.translate(x, y);
-    if (rotation !== 0) ctx.rotate(rotation);
+    const r = radius;
 
     // Warning pulsing red glow if close to danger line
     if (isDanger) {
@@ -1496,6 +1634,58 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
     ctx.lineWidth = 1.2;
     ctx.stroke();
+  };
+
+  const getBubbleSprite = (
+    radius: number,
+    colorKey: BubbleColor,
+    isDanger: boolean,
+    isColorSpecial: boolean
+  ): HTMLCanvasElement | null => {
+    const dpr = effectiveDprRef.current;
+    const key = `${colorKey}|${radius}|${isDanger ? 1 : 0}|${isColorSpecial ? 1 : 0}|${dpr}`;
+    const cached = spriteCacheRef.current.get(key);
+    if (cached) return cached;
+
+    const side = (radius + BUBBLE_SPRITE_PAD) * 2;
+    const sprite = document.createElement('canvas');
+    sprite.width = Math.max(1, Math.round(side * dpr));
+    sprite.height = Math.max(1, Math.round(side * dpr));
+    const sctx = sprite.getContext('2d');
+    if (!sctx) return null;
+
+    sctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    sctx.translate(side / 2, side / 2);
+    paintBubble(sctx, radius, colorKey, isDanger, isColorSpecial);
+
+    spriteCacheRef.current.set(key, sprite);
+    return sprite;
+  };
+
+  const drawBubble = (
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    radius: number,
+    colorKey: BubbleColor,
+    scale: number = 1,
+    rotation: number = 0,
+    isDanger: boolean = false,
+    isColorSpecial: boolean = false
+  ) => {
+    ctx.save();
+    ctx.translate(x, y);
+    if (rotation !== 0) ctx.rotate(rotation);
+
+    const sprite = getBubbleSprite(radius, colorKey, isDanger, isColorSpecial);
+    if (sprite) {
+      const side = (radius + BUBBLE_SPRITE_PAD) * 2 * scale;
+      ctx.drawImage(sprite, -side / 2, -side / 2, side, side);
+    } else {
+      // Respaldo sin caché (no debería ocurrir: siempre hay un contexto 2D).
+      ctx.scale(scale, scale);
+      paintBubble(ctx, radius, colorKey, isDanger, isColorSpecial);
+    }
 
     ctx.restore();
   };

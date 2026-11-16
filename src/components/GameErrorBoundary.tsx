@@ -10,7 +10,7 @@ interface GameErrorBoundaryProps {
   gameTitle: string;
   /** Mensaje opcional adicional. */
   message?: string;
-  /** Callback para volver a PideTietar Play. */
+  /** Callback para volver a la ficha del juego. */
   onBack: () => void;
   children?: ReactNode;
 }
@@ -72,7 +72,7 @@ export class GameErrorBoundary extends Component<
               onClick={this.props.onBack}
               className="px-6 py-2.5 rounded-lg bg-[#0ea5e9] text-white font-semibold hover:bg-[#0ea5e9]/90 transition"
             >
-              Volver a PideTietar Play
+              Volver
             </button>
           </div>
         </div>

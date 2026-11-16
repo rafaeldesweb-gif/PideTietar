@@ -16,10 +16,25 @@
 .pidetietar-tres-en-raya__score { display: flex; justify-content: center; gap: 12px; margin: 18px 0; color: #c5eaff; font-size: .75rem; font-weight: 800; }
 .pidetietar-tres-en-raya__score span { border: 1px solid rgb(0 229 255 / 30%); border-radius: 999px; padding: 6px 9px; background: rgb(0 229 255 / 7%); }
 .pidetietar-tres-en-raya__board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; max-width: 360px; margin: 0 auto; }
-.pidetietar-tres-en-raya__cell { aspect-ratio: 1; border: 1px solid rgb(0 229 255 / 36%); border-radius: 16px; background: linear-gradient(145deg, rgb(10 36 88 / 95%), rgb(31 10 71 / 95%)); color: white; font-size: clamp(2.4rem, 13vw, 5rem); font-weight: 900; line-height: 1; cursor: pointer; box-shadow: inset 0 0 18px rgb(0 229 255 / 8%); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
+.pidetietar-tres-en-raya__cell { display: grid; place-items: center; padding: 3px; aspect-ratio: 1; border: 1px solid rgb(0 229 255 / 36%); border-radius: 16px; background: linear-gradient(145deg, rgb(10 36 88 / 95%), rgb(31 10 71 / 95%)); color: white; cursor: pointer; box-shadow: inset 0 0 18px rgb(0 229 255 / 8%); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease; }
 .pidetietar-tres-en-raya__cell:not(:disabled):hover { transform: translateY(-2px); border-color: #ffb703; box-shadow: 0 0 20px rgb(255 183 3 / 25%); }
-.pidetietar-tres-en-raya__cell.is-x { color: #00e5ff; text-shadow: 0 0 18px rgb(0 229 255 / 75%); }
-.pidetietar-tres-en-raya__cell.is-o { color: #ff9d00; text-shadow: 0 0 18px rgb(255 157 0 / 75%); }
+/* X y O como tubos de neón: halo difuso + cuerpo saturado + núcleo claro,
+   el mismo dibujo que la portada del juego. */
+.pidetietar-tres-en-raya__mark { display: block; width: 100%; height: 100%; overflow: visible; animation: pidetietar-tres-en-raya-pop .22s ease-out; }
+.pidetietar-tres-en-raya__mark path, .pidetietar-tres-en-raya__mark circle { fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.pidetietar-tres-en-raya__mark .is-halo { stroke-width: 34; opacity: .3; filter: blur(4px); }
+.pidetietar-tres-en-raya__mark .is-tube { stroke-width: 20; }
+.pidetietar-tres-en-raya__mark .is-core { stroke-width: 5.5; opacity: .95; }
+.pidetietar-tres-en-raya__mark.mk-x { filter: drop-shadow(0 0 5px rgb(0 229 255 / 85%)) drop-shadow(0 0 14px rgb(0 140 255 / 50%)); }
+.pidetietar-tres-en-raya__mark.mk-x .is-halo, .pidetietar-tres-en-raya__mark.mk-x .is-tube { stroke: #17c9ff; }
+.pidetietar-tres-en-raya__mark.mk-x .is-core { stroke: #cbf5ff; }
+.pidetietar-tres-en-raya__mark.mk-o { filter: drop-shadow(0 0 5px rgb(255 158 0 / 85%)) drop-shadow(0 0 14px rgb(255 90 0 / 50%)); }
+.pidetietar-tres-en-raya__mark.mk-o .is-halo, .pidetietar-tres-en-raya__mark.mk-o .is-tube { stroke: #ff9d00; }
+.pidetietar-tres-en-raya__mark.mk-o .is-core { stroke: #ffdf9e; }
+.pidetietar-tres-en-raya__cell.is-x { box-shadow: inset 0 0 22px rgb(0 229 255 / 12%); }
+.pidetietar-tres-en-raya__cell.is-o { box-shadow: inset 0 0 22px rgb(255 157 0 / 12%); }
+@keyframes pidetietar-tres-en-raya-pop { from { transform: scale(.78); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pidetietar-tres-en-raya__mark { animation: none; } }
 .pidetietar-tres-en-raya__hint { min-height: 22px; color: #bdd8ff; font-size: .8rem; }
 .pidetietar-tres-en-raya__primary, .pidetietar-tres-en-raya__secondary { margin: 8px 4px 0; }
 .pidetietar-tres-en-raya__secondary { border: 1px solid rgb(255 255 255 / 18%); background: rgb(255 255 255 / 8%); }

@@ -1,1 +1,506 @@
-.pidetietar-classic-puzzle{display:flex;width:100%;height:100%;min-height:0;align-items:center;justify-content:center;overflow:auto;background:radial-gradient(circle at 50% 12%,rgb(0 229 255 / 17%),transparent 35%),linear-gradient(145deg,#061432,#130c3d 58%,#32104e);color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.pidetietar-classic-puzzle__card{width:min(92%,510px);padding:24px;border:1px solid rgb(0 229 255 / 45%);border-radius:27px;background:linear-gradient(145deg,rgb(8 29 77 / 95%),rgb(42 11 76 / 95%));box-shadow:0 0 34px rgb(0 229 255 / 20%)}.pidetietar-classic-puzzle header{display:flex;align-items:center;justify-content:space-between}.pidetietar-classic-puzzle header>div>span{color:#ffb703;font-size:.68rem;font-weight:900;letter-spacing:.2em;text-transform:uppercase}.pidetietar-classic-puzzle h2{margin:7px 0 0;font-size:clamp(1.7rem,6vw,2.6rem);text-shadow:0 0 18px rgb(0 229 255 / 60%)}.pidetietar-classic-puzzle header button{display:grid;width:32px;height:32px;place-items:center;border:1px solid rgb(255 255 255 / 18%);border-radius:50%;background:rgb(255 255 255 / 8%);color:#fff;cursor:pointer}.pidetietar-classic-puzzle header svg{width:16px;height:16px}.pidetietar-classic-puzzle p{margin:14px 0;color:#d9e8ff}.pidetietar-classic-puzzle__board{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:9px;border:1px solid rgb(0 229 255 / 25%);border-radius:18px;background:#07143d}.pidetietar-classic-puzzle__board button{aspect-ratio:1;border:1px solid rgb(0 229 255 / 36%);border-radius:10px;background:linear-gradient(145deg,#00cfff,#3151dc);color:#fff;font-size:clamp(1.15rem,5vw,2rem);font-weight:900;text-shadow:0 0 8px rgb(0 0 0 / 50%);cursor:pointer}.pidetietar-classic-puzzle__board button:hover:not(.is-empty){transform:translateY(-2px);box-shadow:0 0 14px rgb(0 229 255 / 45%)}.pidetietar-classic-puzzle__board button.is-empty{border:1px dashed rgb(255 255 255 / 14%);background:rgb(255 255 255 / 4%);cursor:default}.pidetietar-classic-puzzle__stats{display:flex;justify-content:space-between;margin:13px 0;color:#bdd8ff;font-size:.75rem}.pidetietar-classic-puzzle__stats b{color:#fff}.pidetietar-classic-puzzle__primary,.pidetietar-classic-puzzle__success button{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:999px;padding:10px 16px;background:linear-gradient(135deg,#00cfff,#1565ff);color:#fff;font-weight:900;cursor:pointer}.pidetietar-classic-puzzle__primary svg,.pidetietar-classic-puzzle__success svg{width:16px;height:16px}.pidetietar-classic-puzzle__success{display:grid;gap:7px;margin-top:14px;color:#8af7ca}.pidetietar-classic-puzzle__success small{color:#bdd8ff}.pidetietar-classic-puzzle__hint{display:block;margin-top:15px;color:#a8c2e8;font-size:.72rem}@media(max-width:440px){.pidetietar-classic-puzzle__card{padding:18px 13px}.pidetietar-classic-puzzle__board{gap:5px;padding:6px}}
+.pidetietar-classic-puzzle {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px 14px 28px;
+  background:
+    radial-gradient(circle at 50% 10%, rgb(0 229 255 / 16%), transparent 38%),
+    radial-gradient(circle at 85% 80%, rgb(255 122 0 / 12%), transparent 40%),
+    linear-gradient(145deg, #061432, #130c3d 58%, #32104e);
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.pidetietar-classic-puzzle__shell {
+  display: flex;
+  width: min(100%, 1000px);
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------------------------------------------------------------- Cabecera */
+
+.pidetietar-classic-puzzle__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pidetietar-classic-puzzle__header > div > span {
+  color: #ffb703;
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.pidetietar-classic-puzzle h2 {
+  margin: 6px 0 0;
+  font-size: clamp(1.6rem, 5vw, 2.4rem);
+  line-height: 1.05;
+  text-shadow: 0 0 20px rgb(0 229 255 / 55%);
+}
+
+.pidetietar-classic-puzzle__header p {
+  margin: 6px 0 0;
+  color: #b9d4ff;
+  font-size: 0.82rem;
+}
+
+.pidetietar-classic-puzzle__header > button {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 8%);
+  color: #fff;
+  cursor: pointer;
+}
+
+.pidetietar-classic-puzzle__header > button:hover {
+  background: rgb(255 255 255 / 16%);
+}
+
+.pidetietar-classic-puzzle__header svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* --------------------------------------------------------- Selector de nivel */
+
+.pidetietar-classic-puzzle__levels {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 4px 2px 10px;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(0 229 255 / 45%) transparent;
+}
+
+.pidetietar-classic-puzzle__levels::-webkit-scrollbar {
+  height: 6px;
+}
+
+.pidetietar-classic-puzzle__levels::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(0 229 255 / 40%);
+}
+
+.pidetietar-classic-puzzle__level {
+  position: relative;
+  width: 62px;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 2px solid transparent;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 6%);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease, background 0.15s ease;
+}
+
+.pidetietar-classic-puzzle__level img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 9px;
+  object-fit: cover;
+}
+
+.pidetietar-classic-puzzle__level:hover {
+  background: rgb(255 255 255 / 12%);
+  transform: translateY(-2px);
+}
+
+.pidetietar-classic-puzzle__level.is-active {
+  border-color: #ffb703;
+  background: rgb(255 183 3 / 16%);
+  box-shadow: 0 0 16px rgb(255 183 3 / 45%);
+}
+
+.pidetietar-classic-puzzle__level-number {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  min-width: 17px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: rgb(4 12 38 / 85%);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 800;
+  line-height: 16px;
+  text-align: center;
+}
+
+.pidetietar-classic-puzzle__level-done {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  border-radius: 50%;
+  background: #22c55e;
+  color: #04122e;
+}
+
+.pidetietar-classic-puzzle__level-done svg {
+  width: 11px;
+  height: 11px;
+  stroke-width: 3.5;
+}
+
+/* Niveles que aún no se han desbloqueado: miniatura apagada con candado. */
+.pidetietar-classic-puzzle__level.is-locked {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.pidetietar-classic-puzzle__level.is-locked:hover {
+  background: rgb(255 255 255 / 6%);
+  transform: none;
+}
+
+.pidetietar-classic-puzzle__level.is-locked img {
+  filter: grayscale(0.9) brightness(0.65);
+}
+
+.pidetietar-classic-puzzle__level-lock {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: rgb(4 12 38 / 55%);
+  color: #ffd166;
+}
+
+.pidetietar-classic-puzzle__level-lock svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px rgb(0 0 0 / 70%));
+}
+
+.pidetietar-classic-puzzle__levels-hint {
+  margin: -6px 0 0;
+  color: #8fb0dd;
+  font-size: 0.66rem;
+}
+
+/* ------------------------------------------------------------------ Tablero */
+
+.pidetietar-classic-puzzle__stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+  gap: 18px;
+  align-items: start;
+}
+
+.pidetietar-classic-puzzle__board-wrap {
+  width: min(100%, 540px, 58vh);
+  margin-inline: auto;
+  padding: 10px;
+  position: relative;
+  border: 2px solid rgb(0 229 255 / 45%);
+  border-radius: 24px;
+  background: linear-gradient(135deg, rgb(12 32 82 / 92%), rgb(38 12 74 / 92%));
+  box-shadow: 0 14px 38px rgb(0 0 0 / 45%), inset 0 0 22px rgb(0 229 255 / 12%);
+}
+
+.pidetietar-classic-puzzle__board {
+  display: grid;
+  grid-template-columns: repeat(var(--grid, 4), minmax(0, 1fr));
+  gap: 6px;
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: 16px;
+  background: #07143d;
+  box-shadow: inset 0 0 16px rgb(0 0 0 / 55%);
+  transition: box-shadow 0.3s ease;
+}
+
+.pidetietar-classic-puzzle__board.is-solved {
+  box-shadow: inset 0 0 16px rgb(0 0 0 / 45%), 0 0 0 2px rgb(74 222 128 / 70%), 0 0 26px rgb(74 222 128 / 45%);
+}
+
+.pidetietar-classic-puzzle__tile {
+  position: relative;
+  padding: 0;
+  border: 1px solid rgb(255 255 255 / 35%);
+  border-radius: 9px;
+  background-color: #0b1a44;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 25%);
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.pidetietar-classic-puzzle__tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 14px rgb(0 229 255 / 55%);
+  z-index: 1;
+}
+
+.pidetietar-classic-puzzle__tile:active {
+  transform: scale(0.97);
+}
+
+.pidetietar-classic-puzzle__tile:focus-visible {
+  outline: 2px solid #ffb703;
+  outline-offset: 2px;
+}
+
+.pidetietar-classic-puzzle__tile.is-empty {
+  border: 1px dashed rgb(255 255 255 / 18%);
+  background: rgb(255 255 255 / 4%);
+  box-shadow: inset 0 0 12px rgb(0 0 0 / 55%);
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------- Panel */
+
+.pidetietar-classic-puzzle__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid rgb(0 229 255 / 28%);
+  border-radius: 22px;
+  background: linear-gradient(145deg, rgb(8 29 77 / 92%), rgb(42 11 76 / 92%));
+  box-shadow: 0 10px 30px rgb(0 0 0 / 35%);
+}
+
+.pidetietar-classic-puzzle__badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid rgb(255 183 3 / 55%);
+  border-radius: 999px;
+  color: #ffd166;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pidetietar-classic-puzzle__panel h3 {
+  margin: 8px 0 0;
+  font-size: 1.18rem;
+}
+
+.pidetietar-classic-puzzle__preview {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 14px;
+  object-fit: cover;
+  background: #0b1a44;
+}
+
+.pidetietar-classic-puzzle__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: #cfe3ff;
+  font-size: 0.7rem;
+}
+
+.pidetietar-classic-puzzle__stats span {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid rgb(0 229 255 / 25%);
+  border-radius: 999px;
+  background: rgb(4 12 38 / 45%);
+}
+
+.pidetietar-classic-puzzle__stats svg {
+  width: 13px;
+  height: 13px;
+  color: #ffb703;
+}
+
+.pidetietar-classic-puzzle__stats b {
+  color: #fff;
+}
+
+.pidetietar-classic-puzzle__progress {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.pidetietar-classic-puzzle__progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #00e5ff, #7cff8a);
+  transition: width 0.25s ease;
+}
+
+/* ----------------------------------------------------------------- Botones */
+
+.pidetietar-classic-puzzle__primary,
+.pidetietar-classic-puzzle__actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 12px;
+  font-family: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+.pidetietar-classic-puzzle__primary {
+  padding: 11px 16px;
+  border: 0;
+  background: linear-gradient(145deg, #ff8a00, #ff4e00);
+  color: #fff;
+  font-size: 0.95rem;
+  box-shadow: 0 8px 20px rgb(255 78 0 / 35%);
+}
+
+.pidetietar-classic-puzzle__primary:hover,
+.pidetietar-classic-puzzle__actions button:hover {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+.pidetietar-classic-puzzle__primary svg,
+.pidetietar-classic-puzzle__actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Botón de inicio sobre el tablero: solo se muestra en pantallas estrechas. */
+.pidetietar-classic-puzzle__board-start {
+  position: absolute;
+  inset: auto 0 26px;
+  display: none;
+  width: fit-content;
+  margin-inline: auto;
+  padding: 11px 20px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(145deg, #ff8a00, #ff4e00);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  box-shadow: 0 10px 24px rgb(255 78 0 / 45%);
+  cursor: pointer;
+}
+
+.pidetietar-classic-puzzle__board-start svg {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.pidetietar-classic-puzzle__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pidetietar-classic-puzzle__actions button {
+  padding: 9px 12px;
+  border: 1px solid rgb(0 229 255 / 35%);
+  background: rgb(4 12 38 / 55%);
+  color: #e7f4ff;
+  font-size: 0.8rem;
+}
+
+.pidetietar-classic-puzzle__success {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 11px;
+  border: 1px solid rgb(74 222 128 / 45%);
+  border-radius: 14px;
+  background: rgb(22 101 52 / 28%);
+}
+
+.pidetietar-classic-puzzle__success > b {
+  color: #b9f6ca;
+  font-size: 0.95rem;
+}
+
+.pidetietar-classic-puzzle__success > small {
+  color: #d7f7e2;
+  font-size: 0.72rem;
+}
+
+.pidetietar-classic-puzzle__finale {
+  margin: 0;
+  color: #b9f6ca;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.pidetietar-classic-puzzle__hint {
+  color: #9db4d8;
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------- Adaptable */
+
+@media (max-width: 820px) {
+  .pidetietar-classic-puzzle__stage {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .pidetietar-classic-puzzle__board-wrap {
+    width: min(100%, 460px, 52vh);
+  }
+
+  .pidetietar-classic-puzzle__panel {
+    width: min(100%, 460px);
+    margin-inline: auto;
+  }
+
+  .pidetietar-classic-puzzle__preview {
+    display: none;
+  }
+
+  /* El inicio se pulsa sobre el tablero y el botón del panel no se duplica. */
+  .pidetietar-classic-puzzle__board-start {
+    display: block;
+  }
+
+  .pidetietar-classic-puzzle__panel > .pidetietar-classic-puzzle__primary {
+    display: none;
+  }
+}
+
+@media (max-width: 420px) {
+  .pidetietar-classic-puzzle {
+    padding: 12px 10px 22px;
+  }
+
+  .pidetietar-classic-puzzle__level {
+    width: 54px;
+  }
+
+  .pidetietar-classic-puzzle__board {
+    gap: 4px;
+    padding: 6px;
+  }
+}

@@ -1,1 +1,222 @@
-.pidetietar-space-invaders{position:relative;display:flex;width:100%;height:100%;min-height:0;align-items:center;justify-content:center;overflow:auto;background:#040b25;color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.pidetietar-space-invaders__canvas{width:min(100%,760px);height:auto;max-height:100%;border:1px solid rgb(0 229 255 / 45%);border-radius:22px;box-shadow:0 0 34px rgb(0 229 255 / 22%)}.pidetietar-space-invaders__panel{position:absolute;width:min(84%,430px);padding:25px;border:1px solid rgb(0 229 255 / 50%);border-radius:25px;background:rgb(5 12 42 / 95%);box-shadow:0 0 32px rgb(0 229 255 / 22%);text-align:center}.pidetietar-space-invaders__panel>span{color:#ffb703;font-size:.68rem;font-weight:900;letter-spacing:.2em;text-transform:uppercase}.pidetietar-space-invaders h2{margin:8px 0;font-size:clamp(1.6rem,6vw,2.6rem);text-shadow:0 0 18px rgb(0 229 255 / 70%)}.pidetietar-space-invaders p{margin:0 0 18px;color:#d9e8ff}.pidetietar-space-invaders button{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:999px;padding:11px 18px;background:linear-gradient(135deg,#00cfff,#1565ff);color:#fff;font-weight:900;cursor:pointer}.pidetietar-space-invaders button.is-secondary{margin-left:8px;background:rgb(255 255 255 / 12%)}.pidetietar-space-invaders button svg{width:16px;height:16px}.pidetietar-space-invaders small{display:block;margin-top:16px;color:#a8c2e8;font-size:.72rem}@media(max-width:600px){.pidetietar-space-invaders__canvas{border-radius:14px}.pidetietar-space-invaders__panel{padding:20px 15px}}
+.pidetietar-space-invaders {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 50% 12%, #2c1466 0%, #120829 46%, #06031a 100%);
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.pidetietar-space-invaders__stage {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.pidetietar-space-invaders__canvas {
+  display: block;
+  /* El tamaño exacto lo fija el ResizeObserver del componente (proporción 700 × 912). */
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 20px;
+  box-shadow:
+    0 0 0 1px rgb(150 225 255 / 32%) inset,
+    0 0 0 2px rgb(255 110 220 / 12%) inset,
+    0 0 34px rgb(112 56 255 / 45%),
+    0 0 80px rgb(60 20 140 / 35%);
+  touch-action: none;
+}
+
+/* --- Controles translúcidos: izquierda, derecha y disparo --- */
+.pidetietar-space-invaders__pad {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  gap: 12px;
+}
+
+.pidetietar-space-invaders__control,
+.pidetietar-space-invaders__fire {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  padding: 0;
+  border: 1px solid rgb(150 225 255 / 42%);
+  border-radius: 50%;
+  background: rgb(22 44 96 / 28%);
+  color: #d8f6ff;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  backdrop-filter: blur(4px);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%) inset,
+    0 0 22px rgb(60 180 255 / 22%);
+  transition: background .12s ease, transform .08s ease, box-shadow .12s ease;
+}
+
+.pidetietar-space-invaders__fire {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  border-color: rgb(255 196 96 / 55%);
+  background: rgb(255 170 60 / 14%);
+  color: #ffe9bd;
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 6%) inset,
+    0 0 22px rgb(255 150 40 / 26%);
+}
+
+.pidetietar-space-invaders__control svg,
+.pidetietar-space-invaders__fire svg {
+  width: 28px;
+  height: 28px;
+}
+
+.pidetietar-space-invaders__control svg {
+  filter: drop-shadow(0 0 6px rgb(120 220 255 / 75%));
+}
+
+.pidetietar-space-invaders__fire svg {
+  filter: drop-shadow(0 0 6px rgb(255 196 96 / 75%));
+}
+
+.pidetietar-space-invaders__control:active,
+.pidetietar-space-invaders__fire:active {
+  transform: scale(.93);
+  background: rgb(90 200 255 / 28%);
+  box-shadow: 0 0 28px rgb(80 200 255 / 45%);
+}
+
+.pidetietar-space-invaders__fire:active {
+  background: rgb(255 176 64 / 38%);
+  box-shadow: 0 0 28px rgb(255 170 60 / 55%);
+}
+
+/* --- Paneles --- */
+.pidetietar-space-invaders__panel {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(86%, 430px);
+  padding: 26px 25px;
+  border: 1px solid rgb(94 226 255 / 45%);
+  border-radius: 24px;
+  background: rgb(9 5 32 / 92%);
+  box-shadow:
+    0 0 0 1px rgb(255 120 230 / 18%) inset,
+    0 0 36px rgb(0 200 255 / 26%),
+    0 0 80px rgb(255 90 220 / 16%);
+  text-align: center;
+  backdrop-filter: blur(6px);
+}
+
+.pidetietar-space-invaders__panel > span {
+  color: #ffb703;
+  font-size: .68rem;
+  font-weight: 900;
+  letter-spacing: .2em;
+  text-transform: uppercase;
+}
+
+.pidetietar-space-invaders h2 {
+  margin: 10px 0 12px;
+  font-size: clamp(1.7rem, 6.4vw, 2.7rem);
+  font-style: italic;
+  font-weight: 900;
+  letter-spacing: .01em;
+  background: linear-gradient(180deg, #ffffff 20%, #bfe9ff 75%, #7fd8ff 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter:
+    drop-shadow(0 0 12px rgb(90 220 255 / .85))
+    drop-shadow(0 0 30px rgb(255 90 200 / .45));
+}
+
+.pidetietar-space-invaders p {
+  margin: 0 0 18px;
+  color: #d9e8ff;
+  font-size: .92rem;
+  line-height: 1.45;
+}
+
+.pidetietar-space-invaders__panel button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 18px;
+  background: linear-gradient(135deg, #00d4ff, #6b3bff);
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+  box-shadow: 0 0 22px rgb(0 212 255 / 35%);
+}
+
+.pidetietar-space-invaders__panel button.is-secondary {
+  margin-left: 8px;
+  background: rgb(255 255 255 / 12%);
+  box-shadow: none;
+}
+
+.pidetietar-space-invaders__panel button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.pidetietar-space-invaders small {
+  display: block;
+  margin-top: 16px;
+  color: #a8c2e8;
+  font-size: .72rem;
+}
+
+@media (max-width: 640px) {
+  .pidetietar-space-invaders__canvas {
+    border-radius: 14px;
+  }
+
+  .pidetietar-space-invaders__panel {
+    padding: 20px 16px;
+  }
+
+  .pidetietar-space-invaders p {
+    font-size: .84rem;
+  }
+
+  .pidetietar-space-invaders__pad {
+    left: 10px;
+    bottom: 8px;
+    gap: 8px;
+  }
+
+  .pidetietar-space-invaders__control,
+  .pidetietar-space-invaders__fire {
+    width: 48px;
+    height: 48px;
+  }
+
+  .pidetietar-space-invaders__fire {
+    right: 10px;
+    bottom: 8px;
+  }
+
+  .pidetietar-space-invaders__control svg,
+  .pidetietar-space-invaders__fire svg {
+    width: 22px;
+    height: 22px;
+  }
+}

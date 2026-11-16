@@ -16,7 +16,7 @@ import { GameErrorBoundary } from './GameErrorBoundary';
 interface GamePlayerProps {
   /** Identificador del juego a renderizar. */
   gameId: string;
-  /** Cierra el juego y vuelve a la portada. */
+  /** Un paso atrás: vuelve a la ficha del juego en PideTiétar Play. */
   onClose: () => void;
 }
 
@@ -93,7 +93,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameId, onClose }) => {
             onClick={onClose}
             className="px-6 py-2.5 rounded-lg bg-[#0ea5e9] text-white font-semibold hover:bg-[#0ea5e9]/90 transition"
           >
-            Volver a PideTietar Play
+            Volver
           </button>
         </div>
       </div>
@@ -125,7 +125,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameId, onClose }) => {
             onClick={onClose}
             className="px-6 py-2.5 rounded-lg bg-[#0ea5e9] text-white font-semibold hover:bg-[#0ea5e9]/90 transition"
           >
-            Volver a PideTietar Play
+            Volver
           </button>
         </div>
       </div>
@@ -142,7 +142,7 @@ export const GamePlayer: React.FC<GamePlayerProps> = ({ gameId, onClose }) => {
           className="flex items-center gap-2 hover:text-stone-300 transition"
         >
           <ArrowLeft className="w-4 h-4 text-stone-400" />
-          <span className="text-sm font-medium text-stone-300">Volver a PideTietar Play</span>
+          <span className="text-sm font-medium text-stone-300">Volver</span>
         </button>
         <h1 className="text-lg font-bold">{game.title}</h1>
         <div className="w-10" />

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense, lazy } from 'react';
+import React, { useEffect, useRef, useState, Suspense, lazy } from 'react';
 import { useApp, getSessionToken } from './context/AppContext';
 import { Header } from './components/Header';
 import { HomeView } from './components/HomeView';
@@ -72,18 +72,50 @@ const isTermsHash = (hash: string): boolean =>
 
 const isContactHash = (hash: string): boolean => hash === '#contacto';
 
-const isGamesHash = (hash: string): boolean => hash === '#juegos';
+/**
+ * Rutas de PideTiétar Play: hub (`#juegos`), ficha (`#juego/<id>`) y partida
+ * (`#jugar/<id>`). Así el atrás del navegador retrocede un solo paso.
+ */
+type PlayLocation =
+  | { kind: 'hub' }
+  | { kind: 'ficha'; gameId: string }
+  | { kind: 'partida'; gameId: string };
+
+const parsePlayHash = (hash: string): PlayLocation | null => {
+  const value = decodeURIComponent(hash || '');
+  if (value === '#juegos') return { kind: 'hub' };
+  const ficha = value.match(/^#juego\/([\w.-]+)$/);
+  if (ficha) return { kind: 'ficha', gameId: ficha[1] };
+  const partida = value.match(/^#jugar\/([\w.-]+)$/);
+  if (partida) return { kind: 'partida', gameId: partida[1] };
+  return null;
+};
 
 // El minijuego solo está disponible con sesión: si no hay token, ni siquiera
 // se restaura la vista al recargar (la comprobación real la hace `currentUser`).
-const readInitialView = (): string =>
-  isTermsHash(window.location.hash)
-    ? 'terms'
-    : isContactHash(window.location.hash)
-      ? 'contact'
-      : isGamesHash(window.location.hash) && getSessionToken()
-        ? 'juegos'
-        : 'home';
+const readInitialPlayLocation = (): PlayLocation | null =>
+  getSessionToken() ? parsePlayHash(window.location.hash) : null;
+
+const readInitialView = (): string => {
+  if (isTermsHash(window.location.hash)) return 'terms';
+  if (isContactHash(window.location.hash)) return 'contact';
+  const play = readInitialPlayLocation();
+  if (play) return play.kind === 'partida' ? 'juego-activo' : 'juegos';
+  return 'home';
+};
+
+// Profundidad de PideTiétar Play: portada/hub 0, ficha 1, partida 2. Al bajar
+// un nivel se apila una entrada de historial; al subir se sustituye la actual.
+const playDepth = (
+  view: string,
+  selectedGameId: string | null,
+  activeGameId: string | null,
+): number => {
+  if (view === 'juego-activo' && activeGameId) return 2;
+  if (view === 'juegos' && selectedGameId) return 1;
+  return 0;
+};
+
 
 // El minijuego se carga solo al entrar: así el motor y sus estilos no pesan en
 // la portada ni en los paneles.
@@ -110,8 +142,16 @@ export default function App() {
 
   const [currentView, setCurrentView] = useState<string>(readInitialView);
   const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [activeGameId, setActiveGameId] = useState<string | null>(null);
+  // La ficha y la partida se recuperan de la URL al recargar o al abrir un
+  // enlace pegado (#juego/<id> y #jugar/<id>).
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(() => {
+    const play = readInitialPlayLocation();
+    return play?.kind === 'ficha' ? play.gameId : null;
+  });
+  const [activeGameId, setActiveGameId] = useState<string | null>(() => {
+    const play = readInitialPlayLocation();
+    return play?.kind === 'partida' ? play.gameId : null;
+  });
 
   const activeSelectedBusiness = selectedBusiness
     ? businesses.find((business) => business.id === selectedBusiness.id) ?? selectedBusiness
@@ -127,19 +167,57 @@ export default function App() {
   const [resetToken, setResetToken] = useState<string | null>(() => readResetTokenFromHash());
   const [avatarModalOpen, setAvatarModalOpen] = useState(false);
 
-  // El hash de la URL puede cambiar sin recargar la página (al pegar otro
-  // enlace de recuperación en una pestaña ya abierta). Sin este listener el
-  // modal seguiría mostrando el token antiguo y fallaría con "enlace no
-  // válido": cada token nuevo emitido anula el anterior.
+  // El hash de la URL puede cambiar sin recargar la página: al pegar otro
+  // enlace de recuperación (cada token nuevo anula el anterior), al pulsar el
+  // atrás del navegador o al editar la barra de direcciones. Un único listener
+  // aplica la ruta al estado de React y no escribe historial por su cuenta.
   useEffect(() => {
-    const handleHashChange = () => {
+    const applyLocation = () => {
       setResetToken(readResetTokenFromHash());
-      if (isTermsHash(window.location.hash)) setCurrentView('terms');
-      if (isContactHash(window.location.hash)) setCurrentView('contact');
-      if (isGamesHash(window.location.hash)) setCurrentView('juegos');
+      const hash = window.location.hash;
+      if (isTermsHash(hash)) {
+        setSelectedGameId(null);
+        setActiveGameId(null);
+        setCurrentView('terms');
+        return;
+      }
+      if (isContactHash(hash)) {
+        setSelectedGameId(null);
+        setActiveGameId(null);
+        setCurrentView('contact');
+        return;
+      }
+      const play = readInitialPlayLocation();
+      if (play?.kind === 'partida') {
+        setSelectedGameId(null);
+        setActiveGameId(play.gameId);
+        setCurrentView('juego-activo');
+        return;
+      }
+      if (play?.kind === 'ficha') {
+        setActiveGameId(null);
+        setSelectedGameId(play.gameId);
+        setCurrentView('juegos');
+        return;
+      }
+      if (play?.kind === 'hub') {
+        setActiveGameId(null);
+        setSelectedGameId(null);
+        setCurrentView('juegos');
+        return;
+      }
+      // URL sin ruta de juegos: sale de PideTiétar Play, pero no toca los
+      // paneles ni el resto de vistas.
+      setActiveGameId(null);
+      setSelectedGameId(null);
+      setCurrentView((view) => (view === 'juegos' || view === 'juego-activo' ? 'home' : view));
     };
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
+    window.addEventListener('hashchange', applyLocation);
+    window.addEventListener('popstate', applyLocation);
+    return () => {
+      window.removeEventListener('hashchange', applyLocation);
+      window.removeEventListener('popstate', applyLocation);
+    };
   }, []);
 
   // El avatar de la cabecera: el administrador de negocio edita sólo la foto
@@ -172,23 +250,58 @@ export default function App() {
     window.scrollTo(0, 0);
   }, [currentView]);
 
-  // La vista de juegos mantiene el hash sincronizado para que el enlace se
-  // pueda compartir y sobreviva a una recarga. Al salir se limpia. El juego
-  // exige sesión iniciada, así que un invitado que llegue por hash vuelve a la
-  // portada sin conservar la URL del minijuego.
+  // La vista de juegos exige sesión iniciada: un invitado que llegue por hash
+  // vuelve a la portada sin conservar la URL del minijuego. Lo mismo vale para
+  // una partida abierta por enlace cuando la sesión ya no es válida.
   useEffect(() => {
-    if (!sessionChecked || currentUser || currentView !== 'juegos') return;
+    if (!sessionChecked || currentUser) return;
+    if (currentView !== 'juegos' && currentView !== 'juego-activo') return;
+    setSelectedGameId(null);
+    setActiveGameId(null);
     setCurrentView('home');
   }, [sessionChecked, currentUser, currentView]);
 
+  // La ruta de PideTiétar Play vive en la URL para poder compartirla y para
+  // sobrevivir a una recarga. Al bajar un nivel (ficha, partida) se apila una
+  // entrada; al subir se sustituye la actual, de modo que «Volver» y el atrás
+  // del navegador retroceden siempre un solo paso sin acumular historial.
+  const playDepthRef = useRef(playDepth(currentView, selectedGameId, activeGameId));
   useEffect(() => {
-    const hash = window.location.hash;
-    if (currentView === 'juegos' && currentUser && hash !== '#juegos') {
-      window.history.replaceState(null, '', '#juegos');
-    } else if ((currentView !== 'juegos' || !currentUser) && isGamesHash(hash)) {
-      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    const desired =
+      currentView === 'juego-activo' && activeGameId
+        ? `#jugar/${encodeURIComponent(activeGameId)}`
+        : currentView === 'juegos' && selectedGameId
+          ? `#juego/${encodeURIComponent(selectedGameId)}`
+          : currentView === 'juegos' && currentUser
+            ? '#juegos'
+            : '';
+    const nextDepth = playDepth(currentView, selectedGameId, activeGameId);
+    const previousDepth = playDepthRef.current;
+    playDepthRef.current = nextDepth;
+
+    const currentHash = window.location.hash;
+    if (desired === currentHash) return;
+    // Otras rutas (términos, contacto, recuperación, paneles) no se tocan aquí.
+    if (!desired && !parsePlayHash(currentHash)) return;
+
+    const url = desired || window.location.pathname + window.location.search;
+    const state = { pidetietarPlay: desired || null, pidetietarFrom: currentHash };
+    if (nextDepth > previousDepth) {
+      window.history.pushState(state, '', url);
+    } else {
+      window.history.replaceState(state, '', url);
     }
-  }, [currentView, currentUser]);
+  }, [currentView, selectedGameId, activeGameId, currentUser]);
+
+  // Un paso atrás real: si la entrada actual la escribió este navegador, el
+  // atrás recupera la entrada anterior (la ficha) sin apilar una copia. En un
+  // enlace abierto directamente no hay entrada previa y se usa el fallback.
+  const goBackInPlayHistory = (): boolean => {
+    const state = window.history.state as { pidetietarPlay?: string | null } | null;
+    if (!state || state.pidetietarPlay === undefined) return false;
+    window.history.back();
+    return true;
+  };
 
   return (
     <div className="min-h-screen w-full overflow-x-clip bg-stone-50 dark:bg-stone-950 text-stone-900 dark:text-stone-100 font-sans transition-colors duration-200">
@@ -215,6 +328,9 @@ export default function App() {
       <Header
         setCurrentView={(view) => {
           setSelectedBusiness(null);
+          // Cualquier destino del menú sale de PideTiétar Play (ficha/partida).
+          setSelectedGameId(null);
+          setActiveGameId(null);
           setCurrentView(view);
         }}
         openCart={() => setCartOpen(true)}
@@ -375,8 +491,11 @@ export default function App() {
                 currentUser={currentUser}
                 gameId={selectedGameId}
                 onBack={() => {
-                  setSelectedGameId(null);
                   setSelectedBusiness(null);
+                  // Un paso atrás: si la ficha se abrió desde la portada, el
+                  // historial devuelve a ella sin dejar entradas muertas.
+                  if (goBackInPlayHistory()) return;
+                  setSelectedGameId(null);
                   setCurrentView('home');
                 }}
                 onOpenGame={(game) => {
@@ -399,8 +518,12 @@ export default function App() {
               <GamePlayer
                 gameId={activeGameId}
                 onClose={() => {
+                  // Un paso atrás: recupera la ficha del juego desde la que se
+                  // jugó en lugar de saltar a la portada de PideTiétar Play.
+                  if (goBackInPlayHistory()) return;
+                  setSelectedGameId(activeGameId);
                   setActiveGameId(null);
-                  setCurrentView('home');
+                  setCurrentView('juegos');
                 }}
               />
             )}

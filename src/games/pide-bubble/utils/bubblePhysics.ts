@@ -1,8 +1,11 @@
 import { Bubble, BubbleColor, TrajectoryPoint } from '../types/game';
 
-export const BUBBLE_RADIUS = 20; // Nominal bubble radius (responsive canvas scales to this)
+// Radio y columnas se ajustan para que la rejilla quepa entera en el lienzo
+// (antes 10 × 40 = 400 px y el lienzo mide 376 en móvil y 349 en escritorio:
+// las dos columnas de los extremos se recortaban).
+export const BUBBLE_RADIUS = 19;
 export const ROW_HEIGHT = Math.round(BUBBLE_RADIUS * Math.sqrt(3));
-export const GRID_COLS = 10;
+export const GRID_COLS = 9;
 export const MAX_GRID_ROWS = 14;
 
 // Color visual definition

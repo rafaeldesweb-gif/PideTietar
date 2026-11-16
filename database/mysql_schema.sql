@@ -405,6 +405,15 @@ CREATE TABLE game_scores (
   CONSTRAINT fk_game_scores_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE game_progress (
+  user_id CHAR(36) NOT NULL,
+  game_id VARCHAR(64) NOT NULL,
+  level INT NOT NULL,
+  updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (user_id, game_id, level),
+  CONSTRAINT fk_game_progress_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE INDEX idx_user_addresses_user ON user_addresses(user_id);
 CREATE INDEX idx_businesses_locality ON businesses(locality_id);
 CREATE INDEX idx_businesses_status ON businesses(status);

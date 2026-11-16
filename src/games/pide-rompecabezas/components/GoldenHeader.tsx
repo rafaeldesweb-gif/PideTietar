@@ -1,5 +1,5 @@
 import React from 'react';
-import { Volume2, VolumeX, Moon, Sun, ArrowLeft, Eye, EyeOff, LayoutGrid, Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Volume2, VolumeX, Moon, Sun, ArrowLeft } from 'lucide-react';
 import { sound } from '../utils/audio';
 
 interface GoldenHeaderProps {
@@ -11,16 +11,9 @@ interface GoldenHeaderProps {
   progressRatio: number; // 0 to 1
   isMuted: boolean;
   isDark: boolean;
-  // Hint toggles
-  ghostOpacity: number; // 0 = off, 0.25, 0.5, 0.75
-  showGridOutlines: boolean; // on/off
-  showPhotoPreview: boolean; // on/off
   filterMode: 'all' | 'edge' | 'inside';
   onToggleMute: () => void;
   onToggleTheme: () => void;
-  onCycleGhost: () => void;
-  onToggleGridOutlines: () => void;
-  onTogglePhotoPreview: () => void;
   onCycleFilter: () => void;
   onBack: () => void;
   title: string;
@@ -35,15 +28,9 @@ export const GoldenHeader: React.FC<GoldenHeaderProps> = ({
   progressRatio,
   isMuted,
   isDark,
-  ghostOpacity,
-  showGridOutlines,
-  showPhotoPreview,
   filterMode,
   onToggleMute,
   onToggleTheme,
-  onCycleGhost,
-  onToggleGridOutlines,
-  onTogglePhotoPreview,
   onCycleFilter,
   onBack,
   title,
@@ -73,55 +60,9 @@ export const GoldenHeader: React.FC<GoldenHeaderProps> = ({
           {title}
         </h1>
 
-        {/* HINT & UTILITY CONTROLS: Clear On/Off Toggles */}
+        {/* CONTROLES DE PARTIDA: filtro de piezas, sonido y tema */}
         <div className="flex items-center gap-1 sm:gap-1.5">
-          {/* PISTA 1: Guía de Fondo Translúcida (Encender/Apagar) */}
-          <button
-            onClick={onCycleGhost}
-            title={`Pista Fondo: ${ghostOpacity === 0 ? 'APAGADA' : `${Math.round(ghostOpacity * 100)}% ENCENDIDA`} (Haz clic para cambiar)`}
-            className={`px-2 py-1.5 rounded-full border text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-              ghostOpacity > 0
-                ? 'bg-amber-500 text-slate-950 border-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.6)]'
-                : 'bg-black/40 text-slate-400 border-white/10 hover:text-amber-200'
-            }`}
-          >
-            {ghostOpacity > 0 ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span className="hidden md:inline">
-              Fondo {ghostOpacity > 0 ? `${Math.round(ghostOpacity * 100)}%` : 'OFF'}
-            </span>
-          </button>
-
-          {/* PISTA 2: Contornos de Huecos / Líneas de Corte (Encender/Apagar) */}
-          <button
-            onClick={onToggleGridOutlines}
-            title={`Pista Líneas: ${showGridOutlines ? 'ENCENDIDAS' : 'APAGADAS'}`}
-            className={`px-2 py-1.5 rounded-full border text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-              showGridOutlines
-                ? 'bg-amber-500/30 text-amber-200 border-amber-400'
-                : 'bg-black/40 text-slate-400 border-white/10 hover:text-amber-200'
-            }`}
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">
-              Líneas {showGridOutlines ? 'ON' : 'OFF'}
-            </span>
-          </button>
-
-          {/* PISTA 3: Miniatura de la Foto Original (Encender/Apagar) */}
-          <button
-            onClick={onTogglePhotoPreview}
-            title={`Miniatura de Foto: ${showPhotoPreview ? 'ENCENDIDA' : 'APAGADA'}`}
-            className={`p-1.5 sm:px-2.5 sm:py-1.5 rounded-full border text-xs font-semibold flex items-center gap-1 transition-all cursor-pointer ${
-              showPhotoPreview
-                ? 'bg-sky-500 text-slate-950 border-sky-300 shadow-[0_0_10px_rgba(56,189,248,0.5)]'
-                : 'bg-black/40 text-slate-400 border-white/10 hover:text-sky-200'
-            }`}
-          >
-            <ImageIcon className="w-3.5 h-3.5" />
-            <span className="hidden lg:inline">Foto</span>
-          </button>
-
-          {/* PISTA 4: Filtro de Piezas (Solo Bordes / Todas) */}
+          {/* Filtro de Piezas (Solo Bordes / Todas) */}
           <button
             onClick={onCycleFilter}
             title={`Filtro de piezas: ${filterMode === 'all' ? 'Todas' : filterMode === 'edge' ? 'Solo Bordes' : 'Solo Centro'}`}

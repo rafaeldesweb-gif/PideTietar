@@ -29,6 +29,34 @@ const chooseCpuMove = (board: Array<Mark | ''>): number => {
   return available[Math.floor(Math.random() * available.length)] ?? -1;
 };
 
+/**
+ * X y O dibujadas como tubos de neón (halo + cuerpo saturado + núcleo claro),
+ * igual que en la portada del juego. Con texto era imposible controlar el
+ * brillo y el grosor del trazo en cada navegador.
+ */
+const NeonMark: React.FC<{ mark: Mark }> = ({ mark }) => {
+  const esX = mark === 'X';
+  const clase = `pidetietar-tres-en-raya__mark ${esX ? 'mk-x' : 'mk-o'}`;
+  const trazoX = 'M21 21 L79 79 M79 21 L21 79';
+  return (
+    <svg className={clase} viewBox="0 0 100 100" role="presentation" aria-hidden="true" focusable="false">
+      {esX ? (
+        <>
+          <path className="is-halo" d={trazoX} />
+          <path className="is-tube" d={trazoX} />
+          <path className="is-core" d={trazoX} />
+        </>
+      ) : (
+        <>
+          <circle className="is-halo" cx="50" cy="50" r="31" />
+          <circle className="is-tube" cx="50" cy="50" r="31" />
+          <circle className="is-core" cx="50" cy="50" r="31" />
+        </>
+      )}
+    </svg>
+  );
+};
+
 export default function TresEnRayaGame({ onClose }: TresEnRayaGameProps) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [board, setBoard] = useState<Array<Mark | ''>>(Array(9).fill(''));
@@ -104,8 +132,8 @@ export default function TresEnRayaGame({ onClose }: TresEnRayaGameProps) {
           <div className="pidetietar-tres-en-raya__score"><span>X: {scores.X}</span><span>O: {scores.O}</span><span>Empates: {scores.draws}</span></div>
           <div className="pidetietar-tres-en-raya__board" role="grid" aria-label="Tablero de Tres en raya">
             {board.map((mark, index) => (
-              <button key={index} type="button" role="gridcell" aria-label={mark ? `Casilla ${index + 1}: ${mark}` : `Casilla ${index + 1}: vacía`} className={`pidetietar-tres-en-raya__cell ${mark ? `is-${mark.toLowerCase()}` : ''}`} onClick={() => playMove(index, 'X')} disabled={Boolean(mark) || Boolean(result) || (mode === 'cpu' && turn === 'O')}>
-                {mark}
+              <button key={index} type="button" role="gridcell" aria-label={mark ? `Casilla ${index + 1}: ${mark}` : `Casilla ${index + 1}: vacía`} className={`pidetietar-tres-en-raya__cell ${mark ? `is-${mark.toLowerCase()}` : ''}`} onClick={() => playMove(index, turn)} disabled={Boolean(mark) || Boolean(result) || (mode === 'cpu' && turn === 'O')}>
+                {mark ? <NeonMark mark={mark} /> : null}
               </button>
             ))}
           </div>

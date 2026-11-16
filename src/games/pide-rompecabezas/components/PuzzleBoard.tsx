@@ -1,19 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { generatePuzzleGrid, PieceShape } from '../utils/jigsawMath';
 import { sound } from '../utils/audio';
-import { ZoomIn, ZoomOut, Sparkles, X, Eye, EyeOff } from 'lucide-react';
+import { ZoomIn, ZoomOut, Sparkles } from 'lucide-react';
 
 interface PuzzleBoardProps {
   puzzleId: string;
   imageSrc: string;
-  puzzleTitle: string;
   rows: number;
   cols: number;
-  ghostOpacity: number;
-  showGridOutlines: boolean;
-  showPhotoPreview: boolean;
   filterMode: 'all' | 'edge' | 'inside';
-  onClosePhotoPreview: () => void;
   onPiecePlaced: (piece: PieceShape, remainingCount: number) => void;
   onPuzzleCompleted: () => void;
   // Local multiplayer props (optional)
@@ -25,14 +20,9 @@ interface PuzzleBoardProps {
 export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({
   puzzleId,
   imageSrc,
-  puzzleTitle,
   rows,
   cols,
-  ghostOpacity,
-  showGridOutlines,
-  showPhotoPreview,
   filterMode,
-  onClosePhotoPreview,
   onPiecePlaced,
   onPuzzleCompleted,
   multiplayerMode = false,
@@ -217,38 +207,11 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({
     }
   };
 
-  // Place 1 piece as a hint
-  const handleMagicHint = () => {
-    if (unplacedPieces.length === 0) return;
-    const randomPiece = unplacedPieces[Math.floor(Math.random() * unplacedPieces.length)];
-    handleSnap(randomPiece);
-  };
-
   return (
     <div
       ref={containerRef}
       className="w-full flex flex-col lg:flex-row items-center justify-center gap-4 px-2 sm:px-4 py-2 select-none relative"
     >
-      {/* FLOATING MINI PHOTO PREVIEW (PISTA DE REFERENCIA) */}
-      {showPhotoPreview && (
-        <div className="absolute top-2 left-2 z-40 rounded-2xl bg-black/80 border-2 border-amber-400 p-2 shadow-2xl backdrop-blur-md max-w-[200px] sm:max-w-[240px] animate-fade-in">
-          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-white/10">
-            <span className="text-[11px] font-bold text-amber-200 truncate pr-2">
-              {puzzleTitle}
-            </span>
-            <button
-              onClick={onClosePhotoPreview}
-              className="p-1 rounded-full hover:bg-white/10 text-slate-400 hover:text-white cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="rounded-xl overflow-hidden aspect-[4/3] bg-slate-950">
-            <img src={imageSrc} alt={puzzleTitle} className="w-full h-full object-cover" />
-          </div>
-        </div>
-      )}
-
       {/* LEFT / CENTER: THE PUZZLE BOARD */}
       <div className="relative flex flex-col items-center">
         {/* Board Frame with classic beveled edge and deep velvet drop shadow */}
@@ -308,53 +271,7 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({
                 ))}
               </defs>
 
-              {/* 1. Ghost reference image (Pista de Fondo: opacidad controlada por el usuario) */}
-              {ghostOpacity > 0 && (
-                <image
-                  href={imageSrc}
-                  width={BOARD_WIDTH}
-                  height={BOARD_HEIGHT}
-                  preserveAspectRatio="none"
-                  opacity={ghostOpacity}
-                />
-              )}
-
-              {/* 2. Grid outline for unplaced pieces (Pista de Líneas de Corte: Encendida/Apagada) */}
-              {showGridOutlines && (
-                <g opacity="0.38">
-                  {gridData.pieces.map((piece) => (
-                    <path
-                      key={`outline_${piece.id}`}
-                      d={piece.fullPath}
-                      fill={placedPieceIds.has(piece.id) ? 'none' : 'rgba(255,255,255,0.02)'}
-                      stroke="rgba(255,255,255,0.3)"
-                      strokeWidth="1.2"
-                      strokeDasharray={placedPieceIds.has(piece.id) ? 'none' : '3,3'}
-                    />
-                  ))}
-                </g>
-              )}
-
-              {/* 3. Selected piece target indicator highlight */}
-              {selectedPieceId && (
-                (() => {
-                  const p = gridData.pieces.find((x) => x.id === selectedPieceId);
-                  if (p && !placedPieceIds.has(p.id)) {
-                    return (
-                      <path
-                        d={p.fullPath}
-                        fill="rgba(245, 158, 11, 0.18)"
-                        stroke="#f59e0b"
-                        strokeWidth="2.5"
-                        className="animate-pulse"
-                      />
-                    );
-                  }
-                  return null;
-                })()
-              )}
-
-              {/* 4. Snapped Pieces rendered in place with classic embossed cut bevels */}
+              {/* Piezas colocadas: se dibujan con su bisel tallado clásico */}
               {gridData.pieces.map((piece) => {
                 const isPlaced = placedPieceIds.has(piece.id);
                 if (!isPlaced) return null;
@@ -422,18 +339,6 @@ export const PuzzleBoard: React.FC<PuzzleBoardProps> = ({
               className="p-1.5 rounded-lg bg-black/40 hover:bg-black/60 border border-white/10 text-amber-200 cursor-pointer"
             >
               <ZoomIn className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleMagicHint}
-              disabled={unplacedPieces.length === 0}
-              title="Pista: Coloca automáticamente 1 pieza en el tablero"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs shadow-md transition-all cursor-pointer disabled:opacity-40"
-            >
-              <Sparkles className="w-3.5 h-3.5 fill-slate-950" />
-              <span>Colocar 1 Pieza</span>
             </button>
           </div>
         </div>

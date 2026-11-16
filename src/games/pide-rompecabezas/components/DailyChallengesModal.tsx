@@ -6,7 +6,7 @@ interface DailyChallengesModalProps {
   isOpen: boolean;
   onClose: () => void;
   playerCoins: number;
-  onStartChallenge: (challengeType: 'lock' | 'timer' | 'no_ghost') => void;
+  onStartChallenge: (challengeType: 'lock' | 'timer') => void;
 }
 
 export const DailyChallengesModal: React.FC<DailyChallengesModalProps> = ({
@@ -93,8 +93,8 @@ export const DailyChallengesModal: React.FC<DailyChallengesModalProps> = ({
               </p>
             </div>
 
-            {/* 3 Color Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 my-2">
+            {/* 2 Color Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 my-2">
               {/* Card 1: Descerrador (Red card) */}
               <div
                 onClick={() => {
@@ -144,37 +144,13 @@ export const DailyChallengesModal: React.FC<DailyChallengesModalProps> = ({
                   <span>+200</span>
                 </div>
               </div>
-
-              {/* Card 3: Maestro Silencioso (Green card) */}
-              <div
-                onClick={() => {
-                  sound.playPick();
-                  onStartChallenge('no_ghost');
-                }}
-                className="group relative rounded-2xl p-4 flex flex-col items-center justify-between text-center cursor-pointer transition-all hover:scale-105 shadow-lg border border-emerald-400/40"
-                style={{
-                  background: 'linear-gradient(180deg, #16a34a 0%, #15803d 100%)',
-                }}
-              >
-                <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center mb-2 shadow-inner group-hover:scale-110 transition-transform">
-                  <span className="text-2xl">🧩</span>
-                </div>
-                <h3 className="text-sm font-bold text-white mb-1">Mosaico Puro</h3>
-                <p className="text-[11px] text-emerald-100/90 leading-tight mb-2">
-                  Sin guía visual ni pistas
-                </p>
-                <div className="px-2.5 py-1 rounded-full bg-black/40 text-amber-300 text-xs font-bold flex items-center gap-1 border border-amber-400/30">
-                  <Coins className="w-3.5 h-3.5" />
-                  <span>+250</span>
-                </div>
-              </div>
             </div>
 
             {/* Bottom reminder banner */}
             <div className="p-3 rounded-2xl bg-black/40 border border-white/10 flex items-center justify-between text-xs text-slate-300">
               <div className="flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-amber-400" />
-                <span>¡Cada día hay 3 nuevos desafíos para sumar monedas!</span>
+                <span>¡Cada día hay nuevos desafíos para sumar monedas!</span>
               </div>
               <div className="flex items-center gap-1 text-amber-300 font-bold">
                 <Coins className="w-4 h-4" />

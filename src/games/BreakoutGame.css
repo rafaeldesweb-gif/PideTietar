@@ -14,7 +14,8 @@
   touch-action: none;
 }
 
-.pidetietar-breakout__canvas { width: min(100%, 810px); height: auto; max-height: 100%; display: block; aspect-ratio: 3 / 2; }
+/* El lienzo ocupa todo el contenedor: el campo de juego se estira a lo alto. */
+.pidetietar-breakout__canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .pidetietar-breakout__frame { position: absolute; inset: 8px; pointer-events: none; border: 2px solid rgb(0 229 255 / 35%); border-radius: 24px; box-shadow: inset 0 0 28px rgb(0 229 255 / 18%), 0 0 18px rgb(0 229 255 / 18%); }
 .pidetietar-breakout__panel { position: absolute; z-index: 2; width: min(90%, 400px); padding: 28px; border: 1px solid rgb(0 229 255 / 45%); border-radius: 24px; background: linear-gradient(145deg, rgb(8 29 77 / 92%), rgb(42 11 76 / 94%)); box-shadow: 0 0 30px rgb(0 229 255 / 24%), inset 0 0 24px rgb(255 78 0 / 12%); text-align: center; }
 .pidetietar-breakout__eyebrow { color: #ffb703; font-size: .68rem; font-weight: 800; letter-spacing: .22em; text-transform: uppercase; }
@@ -25,7 +26,7 @@
 .pidetietar-breakout__actions button svg { width: 16px; height: 16px; }
 .pidetietar-breakout__actions button.is-secondary { background: rgb(255 255 255 / 10%); box-shadow: none; }
 .pidetietar-breakout__panel small { display: block; margin-top: 15px; color: #a8c2e8; font-size: .72rem; }
-.pidetietar-breakout__pause { position: absolute; z-index: 2; top: 20px; left: 50%; display: inline-flex; align-items: center; gap: 8px; transform: translateX(-50%); border: 1px solid rgb(255 183 3 / 60%); border-radius: 999px; padding: 8px 14px; background: rgb(6 20 50 / 80%); color: #ffe29a; font-size: .8rem; font-weight: 700; }
+.pidetietar-breakout__pause { position: absolute; z-index: 2; top: 50%; left: 50%; display: inline-flex; align-items: center; gap: 8px; transform: translate(-50%, -50%); border: 1px solid rgb(255 183 3 / 60%); border-radius: 999px; padding: 10px 18px; background: rgb(6 20 50 / 92%); color: #ffe29a; font-size: .85rem; font-weight: 700; white-space: nowrap; }
 .pidetietar-breakout__pause svg { width: 15px; height: 15px; }
 
-@media (max-width: 520px) { .pidetietar-breakout__panel { padding: 22px 18px; } .pidetietar-breakout__canvas { width: 100%; } }
+@media (max-width: 520px) { .pidetietar-breakout__panel { padding: 22px 18px; } }

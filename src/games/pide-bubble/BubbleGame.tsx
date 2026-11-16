@@ -166,21 +166,26 @@ export default function BubbleGame({ onScoreSubmit }: BubbleGameProps) {
     return () => clearInterval(interval);
   }, []);
 
-  // Sync user score in leaderboard
+  // Sync user score in leaderboard (con retardo: escribir en el ranking en
+  // cada explosión provocaba un render extra de toda la pantalla justo en el
+  // peor momento)
   useEffect(() => {
-    setLeaderboard(prev =>
-      prev.map(entry => {
-        if (entry.isUser) {
-          return {
-            ...entry,
-            name: userName,
-            score: Math.max(entry.score, score),
-            level: currentLevelIndex + 1,
-          };
-        }
-        return entry;
-      })
-    );
+    const id = setTimeout(() => {
+      setLeaderboard(prev =>
+        prev.map(entry => {
+          if (entry.isUser) {
+            return {
+              ...entry,
+              name: userName,
+              score: Math.max(entry.score, score),
+              level: currentLevelIndex + 1,
+            };
+          }
+          return entry;
+        })
+      );
+    }, 400);
+    return () => clearTimeout(id);
   }, [score, userName, currentLevelIndex]);
 
   // Audio Toggle

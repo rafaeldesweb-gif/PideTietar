@@ -1,1 +1,520 @@
-.pidetietar-memory-html{display:flex;width:100%;height:100%;min-height:0;align-items:center;justify-content:center;overflow:auto;background:radial-gradient(circle at 50% 12%,rgb(255 78 0 / 17%),transparent 35%),linear-gradient(145deg,#061432,#130c3d 58%,#32104e);color:#fff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.pidetietar-memory-html__card{width:min(92%,560px);padding:24px;border:1px solid rgb(0 229 255 / 45%);border-radius:27px;background:linear-gradient(145deg,rgb(8 29 77 / 95%),rgb(42 11 76 / 95%));box-shadow:0 0 34px rgb(0 229 255 / 20%)}.pidetietar-memory-html header{display:flex;align-items:center;justify-content:space-between}.pidetietar-memory-html header>div>span{color:#ffb703;font-size:.68rem;font-weight:900;letter-spacing:.2em;text-transform:uppercase}.pidetietar-memory-html h2{margin:7px 0 0;font-size:clamp(1.7rem,6vw,2.6rem);text-shadow:0 0 18px rgb(0 229 255 / 60%)}.pidetietar-memory-html header button{display:grid;width:32px;height:32px;place-items:center;border:1px solid rgb(255 255 255 / 18%);border-radius:50%;background:rgb(255 255 255 / 8%);color:#fff;cursor:pointer}.pidetietar-memory-html header svg{width:16px;height:16px}.pidetietar-memory-html__stats{display:flex;justify-content:space-between;gap:6px;margin:17px 0 12px;color:#bdd8ff;font-size:.72rem}.pidetietar-memory-html__stats span{display:flex;align-items:center;gap:4px;border:1px solid rgb(0 229 255 / 25%);border-radius:999px;padding:7px 8px}.pidetietar-memory-html__stats svg{width:14px;height:14px;color:#ffb703}.pidetietar-memory-html__stats b{color:#fff}.pidetietar-memory-html__board{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;padding:9px;border:1px solid rgb(0 229 255 / 25%);border-radius:18px;background:#07143d}.pidetietar-memory-html__board button{aspect-ratio:1;border:1px solid rgb(180 108 255 / 50%);border-radius:13px;background:linear-gradient(145deg,#5b2cb8,#2b176e);color:#e7d9ff;font-size:clamp(1.5rem,7vw,2.6rem);font-weight:900;cursor:pointer}.pidetietar-memory-html__board button.is-open{border-color:#00e5ff;background:linear-gradient(145deg,#00cfff,#3151dc);color:#fff;box-shadow:0 0 16px rgb(0 229 255 / 42%)}.pidetietar-memory-html__primary,.pidetietar-memory-html__success button{display:inline-flex;align-items:center;gap:7px;margin-top:16px;border:0;border-radius:999px;padding:10px 16px;background:linear-gradient(135deg,#00cfff,#1565ff);color:#fff;font-weight:900;cursor:pointer}.pidetietar-memory-html__primary svg,.pidetietar-memory-html__success svg{width:16px;height:16px}.pidetietar-memory-html__success{display:grid;gap:7px;margin-top:13px;color:#8af7ca}.pidetietar-memory-html__success small{color:#bdd8ff}.pidetietar-memory-html__hint{display:block;margin-top:15px;color:#a8c2e8;font-size:.72rem}@media(max-width:440px){.pidetietar-memory-html__card{padding:18px 13px}.pidetietar-memory-html__board{gap:5px;padding:6px}.pidetietar-memory-html__stats{font-size:.62rem}}
+/* ------------------------------------------------------------------ Memory
+   Diseño inspirado en la portada del juego: fondo índigo con rejilla neón,
+   marco con degradado naranja→violeta→cian, cartas ocultas moradas con cuadros
+   y cartas descubiertas blancas con el dibujo a color.
+   -------------------------------------------------------------------------- */
+
+.pidetietar-memory-html {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: auto;
+  padding: 18px 14px 30px;
+  color: #fff;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: #070426;
+  background-image:
+    radial-gradient(circle at 50% -10%, rgb(176 38 255 / 30%), transparent 55%),
+    radial-gradient(circle at 10% 4%, rgb(255 94 0 / 18%), transparent 42%),
+    radial-gradient(circle at 90% 96%, rgb(0 229 255 / 20%), transparent 52%),
+    linear-gradient(rgb(0 229 255 / 6%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(0 229 255 / 6%) 1px, transparent 1px);
+  background-size: auto, auto, auto, 46px 46px, 46px 46px;
+}
+
+/* -------------------------------------------------------------- Contenedor */
+
+.pidetietar-memory-html__shell {
+  display: flex;
+  width: min(100%, 940px);
+  /* Centrado vertical cuando sobra espacio; si el tablero es más alto que la
+     pantalla, el margen automático se anula y el panel empieza arriba para
+     poder desplazarse hacia abajo. */
+  margin-block: auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 16px 18px;
+  border: 2px solid transparent;
+  border-radius: 28px;
+  background:
+    linear-gradient(168deg, rgb(14 7 42 / 96%), rgb(24 9 56 / 97%)) padding-box,
+    linear-gradient(155deg, #ffc53d 0%, #ff5e00 16%, #b026ff 52%, #00e5ff 100%) border-box;
+  box-shadow:
+    0 0 24px rgb(176 38 255 / 32%),
+    0 0 64px rgb(0 229 255 / 14%),
+    inset 0 0 40px rgb(124 77 255 / 14%);
+}
+
+/* ---------------------------------------------------------------- Cabecera */
+
+.pidetietar-memory-html__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pidetietar-memory-html__eyebrow {
+  color: #ffcf3f;
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+.pidetietar-memory-html h2 {
+  margin: 6px 0 0;
+  font-size: clamp(1.55rem, 4.6vw, 2.3rem);
+  line-height: 1.02;
+  letter-spacing: -0.01em;
+  text-shadow: 0 0 22px rgb(0 229 255 / 60%);
+}
+
+.pidetietar-memory-html__header p {
+  margin: 6px 0 0;
+  color: #b9c7ff;
+  font-size: 0.8rem;
+}
+
+.pidetietar-memory-html__close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(0 229 255 / 40%);
+  border-radius: 50%;
+  background: rgb(255 255 255 / 6%);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: 0 0 14px rgb(0 229 255 / 25%);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pidetietar-memory-html__close:hover {
+  background: rgb(0 229 255 / 18%);
+  box-shadow: 0 0 20px rgb(0 229 255 / 45%);
+}
+
+.pidetietar-memory-html__close svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* --------------------------------------------------------- Selector de nivel */
+
+.pidetietar-memory-html__levels {
+  display: flex;
+  gap: 9px;
+  overflow-x: auto;
+  padding: 3px 3px 5px;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(0 229 255 / 45%) transparent;
+}
+
+.pidetietar-memory-html__levels::-webkit-scrollbar {
+  height: 6px;
+}
+
+.pidetietar-memory-html__levels::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(0 229 255 / 40%);
+}
+
+.pidetietar-memory-html__level {
+  position: relative;
+  display: grid;
+  width: 44px;
+  height: 38px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgb(0 229 255 / 30%);
+  border-radius: 12px;
+  background: linear-gradient(160deg, rgb(0 229 255 / 12%), rgb(176 38 255 / 18%));
+  color: #e4ecff;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pidetietar-memory-html__level:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: rgb(0 229 255 / 70%);
+}
+
+.pidetietar-memory-html__level.is-active {
+  border-color: #ffc53d;
+  background: linear-gradient(160deg, rgb(255 197 61 / 32%), rgb(255 94 0 / 28%));
+  color: #fff;
+  box-shadow: 0 0 16px rgb(255 176 3 / 55%);
+}
+
+.pidetietar-memory-html__level.is-done {
+  border-color: rgb(126 255 154 / 45%);
+}
+
+.pidetietar-memory-html__level.is-locked {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+
+.pidetietar-memory-html__level svg {
+  width: 15px;
+  height: 15px;
+}
+
+.pidetietar-memory-html__level-done {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  display: grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border-radius: 50%;
+  background: linear-gradient(140deg, #7cff8a, #12c56b);
+  color: #05311a;
+  box-shadow: 0 0 10px rgb(124 255 138 / 60%);
+}
+
+.pidetietar-memory-html__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pidetietar-memory-html__level-done svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 3.4;
+}
+
+/* --------------------------------------------------------------- Marcadores */
+
+.pidetietar-memory-html__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.pidetietar-memory-html__stats span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid rgb(0 229 255 / 32%);
+  border-radius: 999px;
+  background: rgb(4 20 60 / 55%);
+  color: #c9d8ff;
+  font-size: 0.74rem;
+}
+
+.pidetietar-memory-html__stats svg {
+  width: 14px;
+  height: 14px;
+  color: #ffcf3f;
+}
+
+.pidetietar-memory-html__stats b {
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------ Tablero */
+
+.pidetietar-memory-html__board-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+.pidetietar-memory-html__board {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: center;
+  --card-gap: clamp(4px, 0.9vw, 9px);
+  gap: var(--card-gap);
+  width: min(100%, 900px, max(300px, calc((100dvh - 350px) * var(--cols) / var(--rows))));
+  padding: clamp(6px, 1.2vw, 12px);
+  border: 1px solid rgb(0 229 255 / 45%);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 0%, rgb(124 77 255 / 28%), transparent 62%),
+    rgb(6 8 38 / 84%);
+  box-shadow:
+    inset 0 0 34px rgb(0 229 255 / 14%),
+    0 0 22px rgb(0 229 255 / 20%);
+}
+
+/* Velo del tablero mientras se muestra la capa de inicio o de nivel superado. */
+.pidetietar-memory-html__board.is-dimmed::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: rgb(5 4 26 / 66%);
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------- Cartas */
+
+.pidetietar-memory-html__card {
+  position: relative;
+  /* Ancho exacto de columna: al ser flex, la última fila incompleta queda
+     centrada en lugar de pegada a la izquierda. */
+  flex: 0 0 calc((100% - (var(--cols) - 1) * var(--card-gap)) / var(--cols));
+  max-width: calc((100% - (var(--cols) - 1) * var(--card-gap)) / var(--cols));
+  padding: 0;
+  border: 0;
+  aspect-ratio: 1;
+  background: none;
+  cursor: pointer;
+  perspective: 700px;
+  container-type: inline-size;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.pidetietar-memory-html__card:disabled {
+  cursor: default;
+}
+
+.pidetietar-memory-html__card-inner {
+  position: absolute;
+  inset: 0;
+  border-radius: 13px;
+  transform-style: preserve-3d;
+  transition: transform 0.38s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.pidetietar-memory-html__card.is-open .pidetietar-memory-html__card-inner {
+  transform: rotateY(180deg);
+}
+
+.pidetietar-memory-html__card-face {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 13px;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+/* Dorso: morado con cuadros, como las fichas de la portada. */
+.pidetietar-memory-html__card-face--back {
+  border: 1px solid rgb(190 130 255 / 55%);
+  background:
+    repeating-conic-gradient(from 45deg, rgb(255 255 255 / 8%) 0 25%, transparent 0 50%) 0 0 / 16px 16px,
+    linear-gradient(160deg, #7b46f0, #47209c 62%, #2c1268);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 22%),
+    inset 0 -10px 18px rgb(20 6 60 / 55%),
+    0 4px 12px rgb(10 3 40 / 45%);
+  transition: filter 0.15s ease;
+}
+
+.pidetietar-memory-html__card:hover .pidetietar-memory-html__card-face--back {
+  filter: brightness(1.12);
+}
+
+/* Cara: blanca con el dibujo, como las fichas descubiertas del icono. */
+.pidetietar-memory-html__card-face--front {
+  transform: rotateY(180deg);
+  border: 1px solid rgb(255 210 120 / 85%);
+  background: linear-gradient(165deg, #fffdf7, #ffe9c4);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 16px rgb(255 183 3 / 45%);
+  font-size: clamp(20px, 4.4vw, 44px);
+  font-size: 64cqw;
+  line-height: 1;
+  filter: drop-shadow(0 2px 2px rgb(120 70 0 / 22%));
+}
+
+.pidetietar-memory-html__card.is-matched .pidetietar-memory-html__card-face--front {
+  border-color: rgb(126 255 154 / 85%);
+  box-shadow:
+    inset 0 1px 0 #fff,
+    0 0 20px rgb(124 255 138 / 60%);
+}
+
+.pidetietar-memory-html__card.is-matched {
+  animation: pidetietar-memory-match 0.42s ease;
+}
+
+@keyframes pidetietar-memory-match {
+  50% {
+    transform: scale(1.07);
+  }
+}
+
+/* ------------------------------------------------------------------- Pie */
+
+/* --------------------------------------------------- Capa de inicio y final */
+
+.pidetietar-memory-html__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  animation: pidetietar-memory-fade 0.22s ease;
+}
+
+@keyframes pidetietar-memory-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.pidetietar-memory-html__primary,
+.pidetietar-memory-html__secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-size: 0.86rem;
+  font-weight: 900;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.pidetietar-memory-html__primary {
+  border: 0;
+  background: linear-gradient(120deg, #ffd447, #ff9d00 48%, #ff4e00);
+  color: #1c0730;
+  box-shadow: 0 8px 22px rgb(255 94 0 / 42%);
+}
+
+.pidetietar-memory-html__primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 28px rgb(255 94 0 / 55%);
+}
+
+.pidetietar-memory-html__secondary {
+  border: 1px solid rgb(0 229 255 / 45%);
+  background: rgb(4 20 60 / 60%);
+  color: #dbe7ff;
+}
+
+.pidetietar-memory-html__secondary:hover {
+  background: rgb(0 229 255 / 16%);
+}
+
+.pidetietar-memory-html__primary svg,
+.pidetietar-memory-html__secondary svg {
+  width: 16px;
+  height: 16px;
+}
+
+.pidetietar-memory-html__success {
+  display: grid;
+  gap: 6px;
+  width: min(100%, 360px);
+  padding: 16px 18px;
+  border: 1px solid rgb(124 255 138 / 55%);
+  border-radius: 18px;
+  background: linear-gradient(150deg, rgb(10 46 34 / 92%), rgb(8 26 54 / 92%));
+  box-shadow:
+    0 0 24px rgb(124 255 138 / 26%),
+    inset 0 0 20px rgb(124 255 138 / 8%);
+  color: #c4ffd8;
+}
+
+.pidetietar-memory-html__success small {
+  color: #c6d6ff;
+}
+
+.pidetietar-memory-html__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.pidetietar-memory-html__finale {
+  margin: 0;
+  color: #ffcf3f;
+  font-weight: 800;
+}
+
+.pidetietar-memory-html__hint {
+  max-width: 30ch;
+  color: #c9d8ff;
+  font-size: 0.76rem;
+}
+
+/* ----------------------------------------------------------------- Móvil */
+
+@media (max-width: 599px) {
+  .pidetietar-memory-html {
+    padding: 12px 10px 24px;
+  }
+
+  .pidetietar-memory-html__shell {
+    padding: 13px 11px 15px;
+    border-radius: 22px;
+  }
+
+  .pidetietar-memory-html__header p {
+    font-size: 0.72rem;
+  }
+
+  .pidetietar-memory-html__level {
+    width: 38px;
+    height: 34px;
+    border-radius: 10px;
+    font-size: 0.84rem;
+  }
+
+  .pidetietar-memory-html__stats span {
+    padding: 5px 9px;
+    font-size: 0.68rem;
+  }
+
+  /* En móvil el tablero se ajusta a la pantalla: las columnas por nivel
+     (4 → 6) y este límite de altura evitan tener que desplazarse. */
+  .pidetietar-memory-html__board {
+    width: min(100%, max(240px, calc((100dvh - 320px) * var(--cols) / var(--rows))));
+    border-radius: 18px;
+  }
+
+  .pidetietar-memory-html__overlay {
+    padding: 12px;
+  }
+
+  .pidetietar-memory-html__card-inner,
+  .pidetietar-memory-html__card-face {
+    border-radius: 10px;
+  }
+}
+
+/* Accesibilidad: sin animaciones si el sistema lo pide. */
+@media (prefers-reduced-motion: reduce) {
+  .pidetietar-memory-html__card-inner,
+  .pidetietar-memory-html__card-face--back,
+  .pidetietar-memory-html__level,
+  .pidetietar-memory-html__primary,
+  .pidetietar-memory-html__secondary {
+    transition: none;
+  }
+
+  .pidetietar-memory-html__card.is-matched,
+  .pidetietar-memory-html__overlay {
+    animation: none;
+  }
+}

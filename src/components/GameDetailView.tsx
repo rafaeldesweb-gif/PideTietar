@@ -12,7 +12,7 @@ import { useApp, apiFetch } from '../context/AppContext';
 import type { GameLeaderboardEntry, User } from '../types';
 import type { GameEntry } from '../games/registry';
 import { findGameById } from '../games/registry';
-import { ArrowLeft, Play, Trophy } from 'lucide-react';
+import { ArrowLeft, Gamepad2, Play } from 'lucide-react';
 
 const AVATAR_FALLBACK = '/Logo.png';
 
@@ -128,9 +128,10 @@ export const GameDetailView: React.FC<GameDetailViewProps> = ({
             <ArrowLeft className="w-4 h-4 text-stone-400" />
             <span className="text-[10px] font-medium text-stone-300">Volver</span>
           </button>
+          {/* La cabecera de todas las fichas lleva la marca de la sección. */}
           <div className="flex items-center gap-1">
-            <Trophy className="w-3 h-3 text-[#ffd400]" />
-            <h1 className="text-xs font-bold">{game.title}</h1>
+            <Gamepad2 className="w-3 h-3 text-[#ffd400]" />
+            <h1 className="text-xs font-bold text-white">PideTiétar - Play</h1>
           </div>
           <div className="w-4" />
         </header>
@@ -151,7 +152,7 @@ export const GameDetailView: React.FC<GameDetailViewProps> = ({
                   target.style.display = 'none';
                 }}
               />
-              <h2 className="mt-2.5 text-[10px] font-bold tracking-tight">{game.title}</h2>
+              <h2 className="mt-2.5 text-[10px] font-bold tracking-tight text-white">{game.title}</h2>
               <p className="mt-0.5 text-[9px] text-stone-400 uppercase tracking-wider">
                 {game.category}
               </p>

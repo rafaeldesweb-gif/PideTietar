@@ -72,9 +72,6 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
   const [piecesPlacedCount, setPiecesPlacedCount] = useState<number>(0);
 
   // HINT STATES: Toggled on/off by player as requested
-  const [ghostOpacity, setGhostOpacity] = useState<number>(0.25); // 0 = off, 0.25, 0.50, 0.75
-  const [showGridOutlines, setShowGridOutlines] = useState<boolean>(true); // on/off piece outline lines
-  const [showPhotoPreview, setShowPhotoPreview] = useState<boolean>(false); // on/off floating reference photo
   const [filterMode, setFilterMode] = useState<'all' | 'edge' | 'inside'>('all');
 
   // Modals
@@ -248,29 +245,6 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
     }
   };
 
-  // Pista de fondo: ciclo 0% (apagado) -> 25% -> 50% -> 75% -> 0%
-  const cycleGhost = () => {
-    sound.playPick();
-    setGhostOpacity((prev) => {
-      if (prev === 0) return 0.25;
-      if (prev === 0.25) return 0.5;
-      if (prev === 0.5) return 0.75;
-      return 0;
-    });
-  };
-
-  // Pista de líneas de corte: encender/apagar
-  const toggleGridOutlines = () => {
-    sound.playPick();
-    setShowGridOutlines((prev) => !prev);
-  };
-
-  // Pista de miniatura de foto flotante: encender/apagar
-  const togglePhotoPreview = () => {
-    sound.playPick();
-    setShowPhotoPreview((prev) => !prev);
-  };
-
   // Filter mode cycle
   const cycleFilter = () => {
     sound.playPick();
@@ -278,16 +252,9 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
   };
 
   // Daily challenge launcher
-  const handleStartDailyChallenge = (type: 'lock' | 'timer' | 'no_ghost') => {
+  const handleStartDailyChallenge = (type: 'lock' | 'timer') => {
     setShowDailyModal(false);
     const dailyPuzzle = PUZZLES[Math.floor(Math.random() * PUZZLES.length)];
-    if (type === 'no_ghost') {
-      setGhostOpacity(0);
-      setShowGridOutlines(false);
-    } else {
-      setGhostOpacity(0.25);
-      setShowGridOutlines(true);
-    }
     handleStartPuzzle(dailyPuzzle);
   };
 
@@ -346,7 +313,7 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
       {/* 4. ACTIVE PLAYING BOARD (SOLO O MULTIPLAYER) */}
       {(currentScreen === 'PLAYING' || currentScreen === 'MULTIPLAYER_PLAYING') && (
         <div className="w-full min-h-full flex flex-col justify-between py-2 sm:py-4">
-          {/* Golden Ribbon Header with 3 Stars and Hint Toggles */}
+          {/* Golden Ribbon Header con las 3 Estrellas */}
           <GoldenHeader
             title={activePuzzle.title}
             timerSeconds={timerSeconds}
@@ -357,15 +324,9 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
             progressRatio={progressRatio}
             isMuted={isMuted}
             isDark={isDark}
-            ghostOpacity={ghostOpacity}
-            showGridOutlines={showGridOutlines}
-            showPhotoPreview={showPhotoPreview}
             filterMode={filterMode}
             onToggleMute={toggleMute}
             onToggleTheme={toggleTheme}
-            onCycleGhost={cycleGhost}
-            onToggleGridOutlines={toggleGridOutlines}
-            onTogglePhotoPreview={togglePhotoPreview}
             onCycleFilter={cycleFilter}
             onBack={() => setCurrentScreen('TITLE_MENU')}
           />
@@ -392,14 +353,9 @@ export default function RompecabezasGame({ onScoreSubmit }: RompecabezasGameProp
             <PuzzleBoard
               puzzleId={activePuzzle.id}
               imageSrc={activePuzzle.image}
-              puzzleTitle={activePuzzle.title}
               rows={activePuzzle.rows}
               cols={activePuzzle.cols}
-              ghostOpacity={ghostOpacity}
-              showGridOutlines={showGridOutlines}
-              showPhotoPreview={showPhotoPreview}
               filterMode={filterMode}
-              onClosePhotoPreview={() => setShowPhotoPreview(false)}
               onPiecePlaced={handlePiecePlaced}
               onPuzzleCompleted={handlePuzzleCompleted}
               multiplayerMode={currentScreen === 'MULTIPLAYER_PLAYING'}
